@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no" />
+<title>PULSAR.io</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #05060a; overflow: hidden; }
+  canvas { display: block; }
+</style>
+</head>
+<body>
+<canvas id="game"></canvas>
+
+<!-- Data layer: load BEFORE any engine code. These attach to window.PULSAR. -->
+<!-- No build step — plain script tags, in dependency order (config first). -->
+<script src="data/config.js"></script>
+<script src="data/classes.js"></script>
+<script src="data/farming.js"></script>
+<script src="data/visuals.js"></script>
+
+<!--
+  PHASE 0 NOT YET IMPLEMENTED.
+  This is a scaffold loader. The game engine gets built per docs/ROADMAP.md.
+  Next task: Phase 0 — fixed-timestep loop, movement, additive-bloom pipeline,
+  one starter weapon, one breakable asteroid. Keep all numbers in data/config.js.
+-->
+<script>
+  // Sanity check the data layer loaded, then draw a placeholder title.
+  (function () {
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    function resize() { canvas.width = innerWidth; canvas.height = innerHeight; draw(); }
+    function draw() {
+      const ok = !!(window.PULSAR && PULSAR.config && PULSAR.classes
+                    && PULSAR.worldObjects && PULSAR.classVisuals);
+      ctx.fillStyle = '#05060a';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // faux pulsar glow at center, just so the scaffold has a heartbeat
+      const cx = canvas.width / 2, cy = canvas.height / 2;
+      const g = ctx.createRadialGradient(cx, cy, 0, cx, cy, 180);
+      g.addColorStop(0, 'rgba(255,255,255,0.9)');
+      g.addColorStop(0.4, 'rgba(120,180,255,0.25)');
+      g.addColorStop(1, 'rgba(120,180,255,0)');
+      ctx.fillStyle = g;
+      ctx.beginPath(); ctx.arc(cx, cy, 180, 0, Math.PI * 2); ctx.fill();
+
+      ctx.fillStyle = '#e6f0ff';
+      ctx.font = '600 42px system-ui, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.fillText('PULSAR.io', cx, cy - 8);
+      ctx.font = '400 15px system-ui, sans-serif';
+      ctx.fillStyle = ok ? '#7bdc9b' : '#ff6b6b';
+      ctx.fillText(ok ? 'scaffold loaded — see docs/ROADMAP.md (Phase 0 next)'
+                      : 'data layer failed to load — check the console',
+                   cx, cy + 28);
+    }
+    addEventListener('resize', resize);
+    resize();
+  })();
+</script>
+</body>
+</html>
