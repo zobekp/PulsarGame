@@ -5,6 +5,15 @@
 window.PULSAR = window.PULSAR || {};
 window.PULSAR.config = {
 
+  // ---- Simulation (determinism — matters for Phase 5 netcode) ----------------
+  // Sim runs on a FIXED timestep decoupled from render. Movement and cooldowns are
+  // expressed per-second and integrated by `1/tickRate`, never by real frame time —
+  // so behavior is identical at 30fps or 144fps. Render interpolates between ticks.
+  sim: {
+    tickRate: 60,            // fixed sim steps per second (the determinism clock)
+    maxFrameTimeSec: 0.25,   // clamp huge frame gaps (tab-out) so we don't spiral-of-death
+  },
+
   // ---- Arena & spatial model -------------------------------------------------
   // Uniform open field. Pulsar honeypot at center = richest scrap + PvP draw.
   // Asteroid density is highest mid-map, thinning toward calm farmable edges.
@@ -24,6 +33,8 @@ window.PULSAR.config = {
     baseRadius: 16,
     spawnProtectionSec: 3,        // brief invuln so TTK-to-fun < 10s holds
     scrapTrickleOnSpawn: 5,       // tiny seed so a fresh player is acting, not idle
+    impulseDampPerSec: 9,         // how fast recoil/dash/knockback kicks bleed off
+    respawnDelaySec: 1.7,         // wreck -> respawn wait
   },
 
   // ---- Economy & death (greed model) ----------------------------------------
@@ -45,6 +56,12 @@ window.PULSAR.config = {
     levelFinalEvolution: 15,      // final class form
     levelLeaderScaling: 25,       // dreadnought / crowned scaling kicks in
     evolutionCosts: { class: 30, path: 80, final: 160 }, // scrap spent = banked progress
+    // Level from cumulative earned scrap (XP): xpToReach(L) = round(k * (L-1)^exp).
+    // ~L3≈28xp (early), L8≈250, L15≈880, L25≈2360 (leader grind). Tune in playtest.
+    levelCurve: { k: 8, exp: 1.8 },
+    // PLACEHOLDER evolve effect until Phase 3 wires real class stats: each banked tier
+    // bumps hull a touch so "I evolved" reads as power. Phase 3 replaces this.
+    evolutionTierBonus: { hp: 0.15, radius: 0.10 },
   },
 
   // ---- Leader / David-vs-Goliath brake --------------------------------------
@@ -65,6 +82,7 @@ window.PULSAR.config = {
     yourShipBloomScale: 1.4,      // you are the brightest thing on screen
     threatBloomScale: 1.0,        // scales up with carried scrap / level (rich = bright)
     threatBloomMax: 2.2,
+    threatScrapForMax: 200,       // carried scrap at which your threat-glow maxes out
     enemyUltBackgroundDesat: 0.6, // enemy ult fires -> bg desaturates this much for a beat
     teamHueIsBodyRing: true,      // hue=team, silhouette+aura=class, brightness=threat
   },
@@ -76,10 +94,37 @@ window.PULSAR.config = {
     knockbackBase: 140,
   },
 
+  // ---- Starter weapon: Popgun ------------------------------------------------
+  // The level-0 Scout's gun. Phase 0's honest-VFX proof: the projectile's bloom
+  // radius IS its collision radius — what you see glowing is exactly the hitbox.
+  // Deliberately weak/simple; real class weapons replace it from level 3.
+  popgun: {
+    fireCooldownSec: 0.22,    // shots/sec cap; per-second so it's frame-rate independent
+    projectileSpeed: 760,     // px/sec
+    projectileRadius: 7,      // BLOOM = HITBOX. Render and collision both read this.
+    projectileLifeSec: 1.4,   // despawn after this (range = speed * life)
+    damage: 4,
+    pierce: 1,                // neutral objects it can pass through before despawning
+    color: "#bfe9ff",         // bright cyan-white tracer (starter palette, brightened)
+  },
+
+  // ---- Dropped scrap pickups (motes) ----------------------------------------
+  // A broken object ejects motes that drift, then fly to you when you're in the
+  // vicinity (vacuum), and collect on contact. Full pulsar-mote economy is Phase 2.
+  pickups: {
+    moteRadius: 5,
+    moteDriftSpeed: 70,       // px/sec initial outward drift, damped over life
+    moteLifeSec: 12,
+    collectRadius: 150,       // VICINITY vacuum: get this close and motes fly to you
+    vacuumSpeed: 620,         // px/sec pull once inside collectRadius (accelerates in)
+    pulsarMoteSpeed: 190,     // pulsar motes eject faster (they spread from the core)
+    pulsarMoteLifeSec: 7,     // and decay sooner — go get them fresh (the honeypot pull)
+  },
+
   // ---- CLASS 1: Railship (precision sniper / line farmer / anti-large) -------
   // Lineage: descends from the old Lance weapon (Railpiercer -> Star Piercer).
   railship: {
-    stats: { hp: 0.85, speed: 1.00, difficulty: "medium-high" },
+    stats: { hp: 0.85, speed: 1.00, sizeMult: 0.92, difficulty: "medium-high" },
     charge: {
       // % thresholds and the shot they produce
       snapMax: 0.25,  focusMax: 0.75,  lanceMax: 1.00, // beyond 1.0 == overcharge
@@ -87,6 +132,16 @@ window.PULSAR.config = {
       pierce: { snap: 1, focus: 3, lance: 6, overcharge: 9 },
       recoil: { snap: 0, focus: 40, lance: 120, overcharge: 220 },
       applyArmorCrackAt: "lance", // lance+ applies Armor Crack
+      timeToFullSec: 1.05,        // hold-time from 0 -> 1.0 (full lance charge)
+      overchargeCap: 1.25,        // hold past full into overcharge, clamped here
+    },
+    // The rail SHOT is a hitscan beam: instant line along aim, pierces N objects with
+    // falloff. Honest VFX: beamHalfWidth IS the hitbox half-thickness (bloom matches it).
+    beam: {
+      maxRange: 1300,             // px the beam reaches
+      halfWidth: 7,              // hitbox half-thickness == drawn beam glow half-width
+      visualSec: 0.16,           // how long the beam streak lingers (render only)
+      knockback: 90,             // push imparted to things the beam hits
     },
     movementWhileCharging: { // multipliers by charge fraction
       to50: 1.00, to90: 0.85, to100: 0.70, overcharge: 0.55,
@@ -95,22 +150,38 @@ window.PULSAR.config = {
       max: 100, tapShot: 8, halfCharge: 18, fullCharge: 35, overcharge: 55,
       decayPerSec: 22, ventStateAtMax: true, ventStateSec: 1.0,
     },
-    ventDash: { heatReduction: 25, cooldownSec: 3, chargePenaltyFraction: 0.25 },
+    ventDash: { heatReduction: 25, cooldownSec: 3, chargePenaltyFraction: 0.25,
+                dashSpeed: 820, dashDurationSec: 0.18 }, // backward burst that sheds heat
     armorCrack: { baseDurationSec: 1.5, damageAmp: 0.15,
                   durationVs2xLarger: 2.25, durationVs4xLarger: 3.0 },
     pierceFalloff: { neutral: [1.0, 0.9, 0.8, 0.7], players: [1.0, 0.7, 0.45] },
     lineBreakThreshold: 3,
+    // Tier mods applied by class id. Multipliers/values vs the base rail above.
+    evolveMods: {
+      lancer:      { rangeMult: 1.30, fullChargeDamageMult: 1.20, beamWidthMult: 0.70,
+                     closeRange: 320, closeDamageMult: 0.70,          // weakerUpClose
+                     perfectLineRangeFrac: 0.60, perfectLineBonus: 0.20 }, // perfectLine passive
+      starPiercer: { rangeMult: 1.50, fullChargeDamageMult: 1.35, beamWidthMult: 0.60,
+                     closeRange: 320, closeDamageMult: 0.70,
+                     perfectLineRangeFrac: 0.60, perfectLineBonus: 0.20,
+                     brokenCoreMarkSec: 2.0 },   // brokenCore: weak-point on cracked leaders (scaffold)
+    },
   },
 
   // ---- CLASS 2: Hammerhead (rammer / bruiser / beginner aggression) ----------
   // New identity (no old-weapon equivalent). Impact melee; must not invalidate flail.
   hammerhead: {
-    stats: { hp: 1.15, speed: 0.90, difficulty: "easy-medium" },
+    stats: { hp: 1.15, speed: 0.90, sizeMult: 1.28, difficulty: "easy-medium" },
     ram: {
       tapBashDamage: 10, chargedDamage: 34, overcommitDamage: 60,
-      momentumMultiplier: 0.12,   // impactDamage = base + velocity * this
+      momentumMultiplier: 0.12,   // impactDamage = base + lunge-speed * this
       windupSec: 0.6, missRecoverySec: 0.9, turnRateDuringCharge: 0.3,
     },
+    // Hold fire to wind up, release to LUNGE forward; contact during the lunge is the hit.
+    // While lunging you shrug off rocks (you're the aggressor) — the farming style is "plow".
+    lunge: { chargeTimeSec: 0.7, speed: 1060, durationSec: 0.32, selfDamageReduction: 0.8 },
+    maulbreaker: { frontHitboxMult: 1.4, knockbackMult: 1.5 },        // biggerFrontHitbox/moreKnockback
+    worldsplitterSlam: { radius: 230, damage: 40, knockback: 320 },   // full-lunge hit -> shockwave
     ability: "brace",             // "brace" (DR) or "brakeTurn" (redirect) — pick in code
     brace: { damageReduction: 0.5, durationSec: 0.8, cooldownSec: 6 },
     armorDent: { slow: 0.2, durationSec: 1.2 }, // Maulbreaker+ on charged impact
@@ -119,11 +190,19 @@ window.PULSAR.config = {
   // ---- CLASS 3: Gravitor (asteroid control / indirect / zone) ----------------
   // Lineage: descends from Nova (Collapse/Event Horizon == Nova "pull-then-detonate").
   gravitor: {
-    stats: { hp: 0.90, speed: 0.90, difficulty: "medium" },
+    stats: { hp: 0.90, speed: 0.90, sizeMult: 1.02, difficulty: "medium" },
     well: {
       asteroidCapacity: 2, pullRadius: 320, enemyPull: 30, enemySlow: 0.10,
       launchSpeed: 520, launchDamage: 16, cooldownSec: 2.5,
     },
+    // Captured rocks circle the hull until you launch them at the cursor. Farming style:
+    // pull a rock, hurl it through OTHER rocks (orbitalHarvest pays bonus on those kills).
+    orbit: { radius: 74, speed: 2.4 },          // visual/where captured rocks ride
+    capture: { pullStrength: 950 },             // px/sec² rocks are sucked toward an orbit slot
+    thrownRockRadius: 20,                        // launched-rock projectile size (== hitbox)
+    orbitalHarvestBonus: 2,                      // bonus scrap when a thrown rock kills a neutral
+    meteorist: { capacity: 3 },                  // capacityUp
+    meteorVolley: { count: 3, intervalSec: 0.12 }, // Starfall: rapid sequential launch of all held
     momentumStrike: { medThrowBonus: 0.15, longThrowBonus: 0.30 }, // Meteorist+
     collapse: { channelSec: 1.0, detonationDelaySec: 0.4,          // Event Horizon
                 damagePerStoredAsteroid: 14, dragDurationSec: 0.6 },
@@ -132,12 +211,16 @@ window.PULSAR.config = {
   // ---- CLASS 4: Flailship (area melee / farming / anti-rush) -----------------
   // Lineage: the orbiting flail from day one + Tether's zoning.
   flailship: {
-    stats: { hp: 1.00, speed: 0.92, difficulty: "easy-medium" },
+    stats: { hp: 1.00, speed: 0.92, sizeMult: 1.06, difficulty: "easy-medium" },
     orb: {
       radiusMin: 60, radiusMax: 180,   // hold to extend, release to retract
       orbitSpeed: 3.2, contactDamage: 18,
       momentumMultiplier: 0.10,         // orbDamage = base + orbVelocity * this
+      tipRadius: 14,                    // the orb's own size (== its hitbox)
+      hitCooldownSec: 0.35,             // per-object re-hit gate so one pass = one hit
     },
+    swingControl: { burstSpeedMult: 2.2, durationSec: 0.6, cooldownSec: 4 }, // base ability: orb speed burst
+    chainmaul: { orbRadiusMult: 1.25, contactDamageMult: 1.30 },             // largerOrb/longerChain
     powerSwing: { damageMult: 1.5, durationSec: 3, cooldownSec: 8 }, // Chainmaul+
     moonSlam: { chargeSec: 0.5, damage: 50, knockback: 260, splash: 0.3 }, // Ironmoon
     orbitLock: { durationSec: 4, cooldownSec: 9 },                  // Graviflail
@@ -147,7 +230,31 @@ window.PULSAR.config = {
   // ---- Neutral farming objects ----------------------------------------------
   farming: {
     asteroidHP: 12, crystalHP: 22, debrisHP: 6,
+    // honest hitboxes: each drawn blob radius == its collision radius
+    asteroidRadius: 36, crystalRadius: 22, debrisRadius: 15,
+    motesPerObject: { asteroid: 3, crystal: 4, debris: 2 }, // motes ejected on break
+    // Ramming a neutral object hurts (honest mutual hitbox; the death-loop trigger in P1).
+    contactDamage: { asteroid: 13, crystal: 7, debris: 4 },
+    contactCooldownSec: 0.7,  // i-frames between contact ticks so you can peel off
     densityAtCenter: 0.4, densityAtEdge: 1.0, // edges are the calm farm; center is risk
     respawnSec: 8,
+    // Arena-wide field (Phase 2): `count` objects placed by REJECTION SAMPLING weighted by
+    // densityAtCenter→densityAtEdge, so the rim is the dense calm farm and the core is sparse
+    // (you go to the middle for the pulsar + fights, not rocks). The gradient is emergent —
+    // no authored rings. `weights` pick the type; the pulsar core is kept clear.
+    field: { count: 320, weights: { asteroid: 5, crystal: 1, debris: 4 }, pulsarClearRadius: 380 },
+  },
+
+  // ---- FX (cosmetic feel — particles, beams, shake). Not balance, but kept here so
+  // the whole feel is tunable from one place. ---------------------------------
+  fx: {
+    particleLifeSec: 0.6,
+    hitParticles: 7,          // sparks when a beam chips an object
+    breakParticles: 18,       // burst when an object is destroyed
+    deathParticles: 36,       // burst on player death
+    screenShakeMax: 16,       // px; recoil/impacts add shake, decays fast
+    screenShakeDecayPerSec: 60,
+    floatTextRiseSpeed: 46,   // px/sec a "LINE BREAK"/scrap number floats up
+    floatTextLifeSec: 1.1,
   },
 };
