@@ -12,6 +12,27 @@
 <body>
 <canvas id="game"></canvas>
 
+<!-- DEBUG: surface any uncaught error on-screen (so crashes are self-reporting). Remove before ship. -->
+<div id="errbox" style="display:none;position:fixed;left:0;right:0;top:0;z-index:9999;
+  background:rgba(40,0,0,0.92);color:#ffd0d0;font:12px/1.5 monospace;padding:10px 14px;
+  white-space:pre-wrap;border-bottom:2px solid #ff5b5b;max-height:60%;overflow:auto;"></div>
+<script>
+  (function () {
+    function show(label, msg) {
+      var b = document.getElementById('errbox');
+      b.style.display = 'block';
+      b.textContent = '⚠ ' + label + '\n' + msg + '\n\n(stop the game; tell Claude this text)';
+    }
+    addEventListener('error', function (e) {
+      var loc = e.filename ? (e.filename.split('/').pop() + ':' + e.lineno + ':' + e.colno) : '';
+      show(e.message + '  @ ' + loc, (e.error && e.error.stack) ? e.error.stack : '(no stack)');
+    });
+    addEventListener('unhandledrejection', function (e) {
+      show('Unhandled promise rejection', (e.reason && e.reason.stack) || String(e.reason));
+    });
+  })();
+</script>
+
 <!-- Data layer: load BEFORE any engine code. These attach to window.PULSAR. -->
 <!-- No build step — plain script tags, in dependency order (config first). -->
 <script src="data/config.js"></script>
@@ -24,6 +45,7 @@
 <script src="src/render.js"></script>
 <script src="src/fx.js"></script>
 <script src="src/weapons.js"></script>
+<script src="src/bots.js"></script>
 <script src="src/game.js"></script>
 </body>
 </html>

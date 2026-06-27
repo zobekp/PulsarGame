@@ -21,8 +21,9 @@ window.PULSAR.Render = (function () {
   }
 
   function resize() {
-    // Render at device pixel ratio for crisp neon on hi-dpi screens.
-    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    // Render at device pixel ratio for crisp neon, but cap it: on a retina screen DPR 2 means
+    // 4× the pixels to fill, and additive bloom is fill-rate bound — capping keeps 60fps.
+    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
     viewW = innerWidth; viewH = innerHeight;
     canvas.width = Math.floor(viewW * dpr);
     canvas.height = Math.floor(viewH * dpr);

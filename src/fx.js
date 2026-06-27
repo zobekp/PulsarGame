@@ -97,11 +97,16 @@ window.PULSAR.Fx = (function () {
       ctx.lineWidth = Math.max(1.5, b.halfWidth * 0.5);
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     }
+    // Particles are the most numerous element (bursts of 18–36 per break/death). Draw them as
+    // cheap additive solid circles — with 'lighter' compositing they still sum into a glow —
+    // instead of a radial gradient each (a createRadialGradient per particle tanks the frame).
+    const TAU = Math.PI * 2;
     for (const p of particles) {
       const t = p.life / p.maxLife;
       const ix = R.sx(lerp(p.px, p.x, alpha)), iy = R.sy(lerp(p.py, p.y, alpha));
-      R.glow(ix, iy, p.size * 2.4, R.hexToRgb(p.color), 0.6 * t);
-      R.solidCircle(ix, iy, p.size * 0.6 * t, '#ffffff');
+      const rgb = R.hexToRgb(p.color);
+      ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.75 * t})`;
+      ctx.beginPath(); ctx.arc(ix, iy, p.size * (1.4 + t), 0, TAU); ctx.fill();
     }
 
     // text is crisp, on top

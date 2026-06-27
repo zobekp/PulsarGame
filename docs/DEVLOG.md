@@ -6,6 +6,118 @@ survives between agents and sessions.
 
 ---
 
+## 2026-06-27 — Phase 4: Second branches + BOTS (the prove-it gate)
+**What changed:** The game is a match now. Player and bots are the **same `ship` entity**, driven
+by an INTENT ({moveX,moveY,aim,firing,ability,special}) through the **same data weapons** — so
+combat is symmetric and bots are first-class. Free-for-all; everything that shoots can hit
+everything else.
+
+**Combat foundation (the big refactor):**
+- Generalized the player into `makeShip()` (player = team 0; N bots = unique teams). `state.bots`,
+  `allShips()`, `enemiesOf(ship)`.
+- Unified damage: `api.damage(target,…)` dispatches to `damageObject` (rocks) or `damageShip`
+  (ships) over `api.hittables(ship)` = neutrals + enemy ships. Weapons now hit ships: rail beam
+  pierces ships (uses `pierceFalloff.players`), ram/orb/shockwave/thrown-rock all land on ships,
+  projectiles carry `team`. Ships can be Armor-Cracked.
+- Ship death → drop ½ carried as motes → **killer collects `killScrapFraction`** (×`bountyScrapMultiplier`
+  if victim was the leader) → respawn (player at base, bots at random). Motes are vacuumed by ANY ship.
+- Per-ship sim split into `simShip(ship, dt, intent)` (movement/ability/special/weapon/contact) +
+  `tickTimers`. Player builds intent from input; bots from AI. (This is the clean input boundary we
+  deferred — it arrived naturally with bots; Phase 5 still owns the render/server split.)
+
+**Bots (`src/bots.js`):** `PULSAR.Bots.intent(bot, world, dt)` — farm nearest rock / hunt+kite at a
+family-specific preferred range / flee at low HP / drift to the pulsar; dodge a detected charge or
+lunge aimed at them; per-family fire logic (rail charges-then-releases, hammer winds-then-lunges,
+gravitor pulls-then-hurls, flail extends orb). Bots earn, level, and **auto-evolve** down a random
+branch. All knobs in `config.bots` (count, aggression, ranges, aim error, dodge chance).
+
+**Second branches + finals' specials (right-click):**
+- **Gravitor→Singularity→Event Horizon** — `tidalDrag` passive: the well now SLOWS + drags enemy
+  ships inside it; **Collapse** special implodes the well (yank + damage scaled by held rocks).
+- **Flailship→Graviflail→Orbit Crusher** — **Orbit Lock** ability (wide fast defensive orbit);
+  **Gravity Crush** special (AoE damage + slow burst). `orbModByClass` drives per-class orb reach/damage.
+- Both second branches added to `IMPLEMENTED`, so the level-8 EVOLVE overlay now offers a **real
+  branch choice** (e.g. Gravitor → Meteorist *or* Singularity), each with a one-line blurb. New
+  right-click **special** input (`Input.special`); `resolveSpecial()` registry.
+
+**Leader/bounty (multi-ship):** the global leader = top-scrap alive ship (crown + minimap gold +
+double bounty when killed). Level-25 "scaling" (bigger hitbox + HP) is separate (`s.scaled`).
+HUD gained a **leaderboard** (top 4 by scrap), your kill count, enemy HP bars, and a special-cooldown line.
+
+**How to test:** open **http://localhost:8080/** (hard-reload). You now spawn into a 6-bot
+free-for-all. Farm up, evolve, and actually fight — bots shoot back, kite, dodge your charge, and
+chase the leader for the bounty. Try Gravitor's branch fork at LV8 (Meteorist artillery vs
+Singularity drag-control), and a final's right-click special. Headless match test (25s of bot-vs-bot)
+passes 10 checks: combat damage, kills, deaths, leveling, leader crown, branch-B reachable, both
+specials + the rail beam damage enemy ships, no exceptions.
+
+**Known limits / TODO hooks (this is the gate — needs YOUR playtest):**
+- **Balance/feel unproven by a human.** Bots lean farm-heavy in testing (~1 kill / 25s). Dials:
+  `config.bots.aggression`, `engageRange`, `preferredRange`, `aimErrorRad`. The cross-class triangle
+  is first-pass.
+- **No spatial partitioning** — combat/targeting is O(ships × (objects+ships)) per tick. Fine for
+  ~7 ships + 320 rocks; revisit with a grid if bot count climbs (also the Phase 5 scale concern).
+- Bot AI is heuristic (no path-finding/LoS; they can wall-hug or over-commit). Telegraph dodge is a
+  coin-flip sidestep, not true prediction.
+- Specials are functional but conservatively tuned; brokenCore (Star Piercer) is still a flag only.
+
+**Next:** Phase 5 — real multiplayer (authoritative server, client becomes a thin renderer). Per the
+roadmap, gated on this phase being *fun* — get hands on it first. Do NOT start until asked.
+
+---
+
+## 2026-06-27 — Feel/perf pass: fps, Gravitor overhaul, Hammerhead glide
+**Perf — fix the "feels like 30fps":** additive bloom is fill-rate bound and we were (1) rendering
+at DPR 2 (4× pixels on retina) and (2) creating a `createRadialGradient` per *particle* — bursts of
+18–36 per break/death meant hundreds of gradient allocations per frame during action. Fixes:
+`render.js` caps DPR at **1.5**; `fx.js` draws particles as **cheap additive solid circles** (they
+still sum into a glow under 'lighter'). Object/mote glows still use gradients but are bounded (~25/
+frame after culling). Can't measure fps headlessly — if it's still rough, next levers are DPR 1.0
+and fewer particles.
+
+**Gravitor overhaul (it felt bad):** pull now sucks the nearest rocks **in parallel** (whole
+magazine fills fast) at a stronger `capture.pullStrength`; bigger `pullRadius`, faster `launchSpeed`,
+more `launchDamage`. Capacity + launch are per-tier via `gravitor.launchByClass`:
+Gravitor **3** held / 1 per press / 0.45s cd · Meteorist **6** / 2 / 0.22s · **Starfall 9 held,
+3 per press, NO cooldown** (tap as fast as you can — re-fires instantly). Removed the old single
+`well.asteroidCapacity` / `well.cooldownSec` / `meteorVolley`.
+
+**Hammerhead glide now reads:** bumped `lunge.speed` 980→1500, duration 0.34→0.40, lower
+`minLungeFactor`/`glideDampPerSec`, and added a **motion trail** during the lunge. Measured
+**tap 119px → full 541px** (was 81→294) — a full wind-up is now an unmistakable ~540px charge.
+
+Smoke-tested: hammer distance scaling + Gravitor per-tier hold/launch/cooldown all pass.
+
+---
+
+## 2026-06-27 — Phase 3 polish: make evolutions READ as power
+**Why:** within-family upgrades (Railship→Lancer→Star Piercer, etc.) applied real but
+*imperceptible* changes — same silhouette, same hp/size, numeric weapon buffs you can't feel on
+1-hit rocks with no enemies. Player (correctly) felt "upgrades aren't changing anything."
+
+**What changed (all visual/feedback, no new systems):**
+- **Per-tier hull growth** — `economy.tierGrowth` ({radius:0.14, hp:0.20}/step) applied in
+  `applyClassStats` by class tier. Upgrade=+1 step, final=+2. Rail line now 14.7r/85hp →
+  16.8r/102hp → 18.8r/119hp; Hammer line grows into a 26r/161hp dreadnought. You visibly grow.
+- **Per-tier silhouettes wired** — the distinct shapes already in `visuals.js` are now drawn:
+  spear→thinSpear→longSpear, wedge→broadWedge→massiveWedge, crescent→crescentHeavy. Plus **tier
+  pips** on the hull and tier rings on the flail orbit. A Lancer no longer looks like a Railship.
+- **"What you gained" readout** — `EVOLVE_BLURB` line on evolve (e.g. "full-lunge SHOCKWAVE",
+  "VOLLEY — hurl them all"), under the EVOLVED → Name flash. Higher tiers also glow a touch harder.
+
+**Note:** the numeric weapon buffs (range/damage/capacity) were already correct and still mostly
+only *matter* against a target — they'll come alive with bots in Phase 4. This pass fixes the
+*legibility* of evolving, which was the actual gap. Smoke-tested (growth + distinct silhouettes
+per tier across families). `config.economy.evolutionTierBonus` removed (replaced by `tierGrowth`).
+
+**Also — Hammerhead windup now scales dash distance.** Previously the wind-up only scaled
+*damage*; the lunge speed/duration were constant, so a long charge and a tap dashed the same
+distance (unintuitive). Now windup scales lunge speed (`lunge.minLungeFactor`→1.0) and glide time,
+and drag is low mid-lunge (`lunge.glideDampPerSec`) so the ship carries momentum: measured **tap
+81px → half 174px → full 294px**, monotonic. Hold longer = bigger hit AND longer charge.
+
+---
+
 ## 2026-06-26 — Phase 3: Class skeleton + first branch each (four families playable)
 **What changed:** The class system is real. You start as the **Scout** (popgun) and choose a
 family at level 3, then branch at 8 and reach a final form at 15 — each family a distinct weapon,

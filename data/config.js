@@ -59,9 +59,10 @@ window.PULSAR.config = {
     // Level from cumulative earned scrap (XP): xpToReach(L) = round(k * (L-1)^exp).
     // ~L3≈28xp (early), L8≈250, L15≈880, L25≈2360 (leader grind). Tune in playtest.
     levelCurve: { k: 8, exp: 1.8 },
-    // PLACEHOLDER evolve effect until Phase 3 wires real class stats: each banked tier
-    // bumps hull a touch so "I evolved" reads as power. Phase 3 replaces this.
-    evolutionTierBonus: { hp: 0.15, radius: 0.10 },
+    // Within-family growth so evolving READS as power: each step above the base family
+    // (tier 2 = upgrade, tier 3 = final) grows the hull + HP. Combined with per-family
+    // sizeMult and leader scaling. Makes Lancer/Star Piercer etc. visibly bigger + tankier.
+    tierGrowth: { radius: 0.14, hp: 0.20 },
   },
 
   // ---- Leader / David-vs-Goliath brake --------------------------------------
@@ -74,6 +75,25 @@ window.PULSAR.config = {
     bountyScrapMultiplier: 2.0,   // killing the marked leader pays double
     crownVisibleRangePx: 99999,   // crowned/marked on minimap to everyone
     armorCrackBonusVsLeader: 2.0, // anti-large mechanics bite harder (see railship)
+    minScrapToCrown: 60,          // nobody is "the leader" until someone's actually rich
+  },
+
+  // ---- Bots (Phase 4 — the prove-it opponents) -------------------------------
+  // Free-for-all AI ships that farm, fight, contest the pulsar, dodge telegraphs, and
+  // evolve. They drive the SAME data weapons as the player via a synthesized input intent.
+  bots: {
+    count: 6,
+    respawnDelaySec: 3.0,
+    senseRange: 950,              // notice enemies within this
+    engageRange: 680,             // start fighting within this
+    fleeHpFraction: 0.30,         // flee below this HP fraction
+    aggression: 0.65,             // 0 = farmer, 1 = always hunts
+    aimErrorRad: 0.10,            // aim noise (higher = worse shots)
+    decisionSec: 0.30,            // re-evaluate state this often (avoids jitter)
+    telegraphDodgeChance: 0.6,    // chance to sidestep a detected charge/lunge aimed at them
+    evolveBranchRandom: true,     // bots pick a random available branch on evolve
+    // preferred fighting distance per family (px) — sniper kites, rammer dives, etc.
+    preferredRange: { rail: 560, hammer: 90, grav: 470, flail: 130, dart: 360 },
   },
 
   // ---- Readability (gameplay-stakes, do not let these emerge by accident) ----
@@ -179,7 +199,12 @@ window.PULSAR.config = {
     },
     // Hold fire to wind up, release to LUNGE forward; contact during the lunge is the hit.
     // While lunging you shrug off rocks (you're the aggressor) — the farming style is "plow".
-    lunge: { chargeTimeSec: 0.7, speed: 1060, durationSec: 0.32, selfDamageReduction: 0.8 },
+    // Windup scales BOTH damage (tap/charged/overcommit) AND dash distance: a fuller wind-up
+    // lunges faster and glides longer. During the lunge drag is low (glideDampPerSec) so the
+    // ship carries its momentum and the distance reads clearly.
+    lunge: { chargeTimeSec: 0.7, speed: 1500, durationSec: 0.40, selfDamageReduction: 0.8,
+             minLungeFactor: 0.28,      // tap-lunge speed/distance floor; windup scales up to 1.0
+             glideDampPerSec: 1.5 },    // low drag mid-lunge (vs player.impulseDampPerSec) = real glide
     maulbreaker: { frontHitboxMult: 1.4, knockbackMult: 1.5 },        // biggerFrontHitbox/moreKnockback
     worldsplitterSlam: { radius: 230, damage: 40, knockback: 320 },   // full-lunge hit -> shockwave
     ability: "brace",             // "brace" (DR) or "brakeTurn" (redirect) — pick in code
@@ -192,17 +217,27 @@ window.PULSAR.config = {
   gravitor: {
     stats: { hp: 0.90, speed: 0.90, sizeMult: 1.02, difficulty: "medium" },
     well: {
-      asteroidCapacity: 2, pullRadius: 320, enemyPull: 30, enemySlow: 0.10,
-      launchSpeed: 520, launchDamage: 16, cooldownSec: 2.5,
+      pullRadius: 440, enemyPull: 30, enemySlow: 0.10,
+      launchSpeed: 660, launchDamage: 24,
     },
     // Captured rocks circle the hull until you launch them at the cursor. Farming style:
-    // pull a rock, hurl it through OTHER rocks (orbitalHarvest pays bonus on those kills).
-    orbit: { radius: 74, speed: 2.4 },          // visual/where captured rocks ride
-    capture: { pullStrength: 950 },             // px/sec² rocks are sucked toward an orbit slot
-    thrownRockRadius: 20,                        // launched-rock projectile size (== hitbox)
+    // pull rocks, hurl them through OTHER rocks (orbitalHarvest pays bonus on those kills).
+    orbit: { radius: 74, speed: 2.6 },          // visual/where captured rocks ride
+    capture: { pullStrength: 1600 },            // px/sec² rocks are sucked in (snappy fill)
+    thrownRockRadius: 22,                        // launched-rock projectile size (== hitbox)
     orbitalHarvestBonus: 2,                      // bonus scrap when a thrown rock kills a neutral
-    meteorist: { capacity: 3 },                  // capacityUp
-    meteorVolley: { count: 3, intervalSec: 0.12 }, // Starfall: rapid sequential launch of all held
+    // Capacity + launch behaviour per tier — the artillery ramps HARD into Starfall.
+    // cap = rocks held; per = rocks hurled per press; cd = seconds between launches.
+    launchByClass: {
+      gravitor:  { cap: 3, per: 1, cd: 0.45 },
+      meteorist: { cap: 6, per: 2, cd: 0.22 },
+      starfall:  { cap: 9, per: 3, cd: 0 },      // hold 9, hurl 3 at a time, NO cooldown
+      // Branch B (control) — fewer rocks, the well itself is the weapon (tidalDrag).
+      singularity:  { cap: 4, per: 1, cd: 0.5 },
+      eventHorizon: { cap: 6, per: 2, cd: 0.35 },
+    },
+    // Singularity/Event Horizon passive: the well drags + SLOWS enemy ships inside it.
+    tidalDrag: { pull: 240, slow: 0.45, radiusMult: 1.15 },
     momentumStrike: { medThrowBonus: 0.15, longThrowBonus: 0.30 }, // Meteorist+
     collapse: { channelSec: 1.0, detonationDelaySec: 0.4,          // Event Horizon
                 damagePerStoredAsteroid: 14, dragDurationSec: 0.6 },
@@ -221,6 +256,11 @@ window.PULSAR.config = {
     },
     swingControl: { burstSpeedMult: 2.2, durationSec: 0.6, cooldownSec: 4 }, // base ability: orb speed burst
     chainmaul: { orbRadiusMult: 1.25, contactDamageMult: 1.30 },             // largerOrb/longerChain
+    // per-class orb mods (reach × damage) — branch A heavier, branch B wider defensive orbit.
+    orbModByClass: {
+      chainmaul:   { radiusMult: 1.25, dmgMult: 1.30 }, ironmoon:     { radiusMult: 1.28, dmgMult: 1.30 },
+      graviflail:  { radiusMult: 1.30, dmgMult: 1.05 }, orbitCrusher: { radiusMult: 1.35, dmgMult: 1.10 },
+    },
     powerSwing: { damageMult: 1.5, durationSec: 3, cooldownSec: 8 }, // Chainmaul+
     moonSlam: { chargeSec: 0.5, damage: 50, knockback: 260, splash: 0.3 }, // Ironmoon
     orbitLock: { durationSec: 4, cooldownSec: 9 },                  // Graviflail

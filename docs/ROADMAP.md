@@ -49,12 +49,15 @@ no UI to explain. *Needs human playtest sign-off on the tension/curve — code-c
 **Done when:** every class feels different within 10 seconds and no class is bullet-spam.
 *Needs human playtest sign-off on per-class feel — code-complete & smoke-tested.*
 
-## Phase 4 — Second branches + bots  ▢  ← the prove-it gate
-- ▢ Gravitor→Singularity→Event Horizon · Flailship→Graviflail→Orbit Crusher
-- ▢ Bots that farm, fight, contest the pulsar, react to telegraphs (difficulty in config)
-- ▢ Tune the cross-class balance triangle
+## Phase 4 — Second branches + bots  ◐ code-complete (2026-06-27), feel-tuning pending  ← the prove-it gate
+- ☑ Gravitor→Singularity→Event Horizon · Flailship→Graviflail→Orbit Crusher (both branches selectable)
+- ☑ Bots that farm, fight, contest the pulsar, react to telegraphs (difficulty in `config.bots`)
+- ◐ Tune the cross-class balance triangle — first-pass; needs real playtest
 **Done when:** a match against bots is genuinely fun solo. **Do not build netcode until this
 passes** — if it isn't fun here, multiplayer won't save it.
+*Combat foundation + bots + branches are built & smoke-tested; the "genuinely fun" sign-off is
+a human playtest call. Bots currently lean farm-heavy (1 kill / 25s in test) — `config.bots.aggression`
+and ranges are the dials.*
 
 ## Phase 5 — Real multiplayer  ▢
 - ▢ Authoritative Node + WebSocket server; client becomes a thin renderer of server state
@@ -72,10 +75,10 @@ passes** — if it isn't fun here, multiplayer won't save it.
 ---
 
 ### Acceptance criteria (cross-cutting, from the class spec)
-- ☑ Player can spawn and upgrade into each class (branch A through final; branch B in Phase 4)
+- ☑ Player can spawn and upgrade into each class (BOTH branches through final, as of Phase 4)
 - ☑ Each class has a readable placeholder visual and feels different within 10s — *playtest TBD*
 - ◐ Neutral farming is fun with every class — functional + distinct; "fun" needs playtest sign-off
-- ☑ No class relies only on generic bullet spam (beam / lunge / thrown-rock / orbiting orb)
+- ☑ No class relies only on generic bullet spam (beam / lunge / thrown-rock / orbiting orb / drag / crush)
 - ☑ Class data is organized so more classes can be added without touching engine logic
-      (engine resolves `weapon`/`ability` keys via registries; adding = data row + behaviour entry)
+      (engine resolves `weapon`/`ability`/`special` keys via registries; adding = data row + behaviour entry)
 - ☑ Leader is powerful but has a bigger hitbox + is visibly marked (David-vs-Goliath holds) — wired in Phase 2 (single-player); re-validate under PvP in Phase 4
