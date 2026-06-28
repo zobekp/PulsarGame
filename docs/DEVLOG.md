@@ -6,6 +6,58 @@ survives between agents and sessions.
 
 ---
 
+## 2026-06-27 — Phase 4 feel pass: specials wired, controls, regen, durability, render perf
+**What changed:** Tuning/feel session on the Phase 4 build (still the prove-it gate — no netcode).
+Closed gaps that made the game read as unfinished and fixed the Chrome framerate.
+
+**Finals' specials — the 4 missing ones now fire (`src/weapons.js`):** `brokenCore` (Star Piercer:
+mark first enemy in aim-line with a weak point), `worldsplitterSlam` (Worldsplitter: on-demand
+shockwave burst, no full ram needed), `meteorVolley` (Starfall: dump all held rocks in a fan),
+`moonSlam` (Ironmoon: orb slam on its own cooldown). Previously these keys resolved to the no-op
+special stub, so right-click did nothing for those classes. `collapse`/`gravityCrush` already worked.
+
+**Controls (`src/input.js`, `src/game.js`):**
+- Special moved off right-click to the **E key** (RMB tracking + `contextmenu` plumbing removed).
+- **Gravitor pulling is now passive** — the well auto-pulls whenever under cap (removed the
+  `!ctx.firing` gate in `gravityWell.update`); there's no game state where a gravitor doesn't want
+  rocks. Left-click edge = launch (the ability slot, gravitor-only remap in `playerStep`). HUD/blurbs
+  updated; bot intent unaffected (their `firing`/`ability` flags still drive the same behaviours).
+
+**Passive regen (`config.player.regen`, `tickTimers`/`simShip`):** `combatTimer` resets to
+`regen.delaySec` (5s) on any firing/ability/special intent; once it drains, heal `regen.perSec`
+(18/s, flat). Applies to player AND bots via the shared sim. Gravitor passive-pull alone doesn't
+reset it (not an intent slot), so idle-farming a gravitor still regens.
+
+**Durability bump (`data/config.js`):** `baseHP` 100→130 (global +30%); `hammerhead.stats.hp`
+1.15→1.50 so the dive-in bruiser lineage is notably tankier (Worldsplitter 161→273 effective).
+`tierGrowth` already makes finals tankiest within a family, so "extensions get the most" falls out.
+
+**Bots turned up (`config.bots`):** `aggression` .65→.88, `engageRange` 680→880, `senseRange`
+950→1150, `fleeHpFraction` .30→.20, `aimErrorRad` .10→.07, `decisionSec` .30→.25. Addresses the
+farm-heavy (1 kill/25s) note from the last session — left non-zero aim error + a flee threshold so
+they're beatable, not aimbots.
+
+**Render perf — Chrome 30→60fps (`src/render.js`):** `glow()` was calling `createRadialGradient`
++ fill PER glow PER frame (50–150/frame), which Chrome rasterizes on the CPU far slower than
+Firefox — that was the 30-vs-60 split. Now bakes one glow sprite per colour into an offscreen
+canvas once, then `drawImage`s it (GPU, cheap). `globalAlpha=intensity` makes it pixel-identical to
+the old gradient. Cache is bounded (~20 colours).
+
+**New config:** `player.regen {delaySec, perSec}`; changed `player.baseHP`, `hammerhead.stats.hp`,
+and the `bots` block (see above).
+
+**How to test:** open `index.html`. Evolve to each final (ADMIN +1 LVL [L] to rush levels) and
+press **E** — every final now has a working special. Gravitor: rocks auto-pull, left-click launches.
+Stop shooting ~5s and watch HP refill. Confirm Chrome holds 60fps (top-left counter). Bots should
+contest and kill noticeably more.
+
+**Known limits / TODO hooks:** the 4 new specials fire for the PLAYER only — bot intent
+(`fightFire` in `bots.js`) still only triggers `collapse`/`gravityCrush`; wire the rest if bots on
+those finals should use them. "Genuinely fun" sign-off is still a human playtest call (the Phase 4
+gate). Balance triangle + regen rate + durability are all first-pass dials.
+
+---
+
 ## 2026-06-27 — Phase 4: Second branches + BOTS (the prove-it gate)
 **What changed:** The game is a match now. Player and bots are the **same `ship` entity**, driven
 by an INTENT ({moveX,moveY,aim,firing,ability,special}) through the **same data weapons** — so

@@ -161,7 +161,7 @@ window.PULSAR = window.PULSAR || {};
           }
         }
         const cap = (G.launchByClass[ship.classId] || G.launchByClass.gravitor).cap;
-        if (!ctx.firing || ship.captured.length >= cap) return;
+        if (ship.captured.length >= cap) return;
         const need = cap - ship.captured.length, cands = [];
         for (const o of api.state.objects) { const d = Math.hypot(o.x - ship.x, o.y - ship.y); if (d < G.well.pullRadius) cands.push({ o, d }); }
         cands.sort((a, b) => a.d - b.d);
@@ -274,8 +274,79 @@ window.PULSAR = window.PULSAR || {};
     },
   };
 
-  // ---- SPECIALS (right-click — finals only) --------------------------------
+  // ---- SPECIALS (E key — finals only) -------------------------------------
   const specials = {
+    // Star Piercer: mark first enemy in aim line with a broken-core weak point (amplified damage for all).
+    brokenCore: {
+      activate(api, ship) {
+        const R = api.config.railship, mods = R.evolveMods.starPiercer || {};
+        const maxRange = R.beam.maxRange * (mods.rangeMult || 1.5);
+        const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);
+        const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
+        let closest = null, closestAlong = Infinity;
+        for (const e of api.enemiesOf(ship)) {
+          const along = (e.x - ox) * dx + (e.y - oy) * dy;
+          if (along < 0 || along > maxRange) continue;
+          const perp = Math.abs((e.x - ox) * -dy + (e.y - oy) * dx);
+          if (perp <= R.beam.halfWidth * 3 + e.radius && along < closestAlong) { closest = e; closestAlong = along; }
+        }
+        if (closest) {
+          closest.cracked = true;
+          closest.crackTimer = Math.max(closest.crackTimer, mods.brokenCoreMarkSec || 2.0);
+          api.fx.spawnParticles(closest.x, closest.y, 18, '#ffb27a', { speed: 120, life: 0.6 });
+          api.fx.spawnBeam(ox, oy, closest.x, closest.y, '#ffb27a', 2, 0.25);
+        } else {
+          api.fx.spawnBeam(ox, oy, ox + dx * maxRange, oy + dy * maxRange, '#ffb27a', 1, 0.15);
+        }
+        api.fx.spawnParticles(ship.x, ship.y, 8, '#ffb27a', { dir: ship.aim, spread: 0.3, speed: 280 });
+        return 8.0;
+      },
+    },
+    // Worldsplitter: on-demand shockwave burst at current position (no full ram required).
+    worldsplitterSlam: {
+      activate(api, ship) {
+        const s = api.config.hammerhead.worldsplitterSlam;
+        for (const t of api.hittables(ship)) {
+          const d = Math.hypot(t.x - ship.x, t.y - ship.y);
+          if (d > s.radius) continue;
+          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship });
+        }
+        api.fx.spawnParticles(ship.x, ship.y, 32, hueFor(ship.classId), { speed: 380 });
+        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
+        return 10.0;
+      },
+    },
+    // Starfall: meteor barrage — dump all held rocks in a wide fan instantly.
+    meteorVolley: {
+      activate(api, ship) {
+        if (!ship.captured || ship.captured.length === 0) return 0;
+        const count = ship.captured.length;
+        const spread = Math.min(Math.PI * 0.75, count * 0.11);
+        for (let i = 0; i < count; i++) {
+          const rock = ship.captured.pop();
+          const angle = ship.aim - spread / 2 + (count > 1 ? (spread / (count - 1)) * i : 0);
+          launchRock(api, ship, rock, angle);
+        }
+        api.fx.spawnParticles(ship.x, ship.y, 30, '#b06bff', { speed: 260 });
+        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax * 0.7);
+        return 7.0;
+      },
+    },
+    // Ironmoon: moon slam in the special slot (same move, independent cooldown from ability).
+    moonSlam: {
+      activate(api, ship) {
+        const m = api.config.flailship.moonSlam;
+        const ox = ship.orbX != null ? ship.orbX : ship.x, oy = ship.orbY != null ? ship.orbY : ship.y;
+        for (const t of api.hittables(ship)) {
+          const d = Math.hypot(t.x - ox, t.y - oy);
+          if (d > 130) continue;
+          api.damage(t, m.damage, { dx: (t.x - ox) / (d || 1), dy: (t.y - oy) / (d || 1), knockback: m.knockback, source: ship });
+        }
+        api.fx.spawnParticles(ox, oy, 24, '#ffd23c', { speed: 320 });
+        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
+        return m.chargeSec + 2.5;
+      },
+    },
     // Event Horizon: implode the well — yank in nearby enemies and detonate by rocks held.
     collapse: {
       activate(api, ship) {

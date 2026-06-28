@@ -41,16 +41,35 @@ window.PULSAR.Render = (function () {
   // ---- additive bloom primitive ---------------------------------------------
   // Draw a soft glow of given radius. The bright inner ~half is the "true" extent —
   // for projectiles we pass radius == hitbox so the glow you see IS the collision area.
-  function glow(sx, sy, radius, rgb, intensity) {
-    const g = ctx.createRadialGradient(sx, sy, 0, sx, sy, radius);
+  //
+  // Performance: a fresh createRadialGradient + fill PER glow per frame rasterizes on the
+  // CPU and tanks Chrome (Firefox's gradient path is faster — that's the 30-vs-60 split).
+  // Instead bake one glow sprite per colour ONCE, then drawImage it (GPU-accelerated, cheap).
+  // The sprite holds the gradient at intensity 1.0; globalAlpha multiplies source alpha
+  // uniformly, so drawing with globalAlpha=intensity is pixel-identical to the old gradient.
+  const GLOW_R = 80;                          // reference sprite radius (px); soft glow upscales cleanly
+  const glowCache = new Map();                // colour key -> offscreen canvas
+  function glowSprite(rgb) {
+    const key = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+    let spr = glowCache.get(key);
+    if (spr) return spr;
+    spr = document.createElement('canvas');
+    spr.width = spr.height = GLOW_R * 2;
+    const s = spr.getContext('2d');
+    const g = s.createRadialGradient(GLOW_R, GLOW_R, 0, GLOW_R, GLOW_R, GLOW_R);
     const [r, gg, b] = rgb;
-    g.addColorStop(0.0, `rgba(${r},${gg},${b},${intensity})`);
-    g.addColorStop(0.45, `rgba(${r},${gg},${b},${intensity * 0.35})`);
+    g.addColorStop(0.0, `rgba(${r},${gg},${b},1)`);
+    g.addColorStop(0.45, `rgba(${r},${gg},${b},0.35)`);
     g.addColorStop(1.0, `rgba(${r},${gg},${b},0)`);
-    ctx.fillStyle = g;
-    ctx.beginPath();
-    ctx.arc(sx, sy, radius, 0, Math.PI * 2);
-    ctx.fill();
+    s.fillStyle = g;
+    s.fillRect(0, 0, GLOW_R * 2, GLOW_R * 2);
+    glowCache.set(key, spr);
+    return spr;
+  }
+  function glow(sx, sy, radius, rgb, intensity) {
+    ctx.globalAlpha = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+    ctx.drawImage(glowSprite(rgb), sx - radius, sy - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = 1;
   }
 
   function solidCircle(sx, sy, radius, style) {

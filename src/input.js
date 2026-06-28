@@ -8,20 +8,19 @@ window.PULSAR.Input = (function () {
   const keys = Object.create(null);   // physical code -> bool
   let mouseX = 0, mouseY = 0;
   let firing = false;                 // primary mouse button held
-  let special = false;                // secondary (right) button held — finals' special move
 
   // keys we own — stop the page from scrolling / button-activating on them
-  const OWNED = new Set(['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
+  const OWNED = new Set(['Space', 'KeyE', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight']);
 
   function attach(target) {
     addEventListener('keydown', (e) => { keys[e.code] = true; if (OWNED.has(e.code)) e.preventDefault(); });
     addEventListener('keyup',   (e) => { keys[e.code] = false; });
     // Drop held keys if focus leaves the window (avoids "stuck thrust").
-    addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; special = false; });
+    addEventListener('blur', () => { for (const k in keys) keys[k] = false; firing = false; });
 
     target.addEventListener('mousemove', (e) => { mouseX = e.clientX; mouseY = e.clientY; });
-    target.addEventListener('mousedown', (e) => { if (e.button === 0) firing = true; else if (e.button === 2) special = true; });
-    addEventListener('mouseup',   (e) => { if (e.button === 0) firing = false; else if (e.button === 2) special = false; });
+    target.addEventListener('mousedown', (e) => { if (e.button === 0) firing = true; });
+    addEventListener('mouseup',   (e) => { if (e.button === 0) firing = false; });
     // Prevent the right-click menu so aiming/holding feels native later.
     target.addEventListener('contextmenu', (e) => e.preventDefault());
   }
@@ -43,6 +42,5 @@ window.PULSAR.Input = (function () {
     get mouseX() { return mouseX; },
     get mouseY() { return mouseY; },
     get firing() { return firing; },
-    get special() { return special; },
   };
 })();

@@ -28,13 +28,14 @@ window.PULSAR.config = {
 
   // ---- Player base -----------------------------------------------------------
   player: {
-    baseHP: 100,
+    baseHP: 130,                  // global durability floor — every class multiplies against this
     baseSpeed: 280,               // px/sec, the 100% reference for class multipliers
     baseRadius: 16,
     spawnProtectionSec: 3,        // brief invuln so TTK-to-fun < 10s holds
     scrapTrickleOnSpawn: 5,       // tiny seed so a fresh player is acting, not idle
     impulseDampPerSec: 9,         // how fast recoil/dash/knockback kicks bleed off
     respawnDelaySec: 1.7,         // wreck -> respawn wait
+    regen: { delaySec: 5.0, perSec: 18 }, // passive regen after 5s of no weapon use
   },
 
   // ---- Economy & death (greed model) ----------------------------------------
@@ -84,12 +85,12 @@ window.PULSAR.config = {
   bots: {
     count: 6,
     respawnDelaySec: 3.0,
-    senseRange: 950,              // notice enemies within this
-    engageRange: 680,             // start fighting within this
-    fleeHpFraction: 0.30,         // flee below this HP fraction
-    aggression: 0.65,             // 0 = farmer, 1 = always hunts
-    aimErrorRad: 0.10,            // aim noise (higher = worse shots)
-    decisionSec: 0.30,            // re-evaluate state this often (avoids jitter)
+    senseRange: 1150,             // notice enemies within this
+    engageRange: 880,             // start fighting within this
+    fleeHpFraction: 0.20,         // flee below this HP fraction (commit to fights longer)
+    aggression: 0.88,             // 0 = farmer, 1 = always hunts
+    aimErrorRad: 0.07,            // aim noise (higher = worse shots)
+    decisionSec: 0.25,            // re-evaluate state this often (avoids jitter)
     telegraphDodgeChance: 0.6,    // chance to sidestep a detected charge/lunge aimed at them
     evolveBranchRandom: true,     // bots pick a random available branch on evolve
     // preferred fighting distance per family (px) — sniper kites, rammer dives, etc.
@@ -191,7 +192,7 @@ window.PULSAR.config = {
   // ---- CLASS 2: Hammerhead (rammer / bruiser / beginner aggression) ----------
   // New identity (no old-weapon equivalent). Impact melee; must not invalidate flail.
   hammerhead: {
-    stats: { hp: 1.15, speed: 0.90, sizeMult: 1.28, difficulty: "easy-medium" },
+    stats: { hp: 1.50, speed: 0.90, sizeMult: 1.28, difficulty: "easy-medium" },
     ram: {
       tapBashDamage: 10, chargedDamage: 34, overcommitDamage: 60,
       momentumMultiplier: 0.12,   // impactDamage = base + lunge-speed * this

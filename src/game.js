@@ -39,13 +39,13 @@ window.PULSAR = window.PULSAR || {};
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
-    gravitor: 'pull & hurl rocks', flailship: 'orbiting wrecking orb',
-    lancer: '+range · +charge dmg · thinner beam', starPiercer: 'huge beam · weak-point on cracked',
-    maulbreaker: '+ram reach · +knockback', worldsplitter: 'full-lunge SHOCKWAVE',
-    meteorist: 'holds 3 rocks · harder throws', starfall: 'VOLLEY — hold 9, hurl 3, no cooldown',
-    singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [right-click]',
-    chainmaul: 'bigger, harder orb', ironmoon: 'MOON SLAM [Space]',
-    graviflail: 'defensive Orbit Lock [Space]', orbitCrusher: 'GRAVITY CRUSH [right-click]',
+    gravitor: 'auto-pulls rocks · click to launch', flailship: 'orbiting wrecking orb',
+    lancer: '+range · +charge dmg · thinner beam', starPiercer: 'huge beam · BROKEN CORE mark [E]',
+    maulbreaker: '+ram reach · +knockback', worldsplitter: 'full-lunge SHOCKWAVE · slam burst [E]',
+    meteorist: 'holds 3 rocks · harder throws', starfall: 'hold 9, hurl 3, no cooldown · BARRAGE [E]',
+    singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [E]',
+    chainmaul: 'bigger, harder orb', ironmoon: 'MOON SLAM [Space/E]',
+    graviflail: 'defensive Orbit Lock [Space]', orbitCrusher: 'GRAVITY CRUSH [E]',
   };
 
   // ---- ship factory (player AND bots) ---------------------------------------
@@ -64,7 +64,7 @@ window.PULSAR = window.PULSAR || {};
       ramWinding: false, ramCharge: 0, ramActive: 0, ramHitList: [], ramHitBase: 0, ramFull: false, ramSlammed: false,
       captured: [], orbSpin: 0, orbAngle: 0, orbRadius: null, orbX: o.x, orbY: o.y,
       orbBurstTimer: 0, powerSwingTimer: 0, braceTimer: 0, orbLockTimer: 0, fireTimer: 0,
-      cracked: false, crackTimer: 0,
+      cracked: false, crackTimer: 0, combatTimer: 0,
       ai: o.isBot ? { state: 'farm', t: 0, dodge: 0, dodgeDir: 1, strafeDir: 1 } : null,
       _firePrev: false, _abilityPrev: false, _specialPrev: false, _adminPrev: false, _suppressFire: false,
       _numPrev: [false, false, false, false, false],
@@ -222,7 +222,16 @@ window.PULSAR = window.PULSAR || {};
     const s = v.isBot ? randomSpawn() : SPAWN;
     v.x = s.x; v.y = s.y; v.px = v.x; v.py = v.y; v.vx = v.vy = v.impX = v.impY = 0;
     v.spawnProtect = cfg.player.spawnProtectionSec;
-    applyClassStats(v, true); earn(v, cfg.player.scrapTrickleOnSpawn);
+    if (!v.isBot) {
+      // PLAYER death resets you to a fresh level-1 Scout (overrides DESIGN.md's "level never
+      // lost" — deliberate, per request). Bots keep their progress on respawn.
+      v.classId = 'starter';
+      v.scrap = cfg.player.scrapTrickleOnSpawn; v.xp = cfg.player.scrapTrickleOnSpawn;
+      v.level = 1; v.scaled = false; v.isLeader = false;
+      resetClassState(v);
+    }
+    applyClassStats(v, true);
+    if (v.isBot) earn(v, cfg.player.scrapTrickleOnSpawn);
   }
   function lineBreak(s, count, x, y) { earn(s, eco.lineBreakBonusScrap); if (s === p) { Fx.spawnText(x, y - 24, 'LINE BREAK +' + eco.lineBreakBonusScrap, '#7be0ff', { size: 18 }); Fx.addShake(6); } }
 
@@ -250,6 +259,9 @@ window.PULSAR = window.PULSAR || {};
     if (s.slowTimer > 0) { s.slowTimer -= dt; if (s.slowTimer <= 0) s.slow = 0; }
     s.heat = Math.max(0, s.heat - cfg.railship.heat.decayPerSec * dt);
     if (s.cracked) { s.crackTimer -= dt; if (s.crackTimer <= 0) s.cracked = false; }
+    const regen = cfg.player.regen;
+    if (s.combatTimer > 0) s.combatTimer -= dt;
+    else if (s.hp < s.maxHp) s.hp = Math.min(s.maxHp, s.hp + regen.perSec * dt);
   }
 
   function simShip(s, dt, intent) {
@@ -267,6 +279,7 @@ window.PULSAR = window.PULSAR || {};
     s.x = Math.max(s.radius, Math.min(cfg.arena.width - s.radius, s.x));
     s.y = Math.max(s.radius, Math.min(cfg.arena.height - s.radius, s.y));
 
+    if (intent.firing || intent.ability || intent.special) s.combatTimer = cfg.player.regen.delaySec;
     if (intent.ability && s.abilityCd <= 0) s.abilityCd = PULSAR.resolveAbility(classNode(s.classId).ability).activate(api, s) || 0;
     if (intent.special && s.specialCd <= 0) s.specialCd = PULSAR.resolveSpecial(classNode(s.classId).special).activate(api, s) || 0;
     PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing });
@@ -290,15 +303,19 @@ window.PULSAR = window.PULSAR || {};
   function playerStep(dt) {
     const e = evolveOptions(p);
     if (e && e.levelOk) for (let i = 0; i < e.options.length; i++) { const down = Input.key('Digit' + (i + 1)); if (down && !p._numPrev[i]) chooseEvolution(p, i); p._numPrev[i] = down; }
-    if (Input.firing && !p._firePrev) for (const b of uiButtons) { if (Input.mouseX >= b.x && Input.mouseX <= b.x + b.w && Input.mouseY >= b.y && Input.mouseY <= b.y + b.h) { b.onClick(); p._suppressFire = true; break; } }
+    const prevFire = p._firePrev;
+    if (Input.firing && !prevFire) for (const b of uiButtons) { if (Input.mouseX >= b.x && Input.mouseX <= b.x + b.w && Input.mouseY >= b.y && Input.mouseY <= b.y + b.h) { b.onClick(); p._suppressFire = true; break; } }
     if (!Input.firing) p._suppressFire = false; p._firePrev = Input.firing;
     const lDown = Input.key('KeyL'); if (lDown && !p._adminPrev) adminLevelUp(); p._adminPrev = lDown;
 
     const aim = Math.atan2(Input.mouseY - Render.viewH / 2, Input.mouseX - Render.viewW / 2);
     const dir = Input.moveDir();
+    const isGrav = FAMILY[p.classId] === 'grav';
     const aDown = Input.key('Space'), aEdge = aDown && !p._abilityPrev; p._abilityPrev = aDown;
-    const sDown = Input.special, sEdge = sDown && !p._specialPrev; p._specialPrev = sDown;
-    simShip(p, dt, { moveX: dir.x, moveY: dir.y, aim, firing: Input.firing && !p._suppressFire, ability: aEdge, special: sEdge });
+    const sDown = Input.key('KeyE'), sEdge = sDown && !p._specialPrev; p._specialPrev = sDown;
+    // Gravitor: pulling is passive (weapon always active under cap); left-click edge = launch.
+    const abilityIntent = isGrav ? (Input.firing && !prevFire && !p._suppressFire) : aEdge;
+    simShip(p, dt, { moveX: dir.x, moveY: dir.y, aim, firing: Input.firing && !p._suppressFire, ability: abilityIntent, special: sEdge });
   }
   const botWorld = { ships: null, objects: state.objects, config: cfg, time: 0, arena: cfg.arena, familyOf: (id) => FAMILY[id] };
   function botStep(b, dt) {
@@ -501,10 +518,12 @@ window.PULSAR = window.PULSAR || {};
     ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#bfe9ff'; ctx.fillText(`${classNode(p.classId).displayName}  ·  LV ${p.level}${p.isLeader ? '  ★' : ''}`, x, 76);
     ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = '#ffd98a'; ctx.fillText(`SCRAP ${Math.floor(p.scrap)}   ⚔ ${p.kills}`, x, 94);
     const abil = classNode(p.classId).ability, spec = classNode(p.classId).special;
+    const abilKey = fam === 'grav' ? '[click]' : '[Space]';
     ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = p.abilityCd > 0 ? 'rgba(160,190,220,0.4)' : '#7be0ff';
-    ctx.fillText(abil ? (p.abilityCd > 0 ? `${abil} ${p.abilityCd.toFixed(1)}s` : `${abil} ready [Space]`) : 'no ability (Scout)', x, 112);
-    if (spec) { ctx.fillStyle = p.specialCd > 0 ? 'rgba(255,180,120,0.4)' : '#ffb27a'; ctx.fillText(p.specialCd > 0 ? `${spec} ${p.specialCd.toFixed(1)}s` : `${spec} ready [right-click]`, x, 128); }
-    ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · hold=fire · Space=ability · RMB=special`, x, spec ? 144 : 128);
+    ctx.fillText(abil ? (p.abilityCd > 0 ? `${abil} ${p.abilityCd.toFixed(1)}s` : `${abil} ready ${abilKey}`) : 'no ability (Scout)', x, 112);
+    if (spec) { ctx.fillStyle = p.specialCd > 0 ? 'rgba(255,180,120,0.4)' : '#ffb27a'; ctx.fillText(p.specialCd > 0 ? `${spec} ${p.specialCd.toFixed(1)}s` : `${spec} ready [E]`, x, 128); }
+    const fireHint = fam === 'grav' ? 'click=launch · auto-pulls rocks' : 'hold=fire · Space=ability';
+    ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · ${fireHint} · E=special`, x, spec ? 144 : 128);
     if (!p.alive) { ctx.textAlign = 'center'; ctx.font = '700 16px system-ui, sans-serif'; ctx.fillStyle = '#ff8a8a'; ctx.fillText('WRECKED — respawning…', Render.viewW / 2, Render.viewH / 2 + 90); ctx.textAlign = 'left'; }
   }
   function drawLeaderboard() {
