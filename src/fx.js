@@ -33,9 +33,10 @@ window.PULSAR.Fx = (function () {
     }
   }
 
-  // a hitscan beam streak that fades over `life` seconds (render only)
-  function spawnBeam(x1, y1, x2, y2, color, halfWidth, life) {
-    beams.push({ x1, y1, x2, y2, color, halfWidth, life, maxLife: life });
+  // a hitscan beam streak that fades over `life` seconds (render only).
+  // `power` (0..1) scales the bloom flair so big charges LOOK powerful (hitbox is unchanged).
+  function spawnBeam(x1, y1, x2, y2, color, halfWidth, life, power) {
+    beams.push({ x1, y1, x2, y2, color, halfWidth, life, maxLife: life, power: power || 0 });
   }
 
   // floating combat text ("LINE BREAK", "+4")
@@ -87,14 +88,21 @@ window.PULSAR.Fx = (function () {
       const t = b.life / b.maxLife;                  // 1 -> 0
       const rgb = R.hexToRgb(b.color);
       const x1 = R.sx(b.x1), y1 = R.sy(b.y1), x2 = R.sx(b.x2), y2 = R.sy(b.y2);
+      const pw = b.power || 0;
       ctx.lineCap = 'round';
+      // powerful shots get a wide outer haze under the beam
+      if (pw > 0) {
+        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.18 * pw * t})`;
+        ctx.lineWidth = b.halfWidth * (3 + 5 * pw);
+        ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
+      }
       // soft wide pass (the honest hitbox thickness)
-      ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.35 * t})`;
+      ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${(0.35 + 0.3 * pw) * t})`;
       ctx.lineWidth = b.halfWidth * 2;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
-      // bright thin core
-      ctx.strokeStyle = `rgba(255,255,255,${0.9 * t})`;
-      ctx.lineWidth = Math.max(1.5, b.halfWidth * 0.5);
+      // bright thin core (thicker + fuller on big shots)
+      ctx.strokeStyle = `rgba(255,255,255,${(0.9 + 0.1 * pw) * t})`;
+      ctx.lineWidth = Math.max(1.5, b.halfWidth * (0.5 + 0.5 * pw));
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     }
     // Particles are the most numerous element (bursts of 18–36 per break/death). Draw them as

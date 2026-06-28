@@ -39,12 +39,12 @@ window.PULSAR = window.PULSAR || {};
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
-    gravitor: 'auto-pulls rocks · click to launch', flailship: 'orbiting wrecking orb',
+    gravitor: 'auto-pulls rocks · click to launch', flailship: 'chain orb — throw it out, it returns',
     lancer: '+range · +charge dmg · thinner beam', starPiercer: 'huge beam · BROKEN CORE mark [E]',
     maulbreaker: '+ram reach · +knockback', worldsplitter: 'full-lunge SHOCKWAVE · slam burst [E]',
     meteorist: 'holds 3 rocks · harder throws', starfall: 'hold 9, hurl 3, no cooldown · BARRAGE [E]',
     singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [E]',
-    chainmaul: 'bigger, harder orb', ironmoon: 'MOON SLAM [Space/E]',
+    chainmaul: 'bigger, harder orb', ironmoon: 'Power Swing [Space] · MOON SLAM [E]',
     graviflail: 'defensive Orbit Lock [Space]', orbitCrusher: 'GRAVITY CRUSH [E]',
   };
 
@@ -60,7 +60,7 @@ window.PULSAR = window.PULSAR || {};
       isLeader: false, scaled: false, kills: 0,
       spawnProtect: cfg.player.spawnProtectionSec, hitFlash: 0, contactCd: 0, abilityCd: 0, specialCd: 0,
       slow: 0, slowTimer: 0, alive: true, respawnTimer: 0,
-      charge: 0, charging: false, heat: 0, ventTimer: 0,
+      charge: 0, charging: false, heat: 0, ventTimer: 0, chargeFullTimer: 0,
       ramWinding: false, ramCharge: 0, ramActive: 0, ramHitList: [], ramHitBase: 0, ramFull: false, ramSlammed: false,
       captured: [], orbSpin: 0, orbAngle: 0, orbRadius: null, orbX: o.x, orbY: o.y,
       orbBurstTimer: 0, powerSwingTimer: 0, braceTimer: 0, orbLockTimer: 0, fireTimer: 0,
@@ -79,12 +79,18 @@ window.PULSAR = window.PULSAR || {};
   state.player = makeShip({ classId: 'starter', x: SPAWN.x, y: SPAWN.y, team: 0, isBot: false });
   const p = state.player;
   function randomSpawn() { return { x: 200 + Math.random() * (cfg.arena.width - 400), y: 200 + Math.random() * (cfg.arena.height - 400) }; }
-  for (let i = 0; i < cfg.bots.count; i++) {
-    const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)];
-    const s = randomSpawn();
-    state.bots.push(makeShip({ classId: cls, x: s.x, y: s.y, team: i + 1, isBot: true, aim: Math.random() * TAU }));
+  function spawnBots() {
+    for (let i = 0; i < cfg.bots.count; i++) {
+      const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)];
+      const s = randomSpawn();
+      const b = makeShip({ classId: cls, x: s.x, y: s.y, team: i + 1, isBot: true, aim: Math.random() * TAU });
+      applyClassStats(b, true);
+      state.bots.push(b);
+    }
   }
-  const allShips = () => { const a = [p]; for (const b of state.bots) a.push(b); return a; };
+  function toggleBots() { if (state.bots.length) state.bots.length = 0; else spawnBots(); }
+  spawnBots();
+  const allShips = () => { const a = [p]; for (const b of state.bots) a.push(b); const rs = PULSAR.Net.remotes; for (let i = 0; i < rs.length; i++) a.push(rs[i]); return a; };
   function enemiesOf(ship) { const out = []; for (const s of allShips()) if (s !== ship && s.alive && s.team !== ship.team) out.push(s); return out; }
 
   // ---- class identity / stats ------------------------------------------------
@@ -180,6 +186,14 @@ window.PULSAR = window.PULSAR || {};
     Fx.spawnParticles(o.x, o.y, cfg.fx.hitParticles, OBJDEF[o.type].hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 170 });
     if (o.hp <= 0) breakObject(o);
   }
+  // A LAUNCHED rock is a destructible projectile (tankier than a normal asteroid). Enemies can
+  // shoot it down mid-flight; when it dies it shatters (handled on removal in simulateProjectiles).
+  function damageThrownRock(r, dmg, opts) {
+    opts = opts || {};
+    r.hp -= dmg;
+    Fx.spawnParticles(r.x, r.y, cfg.fx.hitParticles, OBJDEF[r.rockType || 'asteroid'].hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 170 });
+    if (r.hp <= 0) r._broken = true;
+  }
   function crackObject(o) { o.cracked = true; o.crackTimer = Math.max(o.crackTimer, cfg.railship.armorCrack.baseDurationSec); }
   function breakObject(o) {
     const total = eco[OBJDEF[o.type].scrap], n = cfg.farming.motesPerObject[o.type];
@@ -191,6 +205,11 @@ window.PULSAR = window.PULSAR || {};
   function damageShip(t, dmg, opts) {
     opts = opts || {};
     if (!t.alive || t.spawnProtect > 0) return;
+    if (t.isRemote) {   // PvP: the owner is authoritative for its HP — route the hit, show local feedback
+      PULSAR.Net.sendHit(t.netId, dmg, opts);
+      t.hitFlash = 0.16; Fx.spawnParticles(t.x, t.y, 6, '#ff8a8a', { speed: 150 });
+      return;
+    }
     if (t.braceTimer > 0) dmg *= (1 - cfg.hammerhead.brace.damageReduction);
     if (t.cracked) dmg *= (1 + cfg.railship.armorCrack.damageAmp);
     if (opts.crack) { t.cracked = true; t.crackTimer = cfg.railship.armorCrack.baseDurationSec; }
@@ -237,8 +256,18 @@ window.PULSAR = window.PULSAR || {};
 
   const api = {
     config: cfg, state, fx: Fx, damageObject, crackObject, lineBreak, enemiesOf,
-    damage(target, dmg, opts) { if (target.isShip) damageShip(target, dmg, opts); else damageObject(target, dmg, opts); },
-    hittables(ship) { const a = state.objects.concat(); const en = enemiesOf(ship); for (const e of en) a.push(e); return a; },
+    damage(target, dmg, opts) {
+      if (target.isShip) damageShip(target, dmg, opts);
+      else if (target.isThrownRock) damageThrownRock(target, dmg, opts);
+      else damageObject(target, dmg, opts);
+    },
+    // Hittable set = neutral rocks + enemy ships + enemies' LIVE thrown rocks (shootable in flight).
+    hittables(ship) {
+      const a = state.objects.concat();
+      const en = enemiesOf(ship); for (const e of en) a.push(e);
+      for (const pr of state.projectiles) if (pr.isThrownRock && !pr._broken && pr.team !== ship.team) a.push(pr);
+      return a;
+    },
     applyImpulse(s, vx, vy) { s.impX += vx; s.impY += vy; },
   };
 
@@ -250,6 +279,7 @@ window.PULSAR = window.PULSAR || {};
 
   // ---- per-ship sim ----------------------------------------------------------
   function tickTimers(s, dt) {
+    if (s.isRemote) return;   // remote players are driven by the network, not the local sim
     if (s.spawnProtect > 0) s.spawnProtect -= dt; if (s.hitFlash > 0) s.hitFlash -= dt;
     if (s.ventTimer > 0) s.ventTimer -= dt; if (s.abilityCd > 0) s.abilityCd -= dt;
     if (s.specialCd > 0) s.specialCd -= dt; if (s.contactCd > 0) s.contactCd -= dt;
@@ -282,7 +312,7 @@ window.PULSAR = window.PULSAR || {};
     if (intent.firing || intent.ability || intent.special) s.combatTimer = cfg.player.regen.delaySec;
     if (intent.ability && s.abilityCd <= 0) s.abilityCd = PULSAR.resolveAbility(classNode(s.classId).ability).activate(api, s) || 0;
     if (intent.special && s.specialCd <= 0) s.specialCd = PULSAR.resolveSpecial(classNode(s.classId).special).activate(api, s) || 0;
-    PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing });
+    PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing, aimDist: intent.aimDist });
 
     if (s.spawnProtect <= 0 && s.contactCd <= 0) {
       for (const o of state.objects) {
@@ -308,14 +338,15 @@ window.PULSAR = window.PULSAR || {};
     if (!Input.firing) p._suppressFire = false; p._firePrev = Input.firing;
     const lDown = Input.key('KeyL'); if (lDown && !p._adminPrev) adminLevelUp(); p._adminPrev = lDown;
 
-    const aim = Math.atan2(Input.mouseY - Render.viewH / 2, Input.mouseX - Render.viewW / 2);
+    const mdx = Input.mouseX - Render.viewW / 2, mdy = Input.mouseY - Render.viewH / 2;
+    const aim = Math.atan2(mdy, mdx), aimDist = Math.hypot(mdx, mdy); // world == screen scale (camera on ship)
     const dir = Input.moveDir();
     const isGrav = FAMILY[p.classId] === 'grav';
     const aDown = Input.key('Space'), aEdge = aDown && !p._abilityPrev; p._abilityPrev = aDown;
     const sDown = Input.key('KeyE'), sEdge = sDown && !p._specialPrev; p._specialPrev = sDown;
     // Gravitor: pulling is passive (weapon always active under cap); left-click edge = launch.
     const abilityIntent = isGrav ? (Input.firing && !prevFire && !p._suppressFire) : aEdge;
-    simShip(p, dt, { moveX: dir.x, moveY: dir.y, aim, firing: Input.firing && !p._suppressFire, ability: abilityIntent, special: sEdge });
+    simShip(p, dt, { moveX: dir.x, moveY: dir.y, aim, aimDist, firing: Input.firing && !p._suppressFire, ability: abilityIntent, special: sEdge });
   }
   const botWorld = { ships: null, objects: state.objects, config: cfg, time: 0, arena: cfg.arena, familyOf: (id) => FAMILY[id] };
   function botStep(b, dt) {
@@ -331,6 +362,11 @@ window.PULSAR = window.PULSAR || {};
     for (const s of allShips()) tickTimers(s, dt);
     if (!p.alive) { p.respawnTimer -= dt; if (p.respawnTimer <= 0) respawnShip(p); } else playerStep(dt);
     for (const b of state.bots) { if (!b.alive) { b.respawnTimer -= dt; if (b.respawnTimer <= 0) respawnShip(b); } else botStep(b, dt); }
+    if (PULSAR.Net.connected) {
+      if (state.bots.length) state.bots.length = 0;                          // friends joined → drop bots
+      for (const pr of state.projectiles) if (!pr._netSent && pr.owner === p) { pr._netSent = true; PULSAR.Net.sendProjectile(pr); } // show our shots on their screens
+      PULSAR.Net.step(p, dt);
+    }
     updateLeader();
     simulateProjectiles(dt); simulateObjects(dt); simulateMotes(dt); Fx.update(dt);
   }
@@ -347,7 +383,17 @@ window.PULSAR = window.PULSAR || {};
     for (let i = state.projectiles.length - 1; i >= 0; i--) {
       const pr = state.projectiles[i];
       pr.px = pr.x; pr.py = pr.y; pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
-      let dead = pr.life <= 0;
+      let dead = pr.life <= 0 || pr._broken;   // _broken = shot down by an enemy this tick
+      if (!dead) {
+        // Flailship's chain orb intercepts enemy shots its hitbox physically touches (honest-VFX
+        // shield — naturally blocks "some" since the orb is small and moving). Works in every orb
+        // state: orbiting close OR thrown out in front of you.
+        for (const s of allShips()) {
+          if (!s.alive || !s.orbActive || s.team === pr.team) continue;
+          const rr = pr.radius + s.orbBlockRadius;
+          if ((pr.x - s.orbX) ** 2 + (pr.y - s.orbY) ** 2 <= rr * rr) { Fx.spawnParticles(pr.x, pr.y, 6, '#ffe6a8', { speed: 160, life: 0.3 }); dead = true; break; }
+        }
+      }
       if (!dead) {
         let target = null;
         for (const s of allShips()) { if (!s.alive || s.team === pr.team || s.spawnProtect > 0) continue; const rr = pr.radius + s.radius; if ((pr.x - s.x) ** 2 + (pr.y - s.y) ** 2 <= rr * rr) { target = s; break; } }
@@ -360,7 +406,11 @@ window.PULSAR = window.PULSAR || {};
         }
       }
       if (!dead && (pr.x < 0 || pr.y < 0 || pr.x > cfg.arena.width || pr.y > cfg.arena.height)) dead = true;
-      if (dead) state.projectiles.splice(i, 1);
+      if (dead) {
+        // Thrown rocks shatter when they die — on impact, when shot down, or after missing.
+        if (pr.isThrownRock) Fx.spawnParticles(pr.x, pr.y, cfg.fx.breakParticles, OBJDEF[pr.rockType || 'asteroid'].hue, { speed: 240 });
+        state.projectiles.splice(i, 1);
+      }
     }
   }
   function simulateObjects(dt) {
@@ -398,6 +448,7 @@ window.PULSAR = window.PULSAR || {};
     for (const o of state.objects) { if (!onScreen(o.x, o.y, o.radius + 40)) continue; R.glow(R.sx(lerp(o.px, o.x, alpha)), R.sy(lerp(o.py, o.y, alpha)), o.radius * 1.5, R.hexToRgb(OBJDEF[o.type].hue), 0.2 + (o.flash > 0 ? 0.5 : 0) + (o.cracked ? 0.15 : 0)); }
     for (const m of state.motes) { if (!onScreen(m.x, m.y, 30)) continue; R.glow(R.sx(lerp(m.px, m.x, alpha)), R.sy(lerp(m.py, m.y, alpha)), pk.moteRadius * 3, m.pulsar ? [200, 230, 255] : [255, 210, 120], m.pulsar ? 0.7 : 0.5); }
     for (const pr of state.projectiles) R.glow(R.sx(lerp(pr.px, pr.x, alpha)), R.sy(lerp(pr.py, pr.y, alpha)), pr.radius * (pr.kind === 'rock' ? 1.6 : 2.4), R.hexToRgb(pr.color), 0.85);
+    for (const g of PULSAR.Net.ghosts) R.glow(R.sx(g.x), R.sy(g.y), g.r * (g.kind === 'rock' ? 1.6 : 2.4), R.hexToRgb(g.col), 0.85);
     Fx.draw(R, alpha, lerp);
     for (const s of allShips()) { if (!s.alive || !onScreen(s.x, s.y, s.radius * 5)) continue; shipBloom(R, s, alpha, s === p); }
 
@@ -406,6 +457,7 @@ window.PULSAR = window.PULSAR || {};
     for (const o of state.objects) { if (!onScreen(o.x, o.y, o.radius + 20)) continue; drawObject(R.ctx, o, R.sx(lerp(o.px, o.x, alpha)), R.sy(lerp(o.py, o.y, alpha))); }
     for (const m of state.motes) { if (!onScreen(m.x, m.y, 20)) continue; R.solidCircle(R.sx(lerp(m.px, m.x, alpha)), R.sy(lerp(m.py, m.y, alpha)), pk.moteRadius, m.pulsar ? '#eaf4ff' : '#ffe6a8'); }
     for (const pr of state.projectiles) R.solidCircle(R.sx(lerp(pr.px, pr.x, alpha)), R.sy(lerp(pr.py, pr.y, alpha)), pr.radius * (pr.kind === 'rock' ? 0.8 : 0.6), pr.kind === 'rock' ? '#d9c2ff' : '#ffffff');
+    for (const g of PULSAR.Net.ghosts) R.solidCircle(R.sx(g.x), R.sy(g.y), g.r * (g.kind === 'rock' ? 0.8 : 0.6), g.kind === 'rock' ? '#d9c2ff' : '#ffffff');
     for (const s of allShips()) {
       if (!s.alive || !onScreen(s.x, s.y, s.radius * 5)) continue;
       const sxi = R.sx(lerp(s.px, s.x, alpha)), syi = R.sy(lerp(s.py, s.y, alpha));
@@ -415,7 +467,7 @@ window.PULSAR = window.PULSAR || {};
     }
 
     uiButtons = [];
-    drawHud(); drawLeaderboard(); drawMinimap(); drawEvolveOverlay(); drawAdminButton();
+    drawHud(); drawLeaderboard(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
   }
 
   function shipBloom(R, s, alpha, isPlayer) {
@@ -480,7 +532,56 @@ window.PULSAR = window.PULSAR || {};
       ctx.strokeStyle = drag ? 'rgba(176,107,255,0.4)' : 'rgba(176,107,255,0.22)'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(cx, cy, (drag ? G.well.pullRadius * G.tidalDrag.radiusMult : G.well.pullRadius) * 0.25, 0, TAU); ctx.stroke();
       const cap = s.captured.length;
-      for (let i = 0; i < cap; i++) { const a = s.orbSpin + i * (TAU / Math.max(1, cap)); const rx = cx + Math.cos(a) * (s.radius + G.orbit.radius), ry = cy + Math.sin(a) * (s.radius + G.orbit.radius); R.setComposite('lighter'); R.glow(rx, ry, 16, [176, 107, 255], 0.5); R.setComposite('source-over'); ctx.fillStyle = 'rgba(150,120,200,0.9)'; ctx.beginPath(); ctx.arc(rx, ry, 9, 0, TAU); ctx.fill(); }
+      // Held rocks ride at full ASTEROID size — but they're "transparent": not in the world, so
+      // they can't be destroyed and don't block any damage while held (only breakable once shot).
+      for (let i = 0; i < cap; i++) {
+        const a = s.orbSpin + i * (TAU / Math.max(1, cap));
+        const rr = s.captured[i].radius || 18;
+        const rx = cx + Math.cos(a) * (s.radius + G.orbit.radius), ry = cy + Math.sin(a) * (s.radius + G.orbit.radius);
+        R.setComposite('lighter'); R.glow(rx, ry, rr * 1.4, [176, 107, 255], 0.4); R.setComposite('source-over');
+        ctx.fillStyle = 'rgba(150,120,200,0.85)'; ctx.beginPath(); ctx.arc(rx, ry, rr, 0, TAU); ctx.fill();
+        ctx.strokeStyle = 'rgba(210,190,255,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+      }
+    } else if (fam === 'rail') {
+      const RC = cfg.railship.charge, t = state.time;
+      const full = s.charge >= RC.lanceMax;
+      // BEFORE full: the ship DRAINS energy from the space around it — streaks spiral inward and
+      // brighten as they fall toward the hull. The intake STOPS once full charge is reached.
+      if (s.charging && !full) {
+        const ch = Math.min(1, s.charge), hue = [150, 232, 255];
+        const Rmax = s.radius * (4.5 + 3.0 * ch);
+        R.setComposite('lighter');
+        ctx.lineCap = 'round';
+        for (let i = 0; i < 12; i++) {
+          const phase = (t * (0.55 + 0.6 * ch) + i / 12) % 1;
+          const frac = 1 - phase;
+          const a = (i / 12) * TAU + (1 - frac) * 1.7 + t * 0.25;
+          const r = s.radius * 0.5 + frac * Rmax;
+          const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
+          const tr = r + Rmax * 0.16, tx = cx + Math.cos(a + 0.16) * tr, ty = cy + Math.sin(a + 0.16) * tr;
+          const al = ch * (0.18 + 0.55 * (1 - frac));
+          ctx.strokeStyle = `rgba(${hue[0]},${hue[1]},${hue[2]},${al})`;
+          ctx.lineWidth = 1 + 1.6 * (1 - frac) * ch;
+          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(x, y); ctx.stroke();
+          R.glow(x, y, (2 + 3 * (1 - frac)) * (0.7 + ch * 0.5), hue, al * 0.8);
+        }
+        const ring = Rmax * (0.7 + 0.3 * Math.sin(t * 6));
+        ctx.strokeStyle = `rgba(${hue[0]},${hue[1]},${hue[2]},${0.12 * ch})`;
+        ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, ring, 0, TAU); ctx.stroke();
+        R.setComposite('source-over');
+      } else if (s.charging && full) {
+        // AT full: intake stops; the core REDLINES — gold -> deep red over overheatSec, pulsing
+        // faster as it nears the blowout. Sells "hold too long and you overheat".
+        const hf = Math.min(1, (s.chargeFullTimer || 0) / RC.overheatSec);
+        const col = [255, Math.round(190 - 150 * hf), Math.round(90 - 65 * hf)];
+        const pulse = 0.6 + 0.4 * Math.sin(t * (8 + 26 * hf));
+        R.setComposite('lighter');
+        R.glow(cx, cy, s.radius * (3.0 + 2.6 * hf), col, (0.30 + 0.5 * hf) * pulse);
+        if (hf > 0.45) { // crackling embers as it approaches blowout
+          for (let i = 0; i < 5; i++) { const a = t * 7 + i * 1.7, rr = s.radius * (1.4 + 1.6 * Math.abs(Math.sin(t * 5 + i))); R.glow(cx + Math.cos(a) * rr, cy + Math.sin(a) * rr, 5 * hf, [255, 90, 50], 0.7 * hf); }
+        }
+        R.setComposite('source-over');
+      }
     } else if (fam === 'flail') {
       const ox = R.sx(s.orbX), oy = R.sy(s.orbY);
       ctx.strokeStyle = s.orbLockTimer > 0 ? 'rgba(255,230,150,0.8)' : 'rgba(255,210,120,0.5)'; ctx.lineWidth = 2;
@@ -522,8 +623,15 @@ window.PULSAR = window.PULSAR || {};
     ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = p.abilityCd > 0 ? 'rgba(160,190,220,0.4)' : '#7be0ff';
     ctx.fillText(abil ? (p.abilityCd > 0 ? `${abil} ${p.abilityCd.toFixed(1)}s` : `${abil} ready ${abilKey}`) : 'no ability (Scout)', x, 112);
     if (spec) { ctx.fillStyle = p.specialCd > 0 ? 'rgba(255,180,120,0.4)' : '#ffb27a'; ctx.fillText(p.specialCd > 0 ? `${spec} ${p.specialCd.toFixed(1)}s` : `${spec} ready [E]`, x, 128); }
-    const fireHint = fam === 'grav' ? 'click=launch · auto-pulls rocks' : 'hold=fire · Space=ability';
+    const fireHint = fam === 'grav' ? 'click=launch · auto-pulls rocks'
+      : fam === 'flail' ? 'click=throw orb (auto-returns)'
+      : 'hold=fire · Space=ability';
     ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · ${fireHint} · E=special`, x, spec ? 144 : 128);
+    if (PULSAR.Net.MULTIPLAYER) {
+      const on = PULSAR.Net.connected;
+      ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';
+      ctx.fillText(on ? `◉ MULTIPLAYER · ${PULSAR.Net.count + 1} players` : '◌ connecting…', x, spec ? 160 : 144);
+    }
     if (!p.alive) { ctx.textAlign = 'center'; ctx.font = '700 16px system-ui, sans-serif'; ctx.fillStyle = '#ff8a8a'; ctx.fillText('WRECKED — respawning…', Render.viewW / 2, Render.viewH / 2 + 90); ctx.textAlign = 'left'; }
   }
   function drawLeaderboard() {
@@ -533,11 +641,26 @@ window.PULSAR = window.PULSAR || {};
     ctx.font = '400 11px system-ui, sans-serif';
     ranked.forEach((s, i) => { ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(220,230,245,0.7)'); ctx.fillText(`${i + 1}. ${s === p ? 'YOU' : classNode(s.classId).displayName}`, x, y0 + 16 + i * 14); ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + 148, y0 + 16 + i * 14); ctx.textAlign = 'left'; });
   }
-  function drawAdminButton() {
-    const ctx = Render.ctx, w = 150, h = 26, x = Render.viewW - w - 14, y = 14;
-    ctx.fillStyle = 'rgba(58,18,58,0.75)'; ctx.fillRect(x, y, w, h); ctx.strokeStyle = 'rgba(255,140,230,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
-    ctx.textAlign = 'center'; ctx.font = '700 12px system-ui, sans-serif'; ctx.fillStyle = '#ffb4ee'; ctx.fillText('ADMIN ▸ +1 LVL  [L]', x + w / 2, y + 17); ctx.textAlign = 'left';
-    uiButtons.push({ x, y, w, h, onClick: adminLevelUp });
+  function drawDevPanel() {
+    const ctx = Render.ctx, w = 150, h = 26, x = Render.viewW - w - 14;
+    ctx.font = '700 10px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,140,230,0.55)';
+    ctx.fillText('DEV', x + w, 10); ctx.textAlign = 'left';
+    const btn = (y, label, fg, bg, border, onClick) => {
+      ctx.fillStyle = bg; ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+      ctx.textAlign = 'center'; ctx.font = '700 12px system-ui, sans-serif'; ctx.fillStyle = fg;
+      ctx.fillText(label, x + w / 2, y + 17); ctx.textAlign = 'left';
+      uiButtons.push({ x, y, w, h, onClick });
+    };
+    btn(16, 'ADMIN ▸ +1 LVL  [L]', '#ffb4ee', 'rgba(58,18,58,0.75)', 'rgba(255,140,230,0.7)', adminLevelUp);
+    // Bot toggle (single-player only — in multiplayer the world is players, bots stay off).
+    if (!PULSAR.Net.connected) {
+      const on = state.bots.length > 0;
+      btn(48, on ? 'BOTS: ON' : 'BOTS: OFF',
+        on ? '#9fe8ff' : 'rgba(170,185,205,0.8)',
+        on ? 'rgba(18,40,58,0.78)' : 'rgba(28,30,38,0.78)',
+        on ? 'rgba(120,200,255,0.65)' : 'rgba(140,150,170,0.5)', toggleBots);
+    }
   }
   function drawEvolveOverlay() {
     const e = evolveOptions(p);
@@ -582,7 +705,17 @@ window.PULSAR = window.PULSAR || {};
     const canvas = document.getElementById('game');
     Render.init(canvas); Input.attach(canvas);
     applyClassStats(p, true);
-    for (const b of state.bots) applyClassStats(b, true);
+    if (PULSAR.Net.MULTIPLAYER) PULSAR.Net.init({
+      // Incoming hit from another player: apply locally; if it kills us, credit + bounty the killer.
+      onHit: (dmg, opts, killerId) => {
+        if (!p.alive) return;
+        const carried = p.scrap, wasLeader = p.isLeader;
+        damageShip(p, dmg, { crack: opts.crack });
+        if (!p.alive && killerId) { let b = carried * eco.killScrapFraction; if (wasLeader) b *= cfg.leader.bountyScrapMultiplier; PULSAR.Net.sendKill(killerId, Math.floor(b)); }
+      },
+      // We killed someone: bank the bounty + tally the kill.
+      onKill: (bounty) => { if (!p.alive) return; p.kills = (p.kills || 0) + 1; if (bounty > 0) earn(p, bounty); Fx.spawnText(p.x, p.y - 30, '+' + bounty + ' KILL', '#ffd98a', { size: 14 }); },
+    });
     requestAnimationFrame(frame);
   }
   if (document.readyState === 'loading') addEventListener('DOMContentLoaded', boot);

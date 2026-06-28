@@ -120,7 +120,7 @@ window.PULSAR.classes = {
   ironmoon: {
     id: "ironmoon", displayName: "Ironmoon", tier: 3, parentId: "chainmaul",
     configKey: "flailship", branchOf: "flailship", branch: "A",
-    weapon: "wreckingOrb", ability: "moonSlam", passive: "momentumHit",
+    weapon: "wreckingOrb", ability: "powerSwing", passive: "momentumHit",
     special: "moonSlam",         // launch orb outward, big impact, retract; weak to kiting
   },
   // Branch B: Graviflail (control/orbit)

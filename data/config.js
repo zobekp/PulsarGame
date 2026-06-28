@@ -94,7 +94,7 @@ window.PULSAR.config = {
     telegraphDodgeChance: 0.6,    // chance to sidestep a detected charge/lunge aimed at them
     evolveBranchRandom: true,     // bots pick a random available branch on evolve
     // preferred fighting distance per family (px) — sniper kites, rammer dives, etc.
-    preferredRange: { rail: 560, hammer: 90, grav: 470, flail: 130, dart: 360 },
+    preferredRange: { rail: 560, hammer: 90, grav: 470, flail: 240, dart: 360 },
   },
 
   // ---- Readability (gameplay-stakes, do not let these emerge by accident) ----
@@ -155,12 +155,16 @@ window.PULSAR.config = {
       applyArmorCrackAt: "lance", // lance+ applies Armor Crack
       timeToFullSec: 1.05,        // hold-time from 0 -> 1.0 (full lance charge)
       overchargeCap: 1.25,        // hold past full into overcharge, clamped here
+      // Hold at FULL charge and the core starts to redline: it glows hotter for overheatSec,
+      // then OVERHEATS — dumps all charge (no shot), maxes heat, and forces a vent lockout.
+      overheatSec: 8,             // seconds at full charge before it blows
+      overheatVentSec: 1.6,       // vent-lockout penalty when it does
     },
     // The rail SHOT is a hitscan beam: instant line along aim, pierces N objects with
     // falloff. Honest VFX: beamHalfWidth IS the hitbox half-thickness (bloom matches it).
     beam: {
       maxRange: 1300,             // px the beam reaches
-      halfWidth: 7,              // hitbox half-thickness == drawn beam glow half-width
+      halfWidth: 9,              // hitbox half-thickness == drawn beam glow half-width
       visualSec: 0.16,           // how long the beam streak lingers (render only)
       knockback: 90,             // push imparted to things the beam hits
     },
@@ -225,7 +229,8 @@ window.PULSAR.config = {
     // pull rocks, hurl them through OTHER rocks (orbitalHarvest pays bonus on those kills).
     orbit: { radius: 74, speed: 2.6 },          // visual/where captured rocks ride
     capture: { pullStrength: 1600 },            // px/sec² rocks are sucked in (snappy fill)
-    thrownRockRadius: 22,                        // launched-rock projectile size (== hitbox)
+    thrownRockRadius: 22,                        // fallback launched-rock size (real throws use the rock's own radius)
+    thrownRockHpMult: 2.5,                        // a launched rock's HP vs a normal one — shootable, but tanky
     orbitalHarvestBonus: 2,                      // bonus scrap when a thrown rock kills a neutral
     // Capacity + launch behaviour per tier — the artillery ramps HARD into Starfall.
     // cap = rocks held; per = rocks hurled per press; cd = seconds between launches.
@@ -248,12 +253,25 @@ window.PULSAR.config = {
   // Lineage: the orbiting flail from day one + Tether's zoning.
   flailship: {
     stats: { hp: 1.00, speed: 0.92, sizeMult: 1.06, difficulty: "easy-medium" },
+    // Commanded Chain Orb — a tethered orb that defends, then COMMITS on a throw cycle:
+    //   ORBIT (resting): circles the hull as a defensive shield — low damage, blocks
+    //     projectiles it touches, punishes divers. NOT the kill tool.
+    //   THROW: fire (when off cooldown) shoots the orb out to the aimed point and it AUTO-RETURNS
+    //     — high damage on the way out and back. It cannot be held out; then a longish cooldown.
     orb: {
-      radiusMin: 60, radiusMax: 180,   // hold to extend, release to retract
-      orbitSpeed: 3.2, contactDamage: 18,
-      momentumMultiplier: 0.10,         // orbDamage = base + orbVelocity * this
-      tipRadius: 14,                    // the orb's own size (== its hitbox)
-      hitCooldownSec: 0.35,             // per-object re-hit gate so one pass = one hit
+      orbitRadius: 70,                  // defensive orbit distance (base rotational state)
+      maxReach: 340,                    // chain length — every throw commits to THIS full range
+      apexHangSec: 0.12,                // brief hang at full extension so the throw reads (not held)
+      throwSpeed: 1700,                 // px/sec the orb travels OUT on a throw (snappy launch)
+      recallSpeed: 1250,                // px/sec the orb retracts on the way back
+      throwCooldownSec: 1.4,            // gate after the orb returns — snappy but not spammy
+      orbitSpeed: 3.2,                  // angular speed while circling in orbit mode
+      sweepEase: 9,                     // how fast the airborne orb steers toward the cursor (per sec)
+      tipRadius: 16,                    // the orb's own size == its hitbox == its block radius
+      hitCooldownSec: 0.35,             // per-target re-hit gate so out-pass and back-pass each land once
+      orbitDamage: 12,                  // ORBIT: low — it's a shield, not the kill tool
+      throwDamage: 72,                  // THROW out: the big committed hit
+      recallDamage: 44,                 // THROW back: the return sweep
     },
     swingControl: { burstSpeedMult: 2.2, durationSec: 0.6, cooldownSec: 4 }, // base ability: orb speed burst
     chainmaul: { orbRadiusMult: 1.25, contactDamageMult: 1.30 },             // largerOrb/longerChain
@@ -264,7 +282,7 @@ window.PULSAR.config = {
     },
     powerSwing: { damageMult: 1.5, durationSec: 3, cooldownSec: 8 }, // Chainmaul+
     moonSlam: { chargeSec: 0.5, damage: 50, knockback: 260, splash: 0.3 }, // Ironmoon
-    orbitLock: { durationSec: 4, cooldownSec: 9 },                  // Graviflail
+    orbitLock: { durationSec: 4, cooldownSec: 9, radiusMult: 1.6 }, // Graviflail: wide defensive orbit (pins to orbit mode)
     gravityCrush: { radius: 200, dps: 30, pullSmallObjects: true }, // Orbit Crusher
   },
 

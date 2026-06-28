@@ -35,14 +35,25 @@ window.PULSAR = window.PULSAR || {};
     // RAILSHIP line — hold-charge hitscan beam, pierces N with falloff (neutral OR ship).
     chargeRail: {
       update(api, ship, dt, ctx) {
-        const R = api.config.railship;
-        if (ship.ventTimer > 0) { ship.charging = false; ship.charge = 0; return; }
+        const R = api.config.railship, ch = R.charge;
+        if (ship.ventTimer > 0) { ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0; return; }
         if (ctx.firing) {
           ship.charging = true;
-          ship.charge = Math.min(R.charge.overchargeCap, ship.charge + dt / R.charge.timeToFullSec);
+          ship.charge = Math.min(ch.overchargeCap, ship.charge + dt / ch.timeToFullSec);
+          // Hold at full charge and the core redlines; past overheatSec it BLOWS — all charge lost,
+          // no shot, heat maxed, vent lockout. The risk that caps how long you can hold a big shot.
+          if (ship.charge >= ch.lanceMax) {
+            ship.chargeFullTimer = (ship.chargeFullTimer || 0) + dt;
+            if (ship.chargeFullTimer >= ch.overheatSec) {
+              ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0;
+              ship.heat = R.heat.max; ship.ventTimer = ch.overheatVentSec;
+              api.fx.spawnParticles(ship.x, ship.y, 32, '#ff4530', { speed: 340, life: 0.6 });
+              if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
+            }
+          } else ship.chargeFullTimer = 0;
         } else if (ship.charging) {
           this.fire(api, ship);
-          ship.charging = false; ship.charge = 0;
+          ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0;
           if (ship.heat >= R.heat.max && R.heat.ventStateAtMax) ship.ventTimer = R.heat.ventStateSec;
         }
       },
@@ -80,8 +91,10 @@ window.PULSAR = window.PULSAR || {};
           api.damage(h.t, d, { dx, dy, knockback: R.beam.knockback, crack: big, source: ship });
           pierced++; if (!h.t.isShip) neutrals++;
         }
-        api.fx.spawnBeam(ox, oy, ox + dx * maxRange, oy + dy * maxRange, hue, halfWidth, R.beam.visualSec);
-        api.fx.spawnParticles(ox, oy, 6, hue, { dir: ship.aim, spread: 0.6, speed: 260 });
+        // Bigger charges throw a more powerful-looking beam (extra bloom layers, brighter core).
+        const power = stage === 'overcharge' ? 1 : stage === 'lance' ? 0.7 : stage === 'focus' ? 0.35 : 0.1;
+        api.fx.spawnBeam(ox, oy, ox + dx * maxRange, oy + dy * maxRange, hue, halfWidth, R.beam.visualSec, power);
+        api.fx.spawnParticles(ox, oy, 6 + Math.round(power * 14), hue, { dir: ship.aim, spread: 0.6, speed: 260 + power * 220 });
         if (neutrals >= R.lineBreakThreshold) api.lineBreak(ship, neutrals, ox, oy);
         api.applyImpulse(ship, -dx * recoil, -dy * recoil);
         ship.heat = Math.min(heat.max, ship.heat + heatAdd);
@@ -179,26 +192,70 @@ window.PULSAR = window.PULSAR || {};
       },
     },
 
-    // FLAILSHIP line — a chained orb orbits the hull; contact is the hit (neutral OR ship).
+    // FLAILSHIP line — COMMANDED CHAIN ORB. A tethered orb that defends, then COMMITS on a throw:
+    //   ORBIT ('orbit'): circles the hull as a defensive shield — low damage, punishes divers, and
+    //          — like every state — intercepts enemy projectiles it touches.
+    //   THROW: fire (when off cooldown) shoots the orb OUT to the aimed point ('out'), then it
+    //          AUTO-RETURNS ('back') and a longish cooldown begins. It can't be held out.
+    // Triggered off ctx.firing as a LEVEL + a cooldown gate, so bots use the same code path —
+    // hold or tap, you get one throw per cooldown.
     wreckingOrb: {
       update(api, ship, dt, ctx) {
-        const F = api.config.flailship;
+        const F = api.config.flailship, O = F.orb;
         const om = F.orbModByClass[ship.classId] || null;
-        const rMin = F.orb.radiusMin * (om ? om.radiusMult : 1), rMax = F.orb.radiusMax * (om ? om.radiusMult : 1);
-        const locked = ship.orbLockTimer > 0;
-        const target = (ctx.firing || locked) ? rMax : rMin;
-        ship.orbRadius = ship.orbRadius == null ? rMin : ship.orbRadius + (target - ship.orbRadius) * Math.min(1, 6 * dt);
-        const spd = F.orb.orbitSpeed * ((ship.orbBurstTimer > 0 || locked) ? F.swingControl.burstSpeedMult : 1);
-        ship.orbAngle = (ship.orbAngle || 0) + spd * dt;
-        const ox = ship.x + Math.cos(ship.orbAngle) * ship.orbRadius, oy = ship.y + Math.sin(ship.orbAngle) * ship.orbRadius;
+        const reachMult = om ? om.radiusMult : 1, dmgMult = om ? om.dmgMult : 1;
+        const lock = ship.orbLockTimer > 0;                 // Graviflail Orbit Lock pins to a wide orbit
+        const orbitR = O.orbitRadius * reachMult * (lock ? (F.orbitLock.radiusMult || 1.6) : 1);
+        const maxReach = O.maxReach * reachMult;
+        if (ship.orbRadius == null) { ship.orbRadius = orbitR; ship.orbState = 'orbit'; ship.orbCd = 0; ship.orbHitGen = 0; }
+        if (ship.orbCd > 0) ship.orbCd -= dt;
+
+        // Launch: fire while resting + off cooldown shoots the orb out at FULL chain range along the
+        // aim direction (the cursor sets direction, not distance). Locked at launch so it returns.
+        if (ship.orbState === 'orbit' && !lock && ctx.firing && ship.orbCd <= 0) {
+          ship.orbThrowDist = maxReach;
+          ship.orbState = 'out'; ship.orbHitGen++;       // new pass — every target can be hit once on the way out
+        }
+        // Resolve the cycle: extend to full reach, hang briefly so the throw reads, then retract.
+        if (ship.orbState === 'out') {
+          ship.orbRadius += O.throwSpeed * dt;
+          if (ship.orbRadius >= ship.orbThrowDist) { ship.orbRadius = ship.orbThrowDist; ship.orbState = 'hold'; ship.orbHang = O.apexHangSec; }
+        } else if (ship.orbState === 'hold') {
+          ship.orbHang -= dt;
+          if (ship.orbHang <= 0) { ship.orbState = 'back'; ship.orbHitGen++; } // back pass can hit again
+        } else if (ship.orbState === 'back') {
+          ship.orbRadius -= O.recallSpeed * dt;
+          if (ship.orbRadius <= orbitR) { ship.orbRadius = orbitR; ship.orbState = 'orbit'; ship.orbCd = O.throwCooldownSec; }
+        } else {
+          const dr = orbitR - ship.orbRadius, step = O.recallSpeed * dt;   // settle to orbit (handles lock radius change)
+          ship.orbRadius += Math.abs(dr) <= step ? dr : (dr < 0 ? -step : step);
+        }
+        const thrown = ship.orbState === 'out' || ship.orbState === 'hold' || ship.orbState === 'back';
+
+        // Angle: circle while resting; steer toward the cursor while airborne (lightly steerable).
+        if (!thrown) {
+          const burst = (ship.orbBurstTimer > 0 || lock) ? F.swingControl.burstSpeedMult : 1;
+          ship.orbAngle = (ship.orbAngle || 0) + O.orbitSpeed * burst * dt;
+        } else {
+          let da = ship.aim - (ship.orbAngle || 0);
+          da = Math.atan2(Math.sin(da), Math.cos(da));      // shortest arc toward aim
+          ship.orbAngle = (ship.orbAngle || 0) + da * Math.min(1, O.sweepEase * dt);
+        }
+        const ox = ship.x + Math.cos(ship.orbAngle) * ship.orbRadius;
+        const oy = ship.y + Math.sin(ship.orbAngle) * ship.orbRadius;
         ship.orbX = ox; ship.orbY = oy;
-        let dmg = F.orb.contactDamage * (om ? om.dmgMult : 1) + (spd * ship.orbRadius) * F.orb.momentumMultiplier;
+        ship.orbActive = true; ship.orbBlockRadius = O.tipRadius;   // shield: intercepts enemy shots
+
+        // Damage by state: throw-out/hold (big committed hit) > throw-back (return sweep) > orbit (defensive).
+        let dmg = (ship.orbState === 'back' ? O.recallDamage : (ship.orbState === 'out' || ship.orbState === 'hold') ? O.throwDamage : O.orbitDamage) * dmgMult;
         if (ship.powerSwingTimer > 0) dmg *= F.powerSwing.damageMult;
         for (const t of api.hittables(ship)) {
-          const rr = F.orb.tipRadius + t.radius;
+          const rr = O.tipRadius + t.radius;
           if ((ox - t.x) ** 2 + (oy - t.y) ** 2 > rr * rr) continue;
-          if (api.state.time - (t._orbHit || -9) < F.orb.hitCooldownSec) continue;
-          t._orbHit = api.state.time;
+          // Thrown: gate per PASS (out, back) so a target takes the out-hit AND the return sweep.
+          // Orbit: gate by time so one circling pass = one hit.
+          if (thrown) { if (t._orbGen === ship.orbHitGen) continue; t._orbGen = ship.orbHitGen; }
+          else { if (api.state.time - (t._orbHit || -9) < O.hitCooldownSec) continue; t._orbHit = api.state.time; }
           const d = Math.hypot(ox - t.x, oy - t.y) || 1;
           api.damage(t, dmg, { dx: (t.x - ox) / d, dy: (t.y - oy) / d, knockback: 60, source: ship });
         }
@@ -212,8 +269,10 @@ window.PULSAR = window.PULSAR || {};
     const ox = ship.x + dx * (ship.radius + G.orbit.radius), oy = ship.y + dy * (ship.radius + G.orbit.radius);
     let dmg = G.well.launchDamage;
     if (ship.classId === 'meteorist' || ship.classId === 'starfall') dmg *= (1 + G.momentumStrike.medThrowBonus);
+    const hpKey = { asteroid: 'asteroidHP', crystal: 'crystalHP', debris: 'debrisHP' }[rock.type] || 'asteroidHP';
+    const hp = (api.config.farming[hpKey] || 12) * G.thrownRockHpMult;   // tankier than a normal rock — shootable but takes a real hit
     api.state.projectiles.push({ x: ox, y: oy, px: ox, py: oy, vx: dx * G.well.launchSpeed, vy: dy * G.well.launchSpeed,
-      radius: G.thrownRockRadius, damage: dmg, pierceLeft: 3, life: 2.4, color: '#b06bff', kind: 'rock', harvest: true, team: ship.team, owner: ship });
+      radius: rock.radius || G.thrownRockRadius, rockType: rock.type, isThrownRock: true, hp, damage: dmg, pierceLeft: 3, life: 2.4, color: '#b06bff', kind: 'rock', harvest: true, team: ship.team, owner: ship });
     api.fx.spawnParticles(ox, oy, 8, '#b06bff', { dir: ang, spread: 0.4, speed: 220 });
   }
 

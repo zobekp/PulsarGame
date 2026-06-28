@@ -6,6 +6,58 @@ survives between agents and sessions.
 
 ---
 
+## 2026-06-27 — Flail/rail/gravitor feel, multiplayer (relay), Phase 5 Step 1 (sim split)
+**What changed:** Big session. Class-feel polish, then online multiplayer (a quick relay), then the
+start of authoritative Phase 5 (headless sim extraction) — done STAGED to keep a working build.
+
+**Flailship — Commanded Chain Orb (`weapons.js` `wreckingOrb`, `config.flailship.orb`):** replaced
+the passive orbit with a 3-state weapon. ORBIT (rest): defensive shield, low damage, blocks enemy
+projectiles it touches (`orbActive`/`orbBlockRadius`, intercepted in `simulateProjectiles`). THROW:
+fire shoots the orb out to FULL `maxReach` along aim, hangs briefly (`apexHangSec`), AUTO-returns —
+can't be held out. Per-pass hit gating (`orbHitGen`) so a target takes the out-hit AND the return
+sweep. `throwCooldownSec` 1.4s, `throwDamage` 72 / `recallDamage` 44. Orbit Lock pins it to a wide
+orbit. Ironmoon ability/special un-duplicated: Space=powerSwing, E=moonSlam.
+
+**Railship:** beam `halfWidth` 7→9 (honest hitbox = wider). Hold at full charge → core redlines
+(gold→red over `overheatSec` 8s) then OVERHEATS: dumps charge, maxes heat, vents (`overheatVentSec`).
+Charge intake animation stops at full. Beams render extra bloom by charge stage (`fx.spawnBeam` power
+arg). Energy-intake charge animation added in `drawClassExtras`.
+
+**Gravitor rocks:** held rocks ride at full ASTEROID size and are "transparent" (not in world →
+can't be destroyed, don't block). Launched rocks keep real radius + are DESTRUCTIBLE in flight
+(`isThrownRock`, HP = `thrownRockHpMult` 2.5× normal, in `hittables` for enemies, shatter on
+death/miss). Durability pass earlier: `baseHP` 100→130, hammerhead 1.15→1.50.
+
+**Dev panel (`game.js` `drawDevPanel`):** top-right ADMIN button became a panel with a BOTS: ON/OFF
+toggle (`spawnBots`/`toggleBots`); hidden in MP.
+
+**Multiplayer — relay (LIVE, playable): `server.js` (zero-dep HTTP+WS), `src/net.js`.** Client-
+authoritative LAN/online PvP: 20Hz ship snapshots, beams + projectiles relayed as ghosts, damage as
+routed 'hit' events, kill attribution + bounty. Bots clear on connect. `game.js` hooks: `allShips()`
+includes `Net.remotes`, `damageShip` routes remote hits, `tickTimers` skips remotes, HUD MP line.
+Host: `node server.js`; same-WiFi friend → `http://<LAN-ip>:8080`; internet → `cloudflared tunnel
+--url http://localhost:8080`.
+
+**Phase 5 Step 1 — authoritative split (NEW, verified headlessly, NOT yet wired to client):**
+- `src/sim.js` — the ENTIRE simulation as `PULSAR.createWorld({ fx })`: headless, no DOM/render/input,
+  FX injected, no "local player" (ships driven by set intents). Faithful extraction of game.js's sim.
+- `mpserver.js` — zero-dep AUTHORITATIVE server: runs sim.js at 30Hz, owns the world, broadcasts 20Hz
+  snapshots (ships/projectiles/motes/fx-events; objects throttled every 10th). Clients send only intent.
+- Verified in Node: world spawns/moves/fires/damages/farms/evolves/respawns; server end-to-end (client
+  intent → server sim → snapshot moved the ship). `index.html` does NOT load sim.js, so the live
+  SP/relay game is untouched.
+
+**How to test:** SP/relay unchanged — open `index.html` or `node server.js`. Phase 5 server:
+`node mpserver.js` (client renderer is Step 2).
+
+**Known limits / TODO — Phase 5 Step 2 (next):** make `game.js` a thin client when connected to
+mpserver — send intent, render snapshots w/ interpolation, replay fx events, derive own screen-shake;
+SP also runs sim.js (one code path); retire the relay (`server.js`/`net.js`). Co-dependent with a live
+server → must be tested in-browser (two tabs). Relay limits remain meanwhile: cheatable, asteroids
+local per client.
+
+---
+
 ## 2026-06-27 — Phase 4 feel pass: specials wired, controls, regen, durability, render perf
 **What changed:** Tuning/feel session on the Phase 4 build (still the prove-it gate — no netcode).
 Closed gaps that made the game read as unfinished and fixed the Chrome framerate.
