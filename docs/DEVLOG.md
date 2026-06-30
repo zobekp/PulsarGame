@@ -6,6 +6,58 @@ survives between agents and sessions.
 
 ---
 
+## 2026-06-30 — Balance: counterplay vs Hammerhead, wider rail beam, ram cooldown + body-check
+**What changed:** Hammerhead was the only class with real agency (~50% of kills in headless matches).
+Patch philosophy: bring others UP with matchup-specific counterplay, NOT global stat inflation, and
+add pacing/identity to Hammerhead rather than gutting it. All values configurable; applied to BOTH
+`game.js` (live) and `sim.js` (Phase 5) so they don't drift.
+
+**Shared concept — high-momentum targets (`api.isHighMomentum`):** true if a ship is ramming OR its
+intent+impulse velocity ≥ `combat.highMomentumSpeed` (430; walk is 280). Drives all anti-charge tools;
+nothing hardcoded to Hammerhead.
+
+**Railship (survive/punish the charge):**
+- IMPULSE BREAK — full/overcharge beam on a high-momentum target cuts its momentum (impX/impY ×0.45,
+  ×0.25 overcharge), slows re-accel, and CANCELS the ram/charge state. (`railship.impulseBreak`)
+- VENT DASH — preserves 60% of charge (was a flat −0.25), +20% distance (dashSpeed 820→984), +0.4s
+  faster-recharge after. (`railship.ventDash`)
+- LINE BREAK now also vents 20 heat + scales the bonus with objects broken.
+- Beam WIDER: `beam.halfWidth` 9→14; Lancer/Star Piercer width mults 0.70→0.82 / 0.60→0.72 so the
+  precision branches stay hittable (player feedback: "can't hit any shots").
+
+**Gravitor (disrupt the charge path):**
+- WELL DISRUPTION — every gravitor's well adds extra inward pull + momentum damping + brief slow to
+  high-momentum targets (straight charges bend/stall). (`gravitor.well.highMomentum*`)
+- ORBITAL SHIELD — spends one orbiting rock to soak a heavy/charged hit (−55%). (`gravitor.orbitalShield`)
+
+**Flailship (parry the ram):**
+- ORB PARRY — orb positioned near a charging attacker softens the ram (−55%) + bleeds attacker
+  momentum (×0.4) + slows + cancels their lunge. (`flailship.orbParry`)
+- Recall speed 1250→1500 (+20%).
+
+**Hammerhead (pacing + identity, per request):**
+- DASH COOLDOWN — after a lunge, `ramCd` = active phase + `lunge.cooldownSec` (1.2s); winding gated
+  until it clears → no ram-spam. (Fixed a guard bug: uninitialized `ramCd` read as on-cooldown.)
+- BODY-CHECK — between dashes the hull bashes enemies on contact for `bodyCheck.damage` (12) on a
+  0.6s gate, so it still threatens off-cooldown. (`hammerhead.bodyCheck`)
+
+**Infra:** `server.js` + `mpserver.js` now send `Cache-Control: no-cache` — browsers were serving
+stale JS, which had hidden several patches (the cooldown "not working" was really a cached old file).
+
+**Playtest (headless, 4×3-min, 8 bots):** Hammer kill-share ~50% → 31%. Grav rose to ~34% (Orbital
+Shield + well damping are automatic, so bots benefit; watch for over-tuning). Rail/Flail still low in
+BOT data (18/17%) by design — their counterplay is skill-expressed; judge from human play.
+
+**How to test:** hard-refresh once (⌘+Shift+R) after the cache fix. Rail full-charge stops a ram;
+Vent-dash keeps charge. Gravitor with rocks tanks a ram (one pops). Flail orb between you+charger
+parries. Hammerhead can't re-dash for ~1.6s but body-checks for 12 on contact.
+
+**Known risks / next:** Gravitor may be slightly strong (auto shield); human-test the skill-based
+rail/flail tools; then consider non-minimal spec items (Impact Counter, Crushing Return, Broken Core
+upgrade). Verified each mechanic + the matchups headlessly via sim.js.
+
+---
+
 ## 2026-06-27 — Flail/rail/gravitor feel, multiplayer (relay), Phase 5 Step 1 (sim split)
 **What changed:** Big session. Class-feel polish, then online multiplayer (a quick relay), then the
 start of authoritative Phase 5 (headless sim extraction) — done STAGED to keep a working build.

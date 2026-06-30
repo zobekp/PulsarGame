@@ -39,7 +39,9 @@ window.PULSAR = window.PULSAR || {};
         if (ship.ventTimer > 0) { ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0; return; }
         if (ctx.firing) {
           ship.charging = true;
-          ship.charge = Math.min(ch.overchargeCap, ship.charge + dt / ch.timeToFullSec);
+          let rate = dt / ch.timeToFullSec;
+          if (ship.chargeBoostTimer > 0) { rate *= R.ventDash.chargeBoostMult; ship.chargeBoostTimer = Math.max(0, ship.chargeBoostTimer - dt); }
+          ship.charge = Math.min(ch.overchargeCap, ship.charge + rate);
           // Hold at full charge and the core redlines; past overheatSec it BLOWS — all charge lost,
           // no shot, heat maxed, vent lockout. The risk that caps how long you can hold a big shot.
           if (ship.charge >= ch.lanceMax) {
@@ -89,6 +91,16 @@ window.PULSAR = window.PULSAR || {};
           if (mods.closeRange && h.along < mods.closeRange) d *= mods.closeDamageMult;
           if (mods.perfectLineRangeFrac && h.along > maxRange * mods.perfectLineRangeFrac) d *= (1 + mods.perfectLineBonus);
           api.damage(h.t, d, { dx, dy, knockback: R.beam.knockback, crack: big, source: ship });
+          // IMPULSE BREAK: a full/overcharge shot on a charger kills its momentum + interrupts the lunge.
+          if (big && h.t.isShip && api.isHighMomentum && api.isHighMomentum(h.t)) {
+            const ib = R.impulseBreak, strong = stage === 'overcharge';
+            const vr = strong ? ib.overchargeVelocityReduction : ib.velocityReduction;
+            h.t.impX *= (1 - vr); h.t.impY *= (1 - vr);
+            h.t.slow = Math.max(h.t.slow || 0, ib.slow);
+            h.t.slowTimer = Math.max(h.t.slowTimer || 0, strong ? ib.overchargeSlowDurationSec : ib.slowDurationSec);
+            h.t.ramActive = 0; h.t.ramWinding = false; h.t.ramCharge = 0;   // cancel the charge state
+            api.fx.spawnParticles(h.t.x, h.t.y, 12, '#9fe8ff', { speed: 220 });
+          }
           pierced++; if (!h.t.isShip) neutrals++;
         }
         // Bigger charges throw a more powerful-looking beam (extra bloom layers, brighter core).
@@ -106,16 +118,35 @@ window.PULSAR = window.PULSAR || {};
     hammerRam: {
       update(api, ship, dt, ctx) {
         const H = api.config.hammerhead;
+        if (ship.ramCd > 0) ship.ramCd -= dt;
+        if (ship.bodyCheckCd > 0) ship.bodyCheckCd -= dt;
         if (ship.ramActive > 0) {
           if (!ship.isBot) api.fx.spawnParticles(ship.x, ship.y, 2, hueFor(ship.classId), { speed: 24, life: 0.32, size: ship.radius * 0.42, spread: 0.8 });
           this.smash(api, ship, H); return;
         }
-        if (ctx.firing) {
+        // Wind up + lunge — gated by the dash cooldown so you can't ram-spam.
+        if (ctx.firing && !(ship.ramCd > 0)) {
           ship.ramWinding = true;
           ship.ramCharge = Math.min(1, (ship.ramCharge || 0) + dt / H.lunge.chargeTimeSec);
         } else if (ship.ramWinding) {
           this.lunge(api, ship, H);
           ship.ramWinding = false; ship.ramCharge = 0;
+        }
+        // Between dashes the heavy hull still bashes enemies you make contact with.
+        this.bodyCheck(api, ship, H);
+      },
+      bodyCheck(api, ship, H) {
+        if (ship.bodyCheckCd > 0) return;
+        const bc = H.bodyCheck;
+        for (const e of api.enemiesOf(ship)) {
+          if (e.spawnProtect > 0) continue;
+          const dx = e.x - ship.x, dy = e.y - ship.y, rr = ship.radius + e.radius;
+          if (dx * dx + dy * dy > rr * rr) continue;
+          const d = Math.hypot(dx, dy) || 1;
+          api.damage(e, bc.damage, { dx: dx / d, dy: dy / d, knockback: bc.knockback, source: ship });
+          api.fx.spawnParticles(ship.x + dx * 0.5, ship.y + dy * 0.5, 6, hueFor(ship.classId), { speed: 140 });
+          ship.bodyCheckCd = bc.cooldownSec;
+          break;
         }
       },
       lunge(api, ship, H) {
@@ -124,6 +155,7 @@ window.PULSAR = window.PULSAR || {};
         ship.ramFull = c >= 0.95; ship.ramSlammed = false;
         const f = H.lunge.minLungeFactor + (1 - H.lunge.minLungeFactor) * c;
         ship.ramActive = H.lunge.durationSec * (0.55 + 0.45 * c);
+        ship.ramCd = ship.ramActive + H.lunge.cooldownSec;   // can't dash again until the active phase + cooldown elapse
         ship.ramHitList = [];
         const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);
         api.applyImpulse(ship, dx * H.lunge.speed * f, dy * H.lunge.speed * f);
@@ -172,6 +204,18 @@ window.PULSAR = window.PULSAR || {};
             e.vx += ((ship.x - e.x) / (d || 1)) * td.pull * dt; e.vy += ((ship.y - e.y) / (d || 1)) * td.pull * dt;
             e.slow = Math.max(e.slow || 0, td.slow); e.slowTimer = Math.max(e.slowTimer || 0, 0.12);
           }
+        }
+        // ALL wells disrupt high-momentum chargers: extra inward pull + bleed the lunge + brief slow,
+        // so a straight charge through the field bends and stalls (counterplay, not a root).
+        const w = G.well;
+        if (api.isHighMomentum) for (const e of api.enemiesOf(ship)) {
+          if (!api.isHighMomentum(e)) continue;
+          const dx = ship.x - e.x, dy = ship.y - e.y, d = Math.hypot(dx, dy);
+          if (d > w.pullRadius) continue;
+          e.vx += (dx / (d || 1)) * w.enemyPull * w.highMomentumPullMult * dt;
+          e.vy += (dy / (d || 1)) * w.enemyPull * w.highMomentumPullMult * dt;
+          e.impX *= (1 - w.highMomentumDamping); e.impY *= (1 - w.highMomentumDamping);
+          e.slow = Math.max(e.slow || 0, w.highMomentumSlow); e.slowTimer = Math.max(e.slowTimer || 0, 0.15);
         }
         const cap = (G.launchByClass[ship.classId] || G.launchByClass.gravitor).cap;
         if (ship.captured.length >= cap) return;
@@ -282,7 +326,8 @@ window.PULSAR = window.PULSAR || {};
         const v = api.config.railship.ventDash;
         api.applyImpulse(ship, -Math.cos(ship.aim) * v.dashSpeed, -Math.sin(ship.aim) * v.dashSpeed);
         ship.heat = Math.max(0, ship.heat - v.heatReduction);
-        if (ship.charging) ship.charge = Math.max(0, ship.charge - v.chargePenaltyFraction);
+        if (ship.charging) ship.charge *= v.chargePreserveFraction;   // keep most of the charge through the dash
+        ship.chargeBoostTimer = v.chargeBoostSec;                     // and recharge faster right after
         api.fx.spawnParticles(ship.x, ship.y, 12, '#9fe8ff', { dir: ship.aim, spread: 1.1, speed: 320 });
         return v.cooldownSec;
       },

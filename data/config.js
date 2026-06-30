@@ -113,6 +113,10 @@ window.PULSAR.config = {
     ttkReferenceHits: 5,          // dial that decides twitchy vs grindy; keep TTK long
                                   // enough that VFX tells matter
     knockbackBase: 140,
+    // A target is "high-momentum" if it's ramming OR moving (intent+impulse) at/above this speed.
+    // Baseline move speed is ~280; lunges/dashes are far above. Used by the anti-charge counterplay
+    // (rail Impulse Break, gravity damping, orb parry) so those punish reckless engages, not walking.
+    highMomentumSpeed: 430,
   },
 
   // ---- Starter weapon: Popgun ------------------------------------------------
@@ -164,7 +168,7 @@ window.PULSAR.config = {
     // falloff. Honest VFX: beamHalfWidth IS the hitbox half-thickness (bloom matches it).
     beam: {
       maxRange: 1300,             // px the beam reaches
-      halfWidth: 9,              // hitbox half-thickness == drawn beam glow half-width
+      halfWidth: 14,             // hitbox half-thickness == drawn beam glow half-width (forgiving to aim)
       visualSec: 0.16,           // how long the beam streak lingers (render only)
       knockback: 90,             // push imparted to things the beam hits
     },
@@ -175,18 +179,25 @@ window.PULSAR.config = {
       max: 100, tapShot: 8, halfCharge: 18, fullCharge: 35, overcharge: 55,
       decayPerSec: 22, ventStateAtMax: true, ventStateSec: 1.0,
     },
-    ventDash: { heatReduction: 25, cooldownSec: 3, chargePenaltyFraction: 0.25,
-                dashSpeed: 820, dashDurationSec: 0.18 }, // backward burst that sheds heat
+    ventDash: { heatReduction: 25, cooldownSec: 3,
+                chargePreserveFraction: 0.60,   // keep 60% of charge through the dash (was: slash a flat 0.25)
+                dashSpeed: 984, dashDurationSec: 0.18,        // +20% distance — a real reposition/escape
+                chargeBoostSec: 0.4, chargeBoostMult: 1.25 }, // brief faster recharge right after the dash
+    // Impulse Break — a FULL-charge rail shot on a high-momentum target kills its momentum and
+    // interrupts the charge (Armor Crack still applies). The answer to a reckless straight-line rush.
+    impulseBreak: { velocityReduction: 0.55, slow: 0.5, slowDurationSec: 0.4,
+                    overchargeVelocityReduction: 0.75, overchargeSlowDurationSec: 0.6 },
+    lineBreakHeatRefund: 20,       // LINE BREAK (3+ neutrals in one shot) also vents this much heat
     armorCrack: { baseDurationSec: 1.5, damageAmp: 0.15,
                   durationVs2xLarger: 2.25, durationVs4xLarger: 3.0 },
     pierceFalloff: { neutral: [1.0, 0.9, 0.8, 0.7], players: [1.0, 0.7, 0.45] },
     lineBreakThreshold: 3,
     // Tier mods applied by class id. Multipliers/values vs the base rail above.
     evolveMods: {
-      lancer:      { rangeMult: 1.30, fullChargeDamageMult: 1.20, beamWidthMult: 0.70,
+      lancer:      { rangeMult: 1.30, fullChargeDamageMult: 1.20, beamWidthMult: 0.82,
                      closeRange: 320, closeDamageMult: 0.70,          // weakerUpClose
                      perfectLineRangeFrac: 0.60, perfectLineBonus: 0.20 }, // perfectLine passive
-      starPiercer: { rangeMult: 1.50, fullChargeDamageMult: 1.35, beamWidthMult: 0.60,
+      starPiercer: { rangeMult: 1.50, fullChargeDamageMult: 1.35, beamWidthMult: 0.72,
                      closeRange: 320, closeDamageMult: 0.70,
                      perfectLineRangeFrac: 0.60, perfectLineBonus: 0.20,
                      brokenCoreMarkSec: 2.0 },   // brokenCore: weak-point on cracked leaders (scaffold)
@@ -209,7 +220,11 @@ window.PULSAR.config = {
     // ship carries its momentum and the distance reads clearly.
     lunge: { chargeTimeSec: 0.7, speed: 1500, durationSec: 0.40, selfDamageReduction: 0.8,
              minLungeFactor: 0.28,      // tap-lunge speed/distance floor; windup scales up to 1.0
-             glideDampPerSec: 1.5 },    // low drag mid-lunge (vs player.impulseDampPerSec) = real glide
+             glideDampPerSec: 1.5,      // low drag mid-lunge (vs player.impulseDampPerSec) = real glide
+             cooldownSec: 1.2 },        // forced wait after a lunge ends — no ram-spam
+    // Non-dash impact: the heavy hull bashes enemies you bump into BETWEEN dashes (gated so it's
+    // a steady body-check, not a per-tick grind). Keeps Hammerhead threatening off cooldown.
+    bodyCheck: { damage: 12, cooldownSec: 0.6, knockback: 90 },
     maulbreaker: { frontHitboxMult: 1.4, knockbackMult: 1.5 },        // biggerFrontHitbox/moreKnockback
     worldsplitterSlam: { radius: 230, damage: 40, knockback: 320 },   // full-lunge hit -> shockwave
     ability: "brace",             // "brace" (DR) or "brakeTurn" (redirect) — pick in code
@@ -224,7 +239,12 @@ window.PULSAR.config = {
     well: {
       pullRadius: 440, enemyPull: 30, enemySlow: 0.10,
       launchSpeed: 660, launchDamage: 24,
+      // ALL gravitor wells disrupt high-momentum targets: extra inward pull + momentum damping +
+      // a brief slow, so a straight charge through the field is unreliable (not a root).
+      highMomentumPullMult: 1.8, highMomentumDamping: 0.22, highMomentumSlow: 0.22,
     },
+    // Orbital Shield — if a gravitor has a rock in orbit, it spends one to soak a heavy/charged hit.
+    orbitalShield: { damageReduction: 0.55, heavyThreshold: 30 },
     // Captured rocks circle the hull until you launch them at the cursor. Farming style:
     // pull rocks, hurl them through OTHER rocks (orbitalHarvest pays bonus on those kills).
     orbit: { radius: 74, speed: 2.6 },          // visual/where captured rocks ride
@@ -263,7 +283,7 @@ window.PULSAR.config = {
       maxReach: 340,                    // chain length — every throw commits to THIS full range
       apexHangSec: 0.12,                // brief hang at full extension so the throw reads (not held)
       throwSpeed: 1700,                 // px/sec the orb travels OUT on a throw (snappy launch)
-      recallSpeed: 1250,                // px/sec the orb retracts on the way back
+      recallSpeed: 1500,                // px/sec the orb retracts (+20% — snappier recall counterplay)
       throwCooldownSec: 1.4,            // gate after the orb returns — snappy but not spammy
       orbitSpeed: 3.2,                  // angular speed while circling in orbit mode
       sweepEase: 9,                     // how fast the airborne orb steers toward the cursor (per sec)
@@ -283,6 +303,9 @@ window.PULSAR.config = {
     powerSwing: { damageMult: 1.5, durationSec: 3, cooldownSec: 8 }, // Chainmaul+
     moonSlam: { chargeSec: 0.5, damage: 50, knockback: 260, splash: 0.3 }, // Ironmoon
     orbitLock: { durationSec: 4, cooldownSec: 9, radiusMult: 1.6 }, // Graviflail: wide defensive orbit (pins to orbit mode)
+    // Orb Parry — if the orb is positioned between you and a charging attacker, it softens the ram
+    // and bleeds the attacker's momentum. Position-based: the orb must be near the incoming hull.
+    orbParry: { ramDamageReduction: 0.55, attackerVelocityReduction: 0.6, attackerSlow: 0.4, attackerSlowSec: 0.45, reach: 18 },
     gravityCrush: { radius: 200, dps: 30, pullSmallObjects: true }, // Orbit Crusher
   },
 

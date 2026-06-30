@@ -212,6 +212,25 @@ window.PULSAR = window.PULSAR || {};
     }
     if (t.braceTimer > 0) dmg *= (1 - cfg.hammerhead.brace.damageReduction);
     if (t.cracked) dmg *= (1 + cfg.railship.armorCrack.damageAmp);
+    // Gravitor Orbital Shield — spend an orbiting rock to soak a heavy or high-momentum hit.
+    if (FAMILY[t.classId] === 'grav' && t.captured && t.captured.length > 0) {
+      const os = cfg.gravitor.orbitalShield;
+      if ((opts.source && isHighMomentum(opts.source)) || dmg >= os.heavyThreshold) {
+        t.captured.pop(); dmg *= (1 - os.damageReduction);
+        Fx.spawnParticles(t.x, t.y, 14, '#b06bff', { speed: 220 });
+      }
+    }
+    // Flailship Orb Parry — orb between you and a charging attacker softens the ram + bleeds momentum.
+    if (FAMILY[t.classId] === 'flail' && t.orbActive && opts.source && isHighMomentum(opts.source)) {
+      const op = cfg.flailship.orbParry, src = opts.source;
+      if (Math.hypot(t.orbX - src.x, t.orbY - src.y) < (t.orbBlockRadius || 16) + src.radius + op.reach) {
+        dmg *= (1 - op.ramDamageReduction);
+        src.impX *= (1 - op.attackerVelocityReduction); src.impY *= (1 - op.attackerVelocityReduction);
+        src.slow = Math.max(src.slow || 0, op.attackerSlow); src.slowTimer = Math.max(src.slowTimer || 0, op.attackerSlowSec);
+        src.ramActive = 0;
+        Fx.spawnParticles(t.orbX, t.orbY, 16, '#ffd23c', { speed: 260 });
+      }
+    }
     if (opts.crack) { t.cracked = true; t.crackTimer = cfg.railship.armorCrack.baseDurationSec; }
     t.hp -= dmg; t.hitFlash = 0.16;
     if (opts.knockback) { t.impX += (opts.dx || 0) * opts.knockback; t.impY += (opts.dy || 0) * opts.knockback; }
@@ -252,10 +271,18 @@ window.PULSAR = window.PULSAR || {};
     applyClassStats(v, true);
     if (v.isBot) earn(v, cfg.player.scrapTrickleOnSpawn);
   }
-  function lineBreak(s, count, x, y) { earn(s, eco.lineBreakBonusScrap); if (s === p) { Fx.spawnText(x, y - 24, 'LINE BREAK +' + eco.lineBreakBonusScrap, '#7be0ff', { size: 18 }); Fx.addShake(6); } }
+  function lineBreak(s, count, x, y) { const bonus = eco.lineBreakBonusScrap + Math.max(0, count - 3); earn(s, bonus); s.heat = Math.max(0, s.heat - cfg.railship.lineBreakHeatRefund); if (s === p) { Fx.spawnText(x, y - 24, 'LINE BREAK +' + bonus, '#7be0ff', { size: 18 }); Fx.addShake(6); } }
 
+  // A target is "high-momentum" if it's ramming or moving (intent + impulse) at/above the threshold.
+  // Used by the anti-charge counterplay so it punishes reckless engages, not normal movement.
+  function isHighMomentum(s) {
+    if (!s || !s.isShip) return false;
+    if (s.ramActive > 0) return true;
+    const vx = (s.vx || 0) + (s.impX || 0), vy = (s.vy || 0) + (s.impY || 0);
+    return (vx * vx + vy * vy) >= cfg.combat.highMomentumSpeed * cfg.combat.highMomentumSpeed;
+  }
   const api = {
-    config: cfg, state, fx: Fx, damageObject, crackObject, lineBreak, enemiesOf,
+    config: cfg, state, fx: Fx, damageObject, crackObject, lineBreak, enemiesOf, isHighMomentum,
     damage(target, dmg, opts) {
       if (target.isShip) damageShip(target, dmg, opts);
       else if (target.isThrownRock) damageThrownRock(target, dmg, opts);
