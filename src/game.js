@@ -204,6 +204,7 @@ window.PULSAR = window.PULSAR || {};
   }
   function damageShip(t, dmg, opts) {
     opts = opts || {};
+    if (t === p && !gameStarted) return;   // invulnerable on the title screen
     if (!t.alive || t.spawnProtect > 0) return;
     if (t.isRemote) {   // PvP: the owner is authoritative for its HP — route the hit, show local feedback
       PULSAR.Net.sendHit(t.netId, dmg, opts);
@@ -238,8 +239,15 @@ window.PULSAR = window.PULSAR || {};
     if (t === p) Fx.addShake(7);
     if (t.hp <= 0) killShip(t, opts.source);
   }
+  // ---- title / name / killfeed ----------------------------------------------
+  let gameStarted = false;
+  const killFeed = [];
+  function nameOf(s) { return s === p ? (p.name || 'YOU') : (s.name || classNode(s.classId).displayName); }
+  function addKill(killer, victim, leader) { killFeed.push({ killer, victim, leader, t: state.time }); if (killFeed.length > 8) killFeed.shift(); }
+
   function killShip(v, killer) {
     const carried = v.scrap;
+    addKill(killer && killer !== v ? nameOf(killer) : null, nameOf(v), v.isLeader);
     v.alive = false; resetClassState(v);
     const drop = Math.floor(carried * eco.dropFractionOnDeath);
     v.scrap = carried - drop;
@@ -387,10 +395,14 @@ window.PULSAR = window.PULSAR || {};
     state.time += dt;
     pulsarPulse(dt);
     for (const s of allShips()) tickTimers(s, dt);
-    if (!p.alive) { p.respawnTimer -= dt; if (p.respawnTimer <= 0) respawnShip(p); } else playerStep(dt);
+    if (!gameStarted) p.spawnProtect = Math.max(p.spawnProtect, 0.5);        // idle + safe behind the title
+    else if (!p.alive) { p.respawnTimer -= dt; if (p.respawnTimer <= 0) respawnShip(p); } else playerStep(dt);
     for (const b of state.bots) { if (!b.alive) { b.respawnTimer -= dt; if (b.respawnTimer <= 0) respawnShip(b); } else botStep(b, dt); }
     if (PULSAR.Net.connected) {
-      if (state.bots.length) state.bots.length = 0;                          // friends joined → drop bots
+      // Bots stay in multiplayer as filler; they only clear once the lobby exceeds 10 real players.
+      const players = 1 + PULSAR.Net.count;
+      if (players > 10) { if (state.bots.length) state.bots.length = 0; }
+      else if (state.bots.length === 0) spawnBots();
       for (const pr of state.projectiles) if (!pr._netSent && pr.owner === p) { pr._netSent = true; PULSAR.Net.sendProjectile(pr); } // show our shots on their screens
       PULSAR.Net.step(p, dt);
     }
@@ -494,7 +506,7 @@ window.PULSAR = window.PULSAR || {};
     }
 
     uiButtons = [];
-    drawHud(); drawLeaderboard(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
+    drawHud(); drawLeaderboard(); drawKillFeed(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
   }
 
   function shipBloom(R, s, alpha, isPlayer) {
@@ -507,6 +519,7 @@ window.PULSAR = window.PULSAR || {};
     if (s.heat > cfg.railship.heat.max * 0.6 || s.ventTimer > 0) R.glow(cx, cy, s.radius * 2.4, [255, 120, 60], 0.22 + 0.4 * (s.heat / cfg.railship.heat.max));
   }
   function drawEnemyTag(ctx, s, x, y) {
+    if (s.name) { ctx.textAlign = 'center'; ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = s.isLeader ? '#ffd98a' : 'rgba(220,235,255,0.85)'; ctx.fillText(s.name, x, y - s.radius - 16); ctx.textAlign = 'left'; }
     if (s.hp < s.maxHp) { const w = s.radius * 2.2, hb = y - s.radius - 12; ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x - w / 2, hb, w, 3); ctx.fillStyle = s.isLeader ? '#ffd98a' : '#ff8a8a'; ctx.fillRect(x - w / 2, hb, w * Math.max(0, s.hp / s.maxHp), 3); }
   }
 
@@ -559,15 +572,19 @@ window.PULSAR = window.PULSAR || {};
       ctx.strokeStyle = drag ? 'rgba(176,107,255,0.4)' : 'rgba(176,107,255,0.22)'; ctx.lineWidth = 1.5;
       ctx.beginPath(); ctx.arc(cx, cy, (drag ? G.well.pullRadius * G.tidalDrag.radiusMult : G.well.pullRadius) * 0.25, 0, TAU); ctx.stroke();
       const cap = s.captured.length;
-      // Held rocks ride at full ASTEROID size — but they're "transparent": not in the world, so
-      // they can't be destroyed and don't block any damage while held (only breakable once shot).
+      // Held rocks ride at full ASTEROID size AND keep their real neutral-object shape (asteroid/
+      // crystal/debris) — just haloed by the well's purple pull. They're "transparent" while held
+      // (not in the world → can't be destroyed, don't block damage), only breakable once shot.
       for (let i = 0; i < cap; i++) {
+        const held = s.captured[i], type = held.type || 'asteroid', rr = held.radius || 18;
         const a = s.orbSpin + i * (TAU / Math.max(1, cap));
-        const rr = s.captured[i].radius || 18;
         const rx = cx + Math.cos(a) * (s.radius + G.orbit.radius), ry = cy + Math.sin(a) * (s.radius + G.orbit.radius);
-        R.setComposite('lighter'); R.glow(rx, ry, rr * 1.4, [176, 107, 255], 0.4); R.setComposite('source-over');
-        ctx.fillStyle = 'rgba(150,120,200,0.85)'; ctx.beginPath(); ctx.arc(rx, ry, rr, 0, TAU); ctx.fill();
-        ctx.strokeStyle = 'rgba(210,190,255,0.5)'; ctx.lineWidth = 1; ctx.stroke();
+        R.setComposite('lighter'); R.glow(rx, ry, rr * 1.5, [176, 107, 255], 0.4); R.setComposite('source-over');
+        ctx.save(); ctx.translate(rx, ry); ctx.rotate(s.orbSpin * 1.6 + i);
+        (ROCK_PATH[type] || asteroidPath)(ctx, rr);
+        ctx.fillStyle = ROCK_FILL[type] || ROCK_FILL.asteroid; ctx.fill();
+        ctx.strokeStyle = 'rgba(210,190,255,0.6)'; ctx.lineWidth = 1.3; ctx.stroke();   // purple well rim over the real shape
+        ctx.restore();
       }
     } else if (fam === 'rail') {
       const RC = cfg.railship.charge, t = state.time;
@@ -626,6 +643,9 @@ window.PULSAR = window.PULSAR || {};
   }
   function drawShape(ctx, o, x, y, pathFn, hitFill, fill, strokeC) { ctx.save(); ctx.translate(x, y); ctx.rotate(o.spin); pathFn(ctx, o.radius); ctx.fillStyle = o.flash > 0 ? hitFill : fill; ctx.fill(); ctx.strokeStyle = strokeC; ctx.lineWidth = 1.4; ctx.stroke(); ctx.restore(); objectOverlays(ctx, o, x, y); }
   function asteroidPath(ctx, r) { ctx.beginPath(); for (let i = 0; i <= 9; i++) { const a = (i / 9) * TAU, rr = r * (0.82 + 0.18 * Math.sin(a * 3 + 1.3) * Math.cos(a * 2)); const vx = Math.cos(a) * rr, vy = Math.sin(a) * rr; i === 0 ? ctx.moveTo(vx, vy) : ctx.lineTo(vx, vy); } ctx.closePath(); }
+  // shape + fill lookups for gravitor-held rocks (drawn with their real neutral-object silhouette)
+  const ROCK_PATH = { asteroid: asteroidPath, crystal: crystalPath, debris: debrisPath };
+  const ROCK_FILL = { asteroid: 'rgba(150,165,190,0.92)', crystal: 'rgba(120,240,220,0.7)', debris: 'rgba(120,135,160,0.9)' };
   function crystalPath(ctx, r) { ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.7, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.7, 0); ctx.closePath(); }
   function debrisPath(ctx, r) { ctx.beginPath(); ctx.moveTo(-r, -r * 0.4); ctx.lineTo(r * 0.6, -r); ctx.lineTo(r, r * 0.5); ctx.lineTo(-r * 0.3, r); ctx.closePath(); }
   function objectOverlays(ctx, o, x, y) {
@@ -666,7 +686,7 @@ window.PULSAR = window.PULSAR || {};
     const x = Render.viewW - 164, y0 = 48;
     ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(160,190,220,0.7)'; ctx.fillText('LEADERBOARD', x, y0);
     ctx.font = '400 11px system-ui, sans-serif';
-    ranked.forEach((s, i) => { ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(220,230,245,0.7)'); ctx.fillText(`${i + 1}. ${s === p ? 'YOU' : classNode(s.classId).displayName}`, x, y0 + 16 + i * 14); ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + 148, y0 + 16 + i * 14); ctx.textAlign = 'left'; });
+    ranked.forEach((s, i) => { ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(220,230,245,0.7)'); ctx.fillText(`${i + 1}. ${s === p ? 'YOU' : nameOf(s)}`, x, y0 + 16 + i * 14); ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + 148, y0 + 16 + i * 14); ctx.textAlign = 'left'; });
   }
   function drawDevPanel() {
     const ctx = Render.ctx, w = 150, h = 26, x = Render.viewW - w - 14;
@@ -712,8 +732,30 @@ window.PULSAR = window.PULSAR || {};
     ctx.fillStyle = 'rgba(8,12,20,0.6)'; ctx.fillRect(x0, y0, size, size); ctx.strokeStyle = 'rgba(80,120,180,0.4)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, size, size);
     const px = x0 + (cfg.arena.width / 2) * sc, py = y0 + (cfg.arena.height / 2) * sc;
     ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(px, py, 2.5 + Math.max(0, Math.sin(state.time * (TAU / cfg.arena.pulsarPulseIntervalSec))), 0, TAU); ctx.fill();
-    for (const s of state.bots) { if (!s.alive) continue; ctx.fillStyle = s.isLeader ? '#ffd98a' : 'rgba(255,120,120,0.85)'; ctx.beginPath(); ctx.arc(x0 + s.x * sc, y0 + s.y * sc, s.isLeader ? 3 : 2, 0, TAU); ctx.fill(); }
-    if (p.alive) { ctx.fillStyle = p.isLeader ? '#ffd98a' : '#39d0ff'; ctx.beginPath(); ctx.arc(x0 + p.x * sc, y0 + p.y * sc, 3, 0, TAU); ctx.fill(); }
+    // Each ship is a CLASS-COLOURED arrow pointing where it faces (you = cyan + ring, leader = gold rim).
+    for (const s of allShips()) {
+      if (!s.alive) continue;
+      const mx = x0 + s.x * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 4.6 : 3.4;
+      ctx.save(); ctx.translate(mx, my); ctx.rotate(s.aim);
+      ctx.fillStyle = isMe ? '#39d0ff' : hueFor(s.classId);
+      ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.62); ctx.lineTo(-r * 0.7, -r * 0.62); ctx.closePath(); ctx.fill();
+      if (s.isLeader) { ctx.strokeStyle = '#ffd98a'; ctx.lineWidth = 1.2; ctx.stroke(); }
+      ctx.restore();
+      if (isMe) { ctx.strokeStyle = 'rgba(57,208,255,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(mx, my, r + 2.5, 0, TAU); ctx.stroke(); }
+    }
+  }
+  function drawKillFeed() {
+    const ctx = Render.ctx, x = Render.viewW - 16; let y = 132;
+    ctx.textAlign = 'right'; ctx.font = '600 12px system-ui, sans-serif';
+    for (let i = killFeed.length - 1; i >= 0; i--) {
+      const k = killFeed[i], age = state.time - k.t;
+      if (age > 6) continue;
+      const a = Math.max(0, Math.min(1, (6 - age) / 1.5));
+      const txt = k.killer ? `${k.killer}  ⚔  ${k.victim}` : `${k.victim}  ☠`;
+      ctx.fillStyle = `rgba(${k.leader ? '255,210,120' : '230,160,150'},${0.9 * a})`;
+      ctx.fillText(txt, x, y); y += 16;
+    }
+    ctx.textAlign = 'left';
   }
 
   // ---- loop ------------------------------------------------------------------
@@ -735,16 +777,26 @@ window.PULSAR = window.PULSAR || {};
     if (PULSAR.Net.MULTIPLAYER) PULSAR.Net.init({
       // Incoming hit from another player: apply locally; if it kills us, credit + bounty the killer.
       onHit: (dmg, opts, killerId) => {
-        if (!p.alive) return;
+        if (!p.alive || !gameStarted) return;
         const carried = p.scrap, wasLeader = p.isLeader;
         damageShip(p, dmg, { crack: opts.crack });
-        if (!p.alive && killerId) { let b = carried * eco.killScrapFraction; if (wasLeader) b *= cfg.leader.bountyScrapMultiplier; PULSAR.Net.sendKill(killerId, Math.floor(b)); }
+        if (!p.alive && killerId) {
+          let b = carried * eco.killScrapFraction; if (wasLeader) b *= cfg.leader.bountyScrapMultiplier;
+          PULSAR.Net.sendKill(killerId, Math.floor(b), p.name || 'Player');
+          addKill(PULSAR.Net.nameOf(killerId) || 'Player', p.name || 'YOU', wasLeader);
+        }
       },
-      // We killed someone: bank the bounty + tally the kill.
-      onKill: (bounty) => { if (!p.alive) return; p.kills = (p.kills || 0) + 1; if (bounty > 0) earn(p, bounty); Fx.spawnText(p.x, p.y - 30, '+' + bounty + ' KILL', '#ffd98a', { size: 14 }); },
+      // We killed a player: bank the bounty, tally the kill, post the feed.
+      onKill: (bounty, victimName) => { if (!p.alive) return; p.kills = (p.kills || 0) + 1; if (bounty > 0) earn(p, bounty); Fx.spawnText(p.x, p.y - 30, '+' + bounty + ' KILL', '#ffd98a', { size: 14 }); addKill(p.name || 'YOU', victimName || 'Player', false); },
     });
     requestAnimationFrame(frame);
   }
+  // Called by the title screen's PLAY button (index.html) — sets your name and drops you in.
+  PULSAR.startGame = function (name) {
+    p.name = (name || '').slice(0, 16).trim() || 'Player';
+    gameStarted = true;
+    p.spawnProtect = cfg.player.spawnProtectionSec;
+  };
   if (document.readyState === 'loading') addEventListener('DOMContentLoaded', boot);
   else boot();
 })();

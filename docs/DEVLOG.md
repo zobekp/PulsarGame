@@ -6,6 +6,34 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-01 — MP lobby polish: title screen, killfeed, class minimap, bots-in-MP, held-rock shapes
+**What changed (all client-side, live relay game):**
+- **Bots in multiplayer:** bots now stay as filler in MP and only clear once the lobby exceeds 10
+  real players (`1 + Net.count > 10`); they respawn if it drops back under. (Relay caveat: bots run
+  per-client, not synced — real players are synced, bots are local filler.)
+- **Title screen (`index.html`):** neon PULSAR.io logo + name input (remembered via localStorage) +
+  PLAY. Game runs idle+invulnerable behind it until PLAY. `PULSAR.startGame(name)` sets `p.name`,
+  flips `gameStarted`, gives spawn protection. Name typing is `stopPropagation`'d so it doesn't drive
+  the ship. `gameStarted` gates `playerStep` + `damageShip(p)`.
+- **Killfeed:** top-right `Killer ⚔ Victim` (gold if leader, `☠` self-wreck), fades after 6s. Fed by
+  local `killShip`, plus MP player-kills via the relay (`sendKill` now carries victim name; `onKill`
+  posts it; death-by-player looks up the killer via `Net.nameOf`).
+- **Minimap shows classes:** ships are class-COLOURED arrows pointing at their aim (you = cyan+ring,
+  leader = gold rim) instead of uniform dots; iterates `allShips()` so remotes show too.
+- **Nametags:** player names render above ships + in the leaderboard (`nameOf`).
+- **Held gravitor rocks keep their real shape:** drawn with `asteroidPath`/`crystalPath`/`debrisPath`
+  (tumbling, purple well halo) instead of plain circles. `ROCK_PATH`/`ROCK_FILL` maps by type.
+- **Net (`net.js`):** snapshot carries `nm` (name); remotes get `.name`; `sendKill(id,bounty,victim)`
+  + `nameOf(id)` lookup.
+
+**Files:** `src/game.js`, `src/net.js`, `index.html`.
+**How to test:** reload (no-cache on). Title → name → PLAY. Minimap arrows coloured by class; killfeed
+on kills; Gravitor-held rocks look like real asteroids/crystals/debris. In MP, bots persist up to 10 players.
+**Known limits:** killfeed of remote-vs-remote kills isn't relayed (only kills involving you); bots
+unsynced in MP. Phase 5 Step 2 (authoritative thin client on sim.js/mpserver.js) still pending.
+
+---
+
 ## 2026-06-30 — Balance: counterplay vs Hammerhead, wider rail beam, ram cooldown + body-check
 **What changed:** Hammerhead was the only class with real agency (~50% of kills in headless matches).
 Patch philosophy: bring others UP with matchup-specific counterplay, NOT global stat inflation, and

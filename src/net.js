@@ -30,7 +30,7 @@ window.PULSAR.Net = (function () {
         abilityCd: 0, specialCd: 0, orbLockTimer: 0, chargeFullTimer: 0, kills: 0, xp: 0 };
       byId.set(id, r); remotes.push(r);
     }
-    r.classId = s.c; r.netX = s.x; r.netY = s.y; r.aim = s.a; r.radius = s.r;
+    r.classId = s.c; r.netX = s.x; r.netY = s.y; r.aim = s.a; r.radius = s.r; r.name = s.nm || '';
     r.hp = s.hp; r.maxHp = s.mh; r.scrap = s.scr || 0; r.level = s.lvl || 1;
     r.alive = s.al !== 0; r.isLeader = !!s.ld; r.spawnProtect = s.sp ? 1 : 0;
     r.charging = !!s.cg; r.charge = s.ch || 0; r.heat = s.ht || 0; r.ventTimer = s.vt || 0;
@@ -41,7 +41,7 @@ window.PULSAR.Net = (function () {
   function removeRemote(id) { const r = byId.get(id); if (!r) return; byId.delete(id); const i = remotes.indexOf(r); if (i >= 0) remotes.splice(i, 1); }
 
   function snapshot(p) {
-    return { c: p.classId, x: Math.round(p.x), y: Math.round(p.y), a: +p.aim.toFixed(3), r: Math.round(p.radius),
+    return { c: p.classId, nm: p.name || '', x: Math.round(p.x), y: Math.round(p.y), a: +p.aim.toFixed(3), r: Math.round(p.radius),
       hp: Math.round(p.hp), mh: Math.round(p.maxHp), scr: Math.round(p.scrap), lvl: p.level,
       al: p.alive ? 1 : 0, ld: p.isLeader ? 1 : 0, sp: p.spawnProtect > 0 ? 1 : 0,
       cg: p.charging ? 1 : 0, ch: +p.charge.toFixed(2), ht: Math.round(p.heat), vt: +(p.ventTimer || 0).toFixed(2),
@@ -67,7 +67,7 @@ window.PULSAR.Net = (function () {
       else if (m.t === 'state') applyState(m.id, m.s);
       else if (m.t === 'leave') removeRemote(m.id);
       else if (m.t === 'hit') { if (onHit) onHit(m.dmg, { crack: m.crack }, m.from); }
-      else if (m.t === 'kill') { if (onKill) onKill(m.bounty); }
+      else if (m.t === 'kill') { if (onKill) onKill(m.bounty, m.vn); }
       else if (m.t === 'beam') { const b = m.b; rawBeam.call(PULSAR.Fx, b.x1, b.y1, b.x2, b.y2, b.col, b.hw, b.life, b.pw); }
       else if (m.t === 'proj') { const q = m.p; ghosts.push({ x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: q.r, col: q.col, kind: q.k, life: q.life }); }
     };
@@ -102,7 +102,8 @@ window.PULSAR.Net = (function () {
       if (sendAcc >= 1 / SEND_HZ) { sendAcc = 0; ws.send(JSON.stringify({ t: 'state', s: snapshot(p) })); }
     },
     sendHit(targetNetId, dmg, opts) { if (connected) ws.send(JSON.stringify({ t: 'hit', to: targetNetId, dmg, crack: !!(opts && opts.crack) })); },
-    sendKill(killerNetId, bounty) { if (connected) ws.send(JSON.stringify({ t: 'kill', to: killerNetId, bounty })); },
+    sendKill(killerNetId, bounty, victimName) { if (connected) ws.send(JSON.stringify({ t: 'kill', to: killerNetId, bounty, vn: victimName || '' })); },
+    nameOf(id) { const r = byId.get(id); return r ? r.name : null; },
     sendProjectile,
   };
 })();
