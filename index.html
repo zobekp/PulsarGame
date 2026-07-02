@@ -28,6 +28,21 @@
   #title button:hover { transform: translateY(-1px); box-shadow: 0 0 34px rgba(57,208,255,0.9); }
   #title .hint { color: rgba(150,180,210,0.55); font-size: 12px; letter-spacing: 1px; margin-top: 6px; }
   @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
+  /* ---- cosmetics shop ---- */
+  #shop { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 4px; }
+  #shop .cores { color: #8fe9ff; font-size: 14px; letter-spacing: 2px; text-shadow: 0 0 12px rgba(143,233,255,0.7); }
+  #skins { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 520px; }
+  .skin { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 78px; padding: 8px 4px 6px; cursor: pointer;
+    background: rgba(16,26,42,0.7); border: 1.5px solid rgba(80,110,150,0.4); border-radius: 8px; color: rgba(200,220,240,0.85);
+    font-size: 11px; transition: border-color .15s, transform .08s; }
+  .skin:hover { transform: translateY(-1px); border-color: rgba(120,224,255,0.5); }
+  .skin .sw { width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
+    box-shadow: 0 0 12px var(--accent), inset 0 0 6px rgba(255,255,255,0.5); }
+  .skin .nm { font-weight: 600; }
+  .skin .st { font-size: 10px; color: rgba(150,180,210,0.7); }
+  .skin.owned .st { color: #7be0ff; }
+  .skin.eq { border-color: var(--accent); box-shadow: 0 0 16px rgba(57,208,255,0.35); }
+  .skin.eq .st { color: #eaf6ff; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -40,6 +55,10 @@
   <div class="row">
     <input id="pname" maxlength="16" placeholder="enter a name" autocomplete="off" spellcheck="false" />
     <button id="playbtn">PLAY ▸</button>
+  </div>
+  <div id="shop">
+    <div class="cores">◆ <span id="corebal">0</span> CORES · <span style="opacity:.6">skins are cosmetic only</span></div>
+    <div id="skins"></div>
   </div>
   <div class="hint">WASD move · mouse aim · hold to fire · Space ability · E special</div>
 </div>
@@ -71,11 +90,13 @@
 <script src="data/classes.js"></script>
 <script src="data/farming.js"></script>
 <script src="data/visuals.js"></script>
+<script src="data/cosmetics.js"></script>
 
 <!-- Engine. Load after data; game.js is the entry point. -->
 <script src="src/input.js"></script>
 <script src="src/render.js"></script>
 <script src="src/fx.js"></script>
+<script src="src/profile.js"></script>
 <script src="src/weapons.js"></script>
 <script src="src/net.js"></script>
 <script src="src/bots.js"></script>
@@ -85,10 +106,33 @@
 <script>
   (function () {
     var t = document.getElementById('title'), inp = document.getElementById('pname'), btn = document.getElementById('playbtn');
-    try { inp.value = localStorage.getItem('pulsar_name') || ''; } catch (e) {}
+    var P = window.PULSAR && PULSAR.Profile, C = window.PULSAR && PULSAR.cosmetics;
+    if (P) inp.value = P.get().name || '';
+
+    function renderShop() {
+      if (!P || !C) return;
+      document.getElementById('corebal').textContent = P.get().cores;
+      var wrap = document.getElementById('skins'); wrap.innerHTML = '';
+      C.skins.forEach(function (sk) {
+        var owned = P.isUnlocked(sk.id), equipped = P.get().skin === sk.id;
+        var b = document.createElement('button');
+        b.className = 'skin' + (equipped ? ' eq' : '') + (owned ? ' owned' : '');
+        b.style.setProperty('--accent', sk.accent);
+        b.innerHTML = '<span class="sw"></span><span class="nm">' + sk.name + '</span><span class="st">' +
+          (equipped ? 'EQUIPPED' : owned ? 'equip' : '◆ ' + sk.cost) + '</span>';
+        b.addEventListener('click', function () {
+          if (owned) P.equip(sk.id);
+          else if (P.unlock(sk.id, sk.cost)) P.equip(sk.id);
+          renderShop();
+        });
+        wrap.appendChild(b);
+      });
+    }
+    renderShop();
+
     function go() {
       var n = (inp.value || '').trim();
-      try { localStorage.setItem('pulsar_name', n); } catch (e) {}
+      if (P) P.setName(n);
       if (window.PULSAR && PULSAR.startGame) PULSAR.startGame(n);
       t.style.display = 'none';
     }

@@ -66,6 +66,11 @@ window.PULSAR.config = {
     tierGrowth: { radius: 0.14, hp: 0.20 },
   },
 
+  // ---- Meta / persistence (Phase 6) ------------------------------------------
+  // At end-of-life a share of the scrap you EARNED that run converts to permanent "cores",
+  // banked to your local profile and spent on COSMETIC-ONLY unlocks (no power creep).
+  meta: { coreRate: 0.10 },
+
   // ---- Leader / David-vs-Goliath brake --------------------------------------
   // Leaders get power AND vulnerability. Avoid flat unfair multipliers; hitbox &
   // visibility do most of the balancing work.

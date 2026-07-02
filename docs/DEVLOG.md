@@ -6,6 +6,30 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-02 — Phase 6 Step 1: meta currency + persistence + cosmetic unlocks
+**What changed:** First slice of Phase 6 (meta & persistence). Complete loop, options-only, no power
+creep. Verified headlessly with a localStorage shim (bank → too-poor → buy → equip → persists).
+
+- **`src/profile.js`** — `PULSAR.Profile`: localStorage-backed profile (name, cores, unlocked/equipped
+  skins, lifetime stats: runs/bestScrap/totalCores). Node-safe (in-memory fallback) so meta logic is
+  testable. Methods: `bankRun(earnedScrap, bestScrap)`, `unlock(id, cost)`, `equip(id)`, `setName`.
+- **End-of-life cores:** `killShip` — when the player dies, `bankRun(p.xp, carried)` converts a share
+  of the run's EARNED scrap (`config.meta.coreRate` 0.10) into permanent cores + a `+N ◆ CORES` popup.
+- **`data/cosmetics.js`** — 7 accent skins (40–360 cores). Purely decorative: a cosmetic accent RING
+  around your hull (`drawShip`), does NOT touch class hue or the white "you" core (readability intact).
+- **Shop UI (`index.html` title screen):** core balance + swatch grid; click to buy (if affordable) +
+  equip; equipped highlighted. Name now stored via Profile. HUD shows `◆ cores` next to scrap.
+
+**New config:** `meta.coreRate: 0.10`.
+**Files:** `data/config.js`, `data/cosmetics.js` (new), `src/profile.js` (new), `src/game.js`, `index.html`.
+**How to test:** reload. Title → buy/equip a skin (start with 0 cores; die a few runs to earn). Accent
+ring shows on your ship; balance persists across sessions.
+**Deferred (next Phase 6 steps):** upgrade-card system (power-sensitive — design the data + shared-
+ceiling constraint carefully); syncing equipped skin to other players in MP (skin is local-only now);
+unlockable classes (all classes currently always available — keep cosmetics-only for now).
+
+---
+
 ## 2026-07-01 — MP lobby polish: title screen, killfeed, class minimap, bots-in-MP, held-rock shapes
 **What changed (all client-side, live relay game):**
 - **Bots in multiplayer:** bots now stay as filler in MP and only clear once the lobby exceeds 10

@@ -248,6 +248,10 @@ window.PULSAR = window.PULSAR || {};
   function killShip(v, killer) {
     const carried = v.scrap;
     addKill(killer && killer !== v ? nameOf(killer) : null, nameOf(v), v.isLeader);
+    if (v === p && gameStarted && PULSAR.Profile) {   // Phase 6: end-of-life converts earned scrap -> permanent cores
+      const gained = PULSAR.Profile.bankRun(v.xp, carried);
+      if (gained > 0) Fx.spawnText(v.x, v.y - 52, '+' + gained + ' ◆ CORES', '#8fe9ff', { size: 16 });
+    }
     v.alive = false; resetClassState(v);
     const drop = Math.floor(carried * eco.dropFractionOnDeath);
     v.scrap = carried - drop;
@@ -544,7 +548,10 @@ window.PULSAR = window.PULSAR || {};
     else drawDart(ctx, r, s, fill);
     if (tier >= 2) { ctx.fillStyle = 'rgba(255,255,255,0.85)'; for (let i = 0; i < tier - 1; i++) { ctx.beginPath(); ctx.arc(-r * 0.2, (i - (tier - 2) / 2) * r * 0.5, r * 0.13, 0, TAU); ctx.fill(); } }
     ctx.restore();
-    if (isPlayer) { ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, TAU); ctx.fillStyle = '#ffffff'; ctx.fill(); }
+    if (isPlayer) {
+      ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, TAU); ctx.fillStyle = '#ffffff'; ctx.fill();   // white core = you (readability)
+      if (PULSAR.Profile && PULSAR.cosmetics) { const sk = PULSAR.cosmetics.skin(PULSAR.Profile.get().skin); if (sk && sk.id !== 'default') { ctx.beginPath(); ctx.arc(x, y, r * 1.75, 0, TAU); ctx.strokeStyle = sk.accent; ctx.globalAlpha = 0.75; ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1; } }   // cosmetic skin accent (no power)
+    }
     if (s.isLeader) drawCrown(ctx, x, y, r);
   }
   function stroke(ctx) { ctx.strokeStyle = 'rgba(230,245,255,0.95)'; ctx.lineWidth = 1.5; ctx.stroke(); }
@@ -664,7 +671,8 @@ window.PULSAR = window.PULSAR || {};
     const cur = xpForLevel(p.level), nxt = xpForLevel(p.level + 1); bar(ctx, x, 50, w, 6, (p.xp - cur) / Math.max(1, nxt - cur), '#6aa9ff');
     ctx.textAlign = 'left';
     ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#bfe9ff'; ctx.fillText(`${classNode(p.classId).displayName}  ·  LV ${p.level}${p.isLeader ? '  ★' : ''}`, x, 76);
-    ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = '#ffd98a'; ctx.fillText(`SCRAP ${Math.floor(p.scrap)}   ⚔ ${p.kills}`, x, 94);
+    const coresTxt = PULSAR.Profile ? `   ◆ ${PULSAR.Profile.get().cores}` : '';
+    ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = '#ffd98a'; ctx.fillText(`SCRAP ${Math.floor(p.scrap)}   ⚔ ${p.kills}${coresTxt}`, x, 94);
     const abil = classNode(p.classId).ability, spec = classNode(p.classId).special;
     const abilKey = fam === 'grav' ? '[click]' : '[Space]';
     ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = p.abilityCd > 0 ? 'rgba(160,190,220,0.4)' : '#7be0ff';
