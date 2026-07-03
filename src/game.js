@@ -892,13 +892,20 @@ window.PULSAR = window.PULSAR || {};
 
   // ---- loop ------------------------------------------------------------------
   let last = performance.now(), accumulator = 0;
+  let lastRender = 0;
   function frame(now) {
     let frameTime = (now - last) / 1000; last = now;
     if (frameTime > cfg.sim.maxFrameTimeSec) frameTime = cfg.sim.maxFrameTimeSec;
     accumulator += frameTime;
     while (accumulator >= DT) { simulate(DT); accumulator -= DT; }
-    render(accumulator / DT);
-    fpsAccum += frameTime; fpsFrames++;
+    fpsAccum += frameTime;
+    // Render ceiling: skip paints past maxRenderFps (sim above already ran — nothing is lost).
+    // The 0.5ms epsilon keeps timer jitter from halving the rate on displays AT the ceiling.
+    if (now - lastRender >= 1000 / cfg.sim.maxRenderFps - 0.5) {
+      lastRender = now;
+      render(accumulator / DT);
+      fpsFrames++;
+    }
     if (fpsAccum >= 0.5) { fps = fpsFrames / fpsAccum; fpsAccum = 0; fpsFrames = 0; }
     requestAnimationFrame(frame);
   }

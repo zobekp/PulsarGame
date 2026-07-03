@@ -12,6 +12,8 @@ window.PULSAR.config = {
   sim: {
     tickRate: 60,            // fixed sim steps per second (the determinism clock)
     maxFrameTimeSec: 0.25,   // clamp huge frame gaps (tab-out) so we don't spiral-of-death
+    maxRenderFps: 360,       // render ceiling — sim is unaffected; frames past this are skipped
+                             // (rAF is vsync-bound anyway; this only bites on 360Hz+ displays)
   },
 
   // ---- Arena & spatial model -------------------------------------------------

@@ -145,6 +145,10 @@ the edge band.
   - Verified headless: dps ramp 18→76/s, force-vent at 5.8s, maw width 34 at full charge,
     full beam ≈148 dmg (theory 145), recycle blocks refire, 5-min mixed-bot lobby with both
     classes = zero non-finite state; model gallery renders idle/30/70/100%/firing states.
+- *Render ceiling:* `sim.maxRenderFps: 360` — frame() now skips paints past the cap (0.5ms
+  epsilon so displays AT the cap aren't half-skipped by timer jitter). Sim ticks are
+  untouched (fixed-timestep loop runs before the gate); fps counter now counts RENDERED
+  frames. rAF is vsync-bound, so this only bites on 360Hz+ displays.
 - *TITAN ASTEROIDS — landmark obstacles (user direction):* new neutral type `titan`:
   r170 (≈10× a ship), 9000hp (idealized max-DPS kill ≈ 1.6min; real ships with vent/recycle
   downtime = several minutes), payout `scrapPerTitan` 950 ≈ LEVEL 15 IN ONE KILL, delivered
