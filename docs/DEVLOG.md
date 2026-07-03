@@ -6,6 +6,149 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-02 — Phase 5 Step 2c: render-rate visuals in MP ("looks like 30hz" fix)
+**What changed:** Movement felt right after prediction, but the WORLD still looked snapshot-stepped.
+Root causes (none of them the server rate): `state.time` was taken raw from snapshots, so every
+time-driven animation (hull models, engine flicker, spins, fades, pulsar pulse) stepped at 20Hz;
+projectiles + motes weren't interpolated at all; object spin only updated every 10th snapshot; and
+the own ship had no sub-tick interpolation on high-refresh displays.
+
+- **Continuous clock:** `state.time` (+ pulsarTimer) is now LERPED between the bracketing snapshots —
+  animations run at render rate, period.
+- **Entity ids → interpolation:** the server stamps `_nid` ids on projectiles/motes/objects
+  (`nid()` in mpserver.js); the client id-matches across the bracket pair and lerps positions.
+  Thrown rocks also carry `rt` (rockType) again so they keep their real silhouette.
+- **Objects spin locally:** object frames now include `sr` (spinRate); the client keeps PERSISTENT
+  per-id view objects that advance spin every frame and ease toward the (slow) authoritative
+  positions — no more 0.5s stutter-rotation, and no per-frame allocation for ~330 rocks.
+- **Own-ship sub-tick:** `pred` tracks px/py per tick; game.js passes the REAL accumulator alpha
+  through again (was forced to 1), so 144/240Hz displays get sub-tick lerp on your hull and on FX
+  particles. Reconcile shifts the px/x pair together (no smear); snaps reset both.
+- **Server tick 30→60Hz** (`TICK` in mpserver.js): matches the SP sim clock exactly — same tuned
+  feel, finer combat granularity, ~2× sim CPU (trivial). SNAP_HZ stays 20 — with full interpolation
+  the snapshot rate is visually irrelevant; only bandwidth would change.
+
+**Verified:** predtest 8/8 still green, wsprobe vs live 60Hz server: ack tracking OK, ship moves,
+extended fields present. node --check clean on all three touched files.
+**Files:** `mpserver.js`, `src/mpclient.js`, `src/game.js`.
+**Known limits:** motes/projectiles still rebuild per render frame (~120 small allocs/frame — watch
+for GC hitches, pool if seen); object drift between authoritative frames is eased, not exact.
+
+**Follow-up (same session) — user playtest: "still 20Hz, no asteroid hp, unbearable fire lag":**
+- *Ship ANIM FIELDS were still snapshot-stepped* — positions interpolated but charge/heat/orbSpin/
+  spinFrac/ramCharge/beamRamp etc. came raw from the newest snapshot. New `lerpCont()` lerps all 14
+  continuous numerics between the bracket pair; `applyDiscrete` keeps only booleans/steps.
+- *Fire latency stack was ~200ms*: 30Hz intent send (≤33ms) + 20Hz snapshots (≤50ms) + 100ms interp
+  delay. Now **SNAP_HZ 60** + **SEND_HZ 60** + **INTERP_MS 40** → ~70-90ms click-to-visible on
+  localhost. Bandwidth ≈3× (~roughly 0.5-1MB/s per client, JSON) — fine for LAN; internet play will
+  want delta/binary encoding (future work).
+- *Tap-fire could drop entirely* — `firing` was overwritten (not latched) between sends; a full
+  click inside one send window vanished. New `fireEdge` latch ORs into the next send's `firing`.
+- *Asteroid hp arc never drew* — client rebuilt objects with hp==maxHp. Object frames now carry
+  `h` (hp fraction, OBJ_EVERY 10→6 ⇒ 10Hz), and object hit-flash latches on + decays locally.
+
+---
+
+## 2026-07-02 — Phase 5 Step 2b: CLIENT-SIDE PREDICTION (the snappiness fix) + Node installed
+**What changed:** The thin client's input lag (own ship rendered ~100ms in the past — reported as "game
+lost all snappyness") is fixed with movement prediction + seq-ack reconciliation. Your own ship now
+simulates its MOVEMENT locally the instant input happens (single-player feel); weapons/damage/economy
+stay server-authoritative. Remote ships stay interpolated as before.
+
+- **Protocol:** `{t:'in'}` now carries `q` (input sequence number); the server stores the last seq
+  received per client and broadcasts an ack map `aq: {shipId: seq}` in every snapshot. `shipSnap` gained
+  `vx/vy/ix/iy` (velocity + impulse) so the client can adopt server-side knockback.
+- **`src/mpclient.js` — `predict(p, intent, dt)`:** faithful mirror of simShip's movement half
+  (inertia, cruise, arena clamp, rail afterburner kick/boost — all input-driven ⇒ predictable; speed
+  multipliers read server-synced flags: charging/ramWinding). Called every sim tick from game.js.
+  Each intent send records the predicted position under its seq (`history`).
+- **Reconciliation ("snap the sim, smooth the presentation"):** on each snapshot, compare server pos
+  against `history[ack]`; shift the prediction by the error AND add the same shift to a VIEW OFFSET,
+  so the rendered position doesn't move at the correction instant — the offset then melts at 9/s.
+  Errors > 200px (respawn, Static Lash yank) snap outright. Server impulses that exceed ours are
+  adopted (unpredicted knockback transfers). Own ship renders at `pred - viewOffset` with local mouse
+  aim (instant); death hands the camera back to server interpolation until respawn.
+- **`src/game.js`:** `mpControls` now returns a per-TICK intent (true edges — the network latch would
+  double-fire the afterburner kick); `mpSimulate` calls `MP.predict` with it every fixed tick.
+
+**Verified headlessly:** `tools/predtest.js` (new, node) — 8/8: cruise cap 391.9 vs the sim's verified
+392 px/s @3s (movement mirror is faithful), reconcile shifts sim without moving the rendered pos, view
+offset melts <1s, 500px error snaps clean, afterburner kick+cooldown predicted, 400-impulse knockback
+adopted. `tools/wsprobe.js` extended: ack echo tracked sent seq against a live server (lastAck=30 /
+sentSeq=31 mid-flight), `vx/ix` fields present, intent still moves the ship. All files node --check clean.
+
+**Also:** Node.js LTS v24.18.0 installed on this PC via winget (`C:\Program Files\nodejs\`) — `node
+mpserver.js` now works in any fresh terminal. `.claude/launch.json` updated to the real Node.
+
+**Known limits / TODO hooks:**
+- Prediction is MOVEMENT-only by design: dash/lunge impulses from abilities land via impulse-adoption a
+  snapshot late; stun/slow aren't predicted (absorbed by correction). If hammer lunge feels mushy over
+  real internet, predict it next (it's input-driven too).
+- Continuous-intent timing means the server integrates an acked intent slightly past the client's
+  history stamp — shows as a small (<15px) steady correction while moving, hidden by the view-offset
+  melt. If wobble is ever visible, add a dead-zone before correcting.
+- Flail mace/gravitor rocks around YOUR ship are still server-interpolated → chain anchors to a hull
+  that's now ~RTT ahead; watch for visible stretch when playing flail online.
+- Still open from Step 2: SP on sim.js (one code path), retire relay, killfeed in MP, per-entity
+  projectile interpolation.
+
+---
+
+## 2026-07-02 — Phase 5 Step 2: authoritative THIN CLIENT (interpolation, no prediction yet)
+**What changed:** Wired the browser to the authoritative server built in Step 1. When the page is served
+by `mpserver.js`, the client stops simulating and renders the world the server broadcasts — the
+cheat-resistant shared-world path. Single-player + the old relay are untouched (fall-through when the
+auth marker is absent). Server side verified end-to-end headlessly; the two-tab in-browser sign-off is
+the remaining gate (can't be done headlessly — the screenshot tool won't capture a continuous-rAF canvas).
+
+- **`src/mpclient.js` (new) — `PULSAR.MP`:** activates on `window.__PULSAR_AUTH__`. Connects `/ws`, sends
+  `{t:'join',name}` + `{t:'in',i:intent}` (throttled 30Hz) + `{t:'evolve',i}`. Buffers 20Hz snapshots and
+  SNAPSHOT-INTERPOLATES: renders `INTERP_MS=100ms` in the past, lerping ship x/y/aim/orb positions between
+  the two bracketing snapshots. Rebuilds game.js's render `state` (ships/projectiles/motes/objects) with
+  `px==x` so game.js's own render-interp is a no-op. Derives vx/vy from the interpolated pair (free engine
+  flares), fakes gravitor `captured` shapes from the count (as the relay did), replays server FX events
+  ONCE on ingest (screen-shake only for your own ship). Own ship is mutated onto the existing `p` (keeps
+  local name + drives camera/HUD); others go in `MP.remotes`.
+- **`mpserver.js`:** `shipSnap` extended with the fields the existing renderer needs — `nm` (name), `xp`,
+  flail second head `ox2/oy2` + `oss/oss2` (orbSelfSpin), `os` (orbState), `fp` (flingPower), `sf`
+  (spinFrac), and rail `br/bt/bp` (beamRamp/beamTimer/beamPower for Helion/Star Piercer hull cues). New
+  `{t:'join',name}` handler stores `ship.name`. When serving `index.html` it injects
+  `<script>window.__PULSAR_AUTH__=true</script>` so the client picks the thin-client path over the relay.
+- **`src/game.js`:** mode-branches WITHOUT disturbing SP. `allShips()`, `simulate()`, `render()` short-circuit
+  to the MP path when `MP.connected`: `simulate` → `mpSimulate` (read input into a latched intent, send via
+  `MP.tick`, age FX locally — NO local sim); `render` → `MP.syncState(state,p)` first, then the unchanged
+  draw path. Input read + intent build extracted to `mpControls`/`mpGetIntent` (edge actions LATCH until a
+  send consumes them, so a tap between 30Hz sends is never dropped). Evolve routed through `requestEvolve`
+  (→ server in MP, local in SP). Dev panel (admin/bots) hidden in MP; HUD shows `◉ AUTHORITATIVE · N players`.
+- **`index.html`:** loads `src/mpclient.js` (after net.js, before game.js).
+
+**How to run (needs Node — see Known limits):** `node mpserver.js` → open `http://localhost:8080` in TWO
+tabs/browsers → PLAY in each. Both should see the SAME asteroid field + each other's ships moving, fighting,
+farming, evolving, dying — one shared authoritative world. SP unchanged: open `index.html` (file://) or
+`node server.js` (relay) as before.
+
+**Verified headlessly:** all files parse (node --check). Raw-WS probe (`tools/wsprobe.js`, no deps) against
+a live `mpserver.js`: `welcome`+arena received, `join` applied (name rides `nm`), input intent MOVED the
+ship, 20Hz snapshots carry ALL extended renderer fields, full world (ships+projectiles+motes+objects).
+Server injects the auth marker + serves mpclient.js (confirmed over HTTP).
+
+**Known limits / TODO hooks:**
+- **NO client-side prediction yet.** Own ship is interpolated like everyone else → input shows ~interp +
+  RTT/2 of lag. Next step: predict own ship locally (re-run `sim.js`) + reconcile against snapshots — needs
+  an INPUT SEQUENCE NUMBER added to the `{t:'in'}` protocol (server echoes last-processed seq). This is the
+  meaty netcode and the main remaining feel gap.
+- **Projectiles/motes aren't interpolated** (no ids in the snapshot) — rendered at the latest snapshot, so
+  fast projectiles step at 20Hz. Add per-entity ids to interpolate if it reads badly.
+- **Killfeed is empty in MP** (no kill events relayed; you still see the server's WRECKED float-text via FX).
+- **SP still runs game.js's own sim**, not `sim.js` — the "one code path" unification + retiring the relay
+  (`server.js`/`net.js`) are still open Step-2 cleanup.
+- **Node isn't installed on this Windows PC's PATH.** This session ran `mpserver.js` via a Node bundled with
+  Adobe; a real `node` install is needed to run the authoritative server normally. SP needs no Node.
+- `tools/wsprobe.js` (new) is a keepable headless server smoke-test; `.claude/launch.json` added for the
+  preview runner.
+
+---
+
 ## 2026-07-02 — Ship model pass: unique procedural hulls for all 17 classes
 **What changed:** Replaced the placeholder single-polygon silhouettes (spear/wedge/crescent/circle)
 with hand-built multi-part vector hull models — one per class/evolution — in a new module

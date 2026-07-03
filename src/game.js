@@ -102,7 +102,10 @@ window.PULSAR = window.PULSAR || {};
   }
   function toggleBots() { if (state.bots.length) state.bots.length = 0; else spawnBots(); }
   spawnBots();
-  const allShips = () => { const a = [p]; for (const b of state.bots) a.push(b); const rs = PULSAR.Net.remotes; for (let i = 0; i < rs.length; i++) a.push(rs[i]); return a; };
+  const allShips = () => {
+    if (PULSAR.MP && PULSAR.MP.connected) { const a = [p]; const rs = PULSAR.MP.remotes; for (let i = 0; i < rs.length; i++) a.push(rs[i]); return a; }
+    const a = [p]; for (const b of state.bots) a.push(b); const rs = PULSAR.Net.remotes; for (let i = 0; i < rs.length; i++) a.push(rs[i]); return a;
+  };
   function enemiesOf(ship) { const out = []; for (const s of allShips()) if (s !== ship && s.alive && s.team !== ship.team) out.push(s); return out; }
 
   // ---- class identity / stats ------------------------------------------------
@@ -458,8 +461,56 @@ window.PULSAR = window.PULSAR || {};
     simShip(b, dt, PULSAR.Bots.intent(b, botWorld, dt));
   }
 
+  // ---- thin-client control (authoritative MP) --------------------------------
+  // Route an evolve request: to the server when authoritative, else apply locally.
+  function requestEvolve(i) { if (PULSAR.MP && PULSAR.MP.connected) PULSAR.MP.sendEvolve(i); else chooseEvolution(p, i); }
+  const IDLE_INTENT = { moveX: 0, moveY: 0, aim: 0, aimDist: 1, firing: false, ability: false, special: false, afterburner: false, altFire: false };
+  let mpIntent = Object.assign({}, IDLE_INTENT);
+  // Read input into `mpIntent` each tick. Continuous fields overwrite; edge actions LATCH (OR-in)
+  // until consumed by a send, so a tap between 30Hz sends is never dropped.
+  function mpControls(dt) {
+    const e = evolveOptions(p);
+    if (e && e.levelOk) for (let i = 0; i < e.options.length; i++) { const down = Input.key('Digit' + (i + 1)); if (down && !p._numPrev[i]) requestEvolve(i); p._numPrev[i] = down; }
+    const prevFire = p._firePrev;
+    if (Input.firing && !prevFire) for (const b of uiButtons) { if (Input.mouseX >= b.x && Input.mouseX <= b.x + b.w && Input.mouseY >= b.y && Input.mouseY <= b.y + b.h) { b.onClick(); p._suppressFire = true; break; } }
+    if (!Input.firing) p._suppressFire = false; p._firePrev = Input.firing;
+    const mdx = Input.mouseX - Render.viewW / 2, mdy = Input.mouseY - Render.viewH / 2;
+    const dir = Input.moveDir(), isGrav = FAMILY[p.classId] === 'grav';
+    const aDown = Input.key('Space'), aEdge = aDown && !p._abilityPrev; p._abilityPrev = aDown;
+    const sDown = Input.key('KeyE'), sEdge = sDown && !p._specialPrev; p._specialPrev = sDown;
+    const bDown = Input.key('ShiftLeft') || Input.key('ShiftRight'), bEdge = bDown && !p._burnPrev; p._burnPrev = bDown;
+    const rDown = Input.altFiring, rEdge = rDown && !p._altPrev; p._altPrev = rDown;
+    const firing = Input.firing && !p._suppressFire;
+    mpIntent.moveX = dir.x; mpIntent.moveY = dir.y; mpIntent.aim = Math.atan2(mdy, mdx); mpIntent.aimDist = Math.hypot(mdx, mdy); mpIntent.firing = firing;
+    if (firing && !prevFire) mpIntent.fireEdge = true;   // latch tap-fire so a click between sends never drops
+    mpIntent.ability = mpIntent.ability || (isGrav ? (firing && !prevFire) : aEdge);
+    mpIntent.special = mpIntent.special || sEdge;
+    mpIntent.afterburner = mpIntent.afterburner || bEdge;
+    mpIntent.altFire = mpIntent.altFire || rEdge;
+    // per-TICK intent for local prediction (true edges, not the network latch)
+    return { moveX: dir.x, moveY: dir.y, aim: mpIntent.aim, afterburner: bEdge };
+  }
+  // Called by MP.tick at send time: hand over a copy and clear the latched edges.
+  function mpGetIntent() {
+    const i = mpIntent, out = { moveX: i.moveX, moveY: i.moveY, aim: i.aim, aimDist: i.aimDist, firing: i.firing || !!i.fireEdge, ability: i.ability, special: i.special, afterburner: i.afterburner, altFire: i.altFire };
+    i.ability = i.special = i.afterburner = i.altFire = false; i.fireEdge = false;
+    return out;
+  }
+  function mpSimulate(dt) {
+    if (gameStarted && p.alive) {
+      const ti = mpControls(dt);
+      PULSAR.MP.predict(p, ti, dt);            // own-ship movement, instant
+    } else {
+      mpIntent.moveX = mpIntent.moveY = 0; mpIntent.firing = mpIntent.ability = mpIntent.special = mpIntent.afterburner = mpIntent.altFire = false;
+      PULSAR.MP.predict(p, { moveX: 0, moveY: 0, aim: p.aim, afterburner: false }, dt);   // coast/idle keeps pred aligned
+    }
+    PULSAR.MP.tick(dt);
+    Fx.update(dt);   // replayed particles/beams/text age locally
+  }
+
   // ---- simulation ------------------------------------------------------------
   function simulate(dt) {
+    if (PULSAR.MP && PULSAR.MP.connected) return mpSimulate(dt);
     state.time += dt;
     pulsarPulse(dt);
     for (const s of allShips()) tickTimers(s, dt);
@@ -558,6 +609,7 @@ window.PULSAR = window.PULSAR || {};
   function onScreen(x, y, pad) { return x > Render.camera.x - Render.viewW / 2 - pad && x < Render.camera.x + Render.viewW / 2 + pad && y > Render.camera.y - Render.viewH / 2 - pad && y < Render.camera.y + Render.viewH / 2 + pad; }
   function render(alpha) {
     const R = Render;
+    if (PULSAR.MP && PULSAR.MP.connected) PULSAR.MP.syncState(state, p);   // authoritative: rebuild state from server (real alpha stays — own ship + fx use it for sub-tick smoothness)
     const pxi = lerp(p.px, p.x, alpha), pyi = lerp(p.py, p.y, alpha);
     R.camera.x = (p.alive ? pxi : p.x) + Fx.shakeX(); R.camera.y = (p.alive ? pyi : p.y) + Fx.shakeY();
     R.beginFrame(); R.drawGrid(); R.drawPulsar(state.time);
@@ -789,7 +841,11 @@ window.PULSAR = window.PULSAR || {};
       : fam === 'rail' ? ((p.burnCd || 0) > 0 ? `hold=charge · Shift=burn ${p.burnCd.toFixed(1)}s` : 'hold=charge · Shift=AFTERBURN')
       : 'hold=fire · Space=ability';
     ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · ${fireHint} · E=special`, x, spec ? 144 : 128);
-    if (PULSAR.Net.MULTIPLAYER) {
+    if (PULSAR.MP && PULSAR.MP.AUTH) {
+      const on = PULSAR.MP.connected;
+      ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';
+      ctx.fillText(on ? `◉ AUTHORITATIVE · ${PULSAR.MP.count + 1} players` : '◌ connecting…', x, spec ? 160 : 144);
+    } else if (PULSAR.Net.MULTIPLAYER) {
       const on = PULSAR.Net.connected;
       ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';
       ctx.fillText(on ? `◉ MULTIPLAYER · ${PULSAR.Net.count + 1} players` : '◌ connecting…', x, spec ? 160 : 144);
@@ -804,6 +860,7 @@ window.PULSAR = window.PULSAR || {};
     ranked.forEach((s, i) => { ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(220,230,245,0.7)'); ctx.fillText(`${i + 1}. ${s === p ? 'YOU' : nameOf(s)}`, x, y0 + 16 + i * 14); ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + 148, y0 + 16 + i * 14); ctx.textAlign = 'left'; });
   }
   function drawDevPanel() {
+    if (PULSAR.MP && PULSAR.MP.connected) return;   // no local admin/bots in the authoritative world
     const ctx = Render.ctx, w = 150, h = 26, x = Render.viewW - w - 14;
     ctx.font = '700 10px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,140,230,0.55)';
     ctx.fillText('DEV', x + w, 10); ctx.textAlign = 'left';
@@ -833,7 +890,7 @@ window.PULSAR = window.PULSAR || {};
     ctx.textAlign = 'center'; ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#bfe9ff'; ctx.fillText(`EVOLVE — choose (cost ${e.cost} scrap)`, x0 + panelW / 2, y0 + 24);
     const afford = p.scrap >= e.cost;
     for (let i = 0; i < n; i++) {
-      const bx = x0 + 12, by = y0 + 36 + i * (bh + gap); uiButtons.push({ x: bx, y: by, w: bw, h: bh, onClick: () => chooseEvolution(p, i) });
+      const bx = x0 + 12, by = y0 + 36 + i * (bh + gap); uiButtons.push({ x: bx, y: by, w: bw, h: bh, onClick: () => requestEvolve(i) });
       ctx.fillStyle = afford ? 'rgba(120,224,255,0.14)' : 'rgba(120,140,160,0.10)'; ctx.fillRect(bx, by, bw, bh);
       ctx.strokeStyle = afford ? 'rgba(120,224,255,0.5)' : 'rgba(120,140,160,0.3)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
       // Live hull preview: the actual model, idling — drums spin, cores pulse. Clipped to
@@ -913,7 +970,8 @@ window.PULSAR = window.PULSAR || {};
     const canvas = document.getElementById('game');
     Render.init(canvas); Input.attach(canvas);
     applyClassStats(p, true);
-    if (PULSAR.Net.MULTIPLAYER) PULSAR.Net.init({
+    if (PULSAR.MP && PULSAR.MP.AUTH) PULSAR.MP.init({ name: p.name || '', getIntent: mpGetIntent });
+    else if (PULSAR.Net.MULTIPLAYER) PULSAR.Net.init({
       // Incoming hit from another player: apply locally; if it kills us, credit + bounty the killer.
       onHit: (dmg, opts, killerId) => {
         if (!p.alive || !gameStarted) return;
@@ -935,6 +993,7 @@ window.PULSAR = window.PULSAR || {};
     p.name = (name || '').slice(0, 16).trim() || 'Player';
     gameStarted = true;
     p.spawnProtect = cfg.player.spawnProtectionSec;
+    if (PULSAR.MP && PULSAR.MP.AUTH) PULSAR.MP.sendName(p.name);
   };
   if (document.readyState === 'loading') addEventListener('DOMContentLoaded', boot);
   else boot();

@@ -19,9 +19,9 @@ require('./data/config.js'); require('./data/classes.js'); require('./data/farmi
 require('./src/weapons.js'); require('./src/bots.js'); require('./src/sim.js');
 
 const cfg = global.PULSAR.config;
-const TICK = 1 / 30;                 // authoritative sim step
-const SNAP_HZ = 20;                  // snapshots per second
-const OBJ_EVERY = 10;                // send the (mostly static) asteroid field every Nth snapshot
+const TICK = 1 / 60;                 // authoritative sim step (matches SP's 60Hz — same tuned feel)
+const SNAP_HZ = 60;                  // snapshots per second (render-rate; interp delay can be tiny)
+const OBJ_EVERY = 6;                 // send the (mostly static) asteroid field every Nth snapshot (10Hz)
 
 // FX recorder — the sim emits cosmetic events; we forward them to clients to replay.
 let fxEvents = [];
@@ -38,22 +38,30 @@ world.spawnBots(cfg.bots.count);     // bots fill the world until/with players; 
 
 // ---- snapshots ----
 function shipSnap(s) {
-  return { id: s.id, c: s.classId, x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
-    hp: Math.round(s.hp), mh: Math.round(s.maxHp), scr: Math.round(s.scrap), lvl: s.level, k: s.kills || 0, team: s.team,
+  return { id: s.id, c: s.classId, nm: s.name || '', x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
+    vx: Math.round(s.vx || 0), vy: Math.round(s.vy || 0), ix: Math.round(s.impX || 0), iy: Math.round(s.impY || 0),
+    hp: Math.round(s.hp), mh: Math.round(s.maxHp), scr: Math.round(s.scrap), xp: Math.round(s.xp || 0), lvl: s.level, k: s.kills || 0, team: s.team,
     al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, sp: s.spawnProtect > 0 ? 1 : 0, hf: s.hitFlash > 0 ? 1 : 0,
     cg: s.charging ? 1 : 0, ch: +s.charge.toFixed(2), cft: +(s.chargeFullTimer || 0).toFixed(2), ht: Math.round(s.heat), vt: +(s.ventTimer || 0).toFixed(2),
+    br: +(s.beamRamp || 0).toFixed(2), bt: s.beamTimer > 0 ? 1 : 0, bp: +(s.beamPower || 0).toFixed(2),
     ox: Math.round(s.orbX || s.x), oy: Math.round(s.orbY || s.y), orad: Math.round(s.orbRadius || 0), oa: +(s.orbAngle || 0).toFixed(2), osp: +(s.orbSpin || 0).toFixed(2),
+    oss: +(s.orbSelfSpin || 0).toFixed(2), os: s.orbState || 'trail', fp: +(s.flingPower || 0).toFixed(2), sf: +(s.spinFrac || 0).toFixed(2),
+    ox2: s.orbX2 != null ? Math.round(s.orbX2) : null, oy2: s.orbX2 != null ? Math.round(s.orbY2) : null, oss2: +(s.orbSelfSpin2 || 0).toFixed(2),
     rw: s.ramWinding ? 1 : 0, ra: s.ramActive > 0 ? 1 : 0, rc: +(s.ramCharge || 0).toFixed(2), cap: s.captured ? s.captured.length : 0 };
 }
-let snapN = 0;
+let snapN = 0, nextNid = 1;          // entity ids let the client interpolate between snapshots
+const nid = (e) => e._nid || (e._nid = nextNid++);
 function snapshot() {
   const st = world.state;
-  const snap = { t: 't', tm: +st.time.toFixed(2), pt: +st.pulsarTimer.toFixed(2),
+  const snap = { t: 't', tm: +st.time.toFixed(3), pt: +st.pulsarTimer.toFixed(3),
     sh: st.ships.map(shipSnap),
-    pr: st.projectiles.map(p => ({ x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '' })),
-    mo: st.motes.map(m => ({ x: Math.round(m.x), y: Math.round(m.y), p: m.pulsar ? 1 : 0 })),
+    pr: st.projectiles.map(p => ({ id: nid(p), x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '', rt: p.rockType || '' })),
+    mo: st.motes.map(m => ({ id: nid(m), x: Math.round(m.x), y: Math.round(m.y), p: m.pulsar ? 1 : 0 })),
     ev: fxEvents };
-  if (snapN % OBJ_EVERY === 0) snap.ob = st.objects.map(o => ({ t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2) }));
+  if (snapN % OBJ_EVERY === 0) snap.ob = st.objects.map(o => ({ id: nid(o), t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, h: +(o.hp / o.maxHp).toFixed(2), cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2), sr: +o.spinRate.toFixed(3) }));
+  // per-client input acks (client-side prediction reconciles against these)
+  const aq = {}; for (const c of clients.values()) if (c.lastSeq != null) aq[c.shipId] = c.lastSeq;
+  snap.aq = aq;
   snapN++;
   fxEvents = [];
   return snap;
@@ -78,7 +86,16 @@ const server = http.createServer((req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]); if (urlPath === '/') urlPath = '/index.html';
   const filePath = path.normalize(path.join(ROOT, urlPath));
   if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end('forbidden'); }
-  fs.readFile(filePath, (err, data) => { if (err) { res.writeHead(404); return res.end('not found'); } res.writeHead(200, { 'Content-Type': MIME[path.extname(filePath)] || 'application/octet-stream', 'Cache-Control': 'no-cache, no-store, must-revalidate' }); res.end(data); });
+  fs.readFile(filePath, (err, data) => {
+    if (err) { res.writeHead(404); return res.end('not found'); }
+    const type = MIME[path.extname(filePath)] || 'application/octet-stream';
+    // Tell the client it's talking to the AUTHORITATIVE server (not the relay) so it loads the
+    // thin-client path instead of net.js. Injected as an early global before any engine script runs.
+    if (path.basename(filePath) === 'index.html') {
+      data = Buffer.from(data.toString('utf8').replace('<head>', '<head>\n<script>window.__PULSAR_AUTH__=true;</script>'));
+    }
+    res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-cache, no-store, must-revalidate' }); res.end(data);
+  });
 });
 
 server.on('upgrade', (req, socket) => {
@@ -106,8 +123,9 @@ server.on('upgrade', (req, socket) => {
       if (opcode === 0x8) { socket.end(); return; }
       if (opcode !== 0x1) continue;
       let msg; try { msg = JSON.parse(payload.toString('utf8')); } catch (e) { continue; }
-      if (msg.t === 'in') { const c = clients.get(socket); if (c) world.setIntent(c.shipId, msg.i); }       // INPUT INTENT
+      if (msg.t === 'in') { const c = clients.get(socket); if (c) { world.setIntent(c.shipId, msg.i); if (msg.q != null) c.lastSeq = msg.q >>> 0; } }   // INPUT INTENT (+ prediction seq)
       else if (msg.t === 'evolve') { const c = clients.get(socket); if (c) world.chooseEvolution(world.getShip(c.shipId), msg.i | 0); }
+      else if (msg.t === 'join') { const c = clients.get(socket); if (c) { const sh = world.getShip(c.shipId); if (sh) sh.name = String(msg.name || '').slice(0, 16); } }   // display name
     }
   });
   function cleanup() { const c = clients.get(socket); if (c) { world.removeShip(c.shipId); clients.delete(socket); console.log(`- player ship ${c.shipId} (now ${clients.size})`); } }
