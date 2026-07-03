@@ -6,6 +6,263 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-02 — Ship model pass: unique procedural hulls for all 17 classes
+**What changed:** Replaced the placeholder single-polygon silhouettes (spear/wedge/crescent/circle)
+with hand-built multi-part vector hull models — one per class/evolution — in a new module
+`src/ships.js` (`PULSAR.Ships.draw`). Every hull is designed to SHOW its weapon:
+- **Rail family:** a gun with a ship attached — dominant barrel with twin accelerator rails,
+  capacitor rings that light front-to-back with charge, rear heat-vent slats that go molten with
+  heat (red-pulse while venting). Lancer = longer/thinner needle w/ 3 rings; Star Piercer = heavy
+  fork muzzle (beam forms between twin prongs).
+- **Hammer family:** all mass forward — bolted ram slab with rivets on a stubby tug body, oversized
+  engine pods. Ram face heats orange→white-hot with windup. Maulbreaker = serrated 4-tooth face +
+  armor; Worldsplitter = anvil head w/ central cleaving ridge, hazard chevrons, triple engines.
+- **Grav family:** C-shaped annular hull wrapping an exposed gravity core, mouth forward, engine
+  pod aft. Artillery branch (bright reactor core that brightens per loaded rock, horn launcher
+  rails; Starfall adds a central launch rail splitting the mouth). Control branch closes the C
+  into a containment ring around a VOID core (black center, hot rim, rotating accretion arc);
+  Event Horizon adds a counter-rotating broken outer ring + field vanes.
+- **Flail family:** a working tug — hex hull, front chain-guide yoke, central winch drum whose
+  spokes rotate with `orbSpin` (visible drivetrain). Chainmaul = bolted shoulder armor, 4-spoke
+  drum; Ironmoon = rear counterweight block; Graviflail/Orbit Crusher = round hull + 1/2 orbit
+  guide rings with ticks riding the orb spin.
+- All ships: hue-derived 3-shade palette (dark body / plate / accent + shared bright rim),
+  additive engine flare scaled by actual velocity, hit-flash overrides, everything in units of
+  `s.radius` so leader growth scales free. Charge lance + ram telegraph cues preserved.
+
+**Files touched:** `src/ships.js` (new), `src/game.js` (drawShip now delegates; old SIL table +
+drawSpear/Wedge/Crescent/RingedHull/Dart deleted; tier pips dropped — each evolution now has a
+unique silhouette so pips were redundant), `data/visuals.js` (one unique `silhouette` model key
+per class + design notes), `index.html` (loads `src/ships.js` after weapons.js — it reads
+`PULSAR.weaponHue` + `classVisuals` at draw time).
+
+**New config:** none — visual constants live in the models (visuals aren't gameplay tuning).
+
+**How to test:** open `index.html`, play; evolve through each family (dev panel +1 LVL) and watch
+the functional cues: rail capacitor rings while holding fire, ram face heat during windup, grav
+core brighten as rocks load, flail drum spokes spinning with the orb. Verified headlessly:
+all-17-model gallery screenshot (no draw errors, mid-charge/windup/loaded states) + live game
+runs 59fps with bots.
+
+**Known limits / TODO hooks:** remote MP ships render fully (all cue fields are in the net
+snapshot). Skin accent is still just a ring; per-model accent recolor would be a cheap cosmetic
+upgrade.
+
+**Follow-up (same day):** evolve overlay now previews the hull models + spawns randomized to
+the edge band.
+- *Evolve previews:* choice buttons grew to 62px with a live `PULSAR.Ships.draw` render on the
+  left (idling model — drums spin, cores pulse; clipped to its slot so rail barrels don't spill
+  into the text; dimmed when unaffordable). `src/game.js drawEvolveOverlay`.
+- *Edge spawns:* fixed player spawn + anywhere-bot-spawn replaced by `edgeSpawn()` — random side,
+  random position along it, at a depth between `arena.spawnEdgeInset` (new config, 250) and the
+  existing `arena.edgeSafeMargin` (800). Every fresh life starts in the calm outer asteroid band
+  for farming, never at the pulsar brawl. Applies to initial spawn, player respawn, bot spawns.
+- *Thrown rocks stay rocks:* gravitor-launched rocks were rendered as generic circle bullets in
+  flight. Now `drawThrownRock()` (game.js) draws them with their real neutral-object silhouette
+  (`ROCK_PATH[rockType]`), tumbling (visual-only `spin` phase set in `launchRock`), with the
+  well's purple rim + existing glow. MP: `rockType` now rides the proj message (`rt`) so remote
+  ghosts keep their shape too (`net.js`).
+- *Gravitor vs melee rebalance:* removed the well's high-momentum disruption (extra pull +
+  momentum damping + slow on chargers) — it let a gravitor keep a Hammerhead away FOREVER.
+  Replaced with **orbit contact damage**: touching an orbiting rock deals the same damage that
+  rock would as a projectile (`well.launchDamage`, incl. the Meteorist/Starfall momentumStrike
+  bonus), knocks back, and SHATTERS the rock. New config `gravitor.orbitContact`
+  { knockback, rehitSec } — rehit grace means a dive costs ~1-2 rocks of HP, not the whole ring
+  in one frame. A committed rusher now gets through, paying HP; the gravitor spends its ammo
+  defending. Config keys `well.highMomentumPullMult/Damping/Slow` deleted (dead).
+  Unit-tested in node with a stubbed api (damage value, rock consumption, rehit grace, range,
+  meteorist bonus). `src/weapons.js gravityWell.update`, `data/config.js`.
+- *Human-like bot aim (no more offscreen aimbot):* bots now track a periodically-refreshed
+  SNAPSHOT of their target instead of its live position (`perceive()` — refresh every
+  `bots.reactionSec ÷ skill`, aim error rolled per-glimpse and growing with range), swivel their
+  aim at a capped rate like a mouse hand (`swivel()`, `bots.aimTurnRadPerSec`), hold fire for
+  `bots.acquireSec` when they pick up a fresh target, and never open fire beyond
+  `bots.fireRange[family]` (~a screen — you always see who is shooting you). Each bot rolls a
+  `skill` (skillMin..skillMax) once, scaling reaction/error/swivel, so the lobby feels like a
+  spread of players. `engageRange` 880→700. Unit-tested in node (no flicks, stale tracking,
+  range gate, acquire pause, swivel convergence). `src/bots.js`, `data/config.js`.
+- *Inertia:* movement is now acceleration-based instead of velocity-set. Thrust steers velocity
+  toward the input direction at `player.inertia.accelPerSec` (7.5 → ~0.4s to full speed);
+  releasing coasts with `coastDampPerSec` (3.2 → ~0.2s velocity half-life, ~1s of visible
+  drift). Changed in BOTH `game.js simShip` and the authoritative `sim.js simShip` (same lines,
+  determinism boundary intact). Knockback/dash impulses (`impX/impY`) and the hammer lunge are
+  untouched — they were already momentum-based. Side effects that now feel right for free:
+  engine flares show drift (they read real vx/vy), Hammerhead momentum damage includes coast
+  speed, and bots inherit the same physics.
+- *FIX — flail-orb instakill with multiple flailships:* the orb's hit gates lived ON THE TARGET
+  (`t._orbGen`, `t._orbHit`) and were shared by every flailship. Two overlapping orbs alternately
+  reset each other's gate, so a target inside two orbs took damage nearly EVERY TICK — with bots
+  on (≈2 flail bots farming the same dense edge band) asteroids and players melted instantly.
+  (Reported as "gravity crush"; the special was innocent.) Gates now live on the ATTACKER:
+  `ship.orbPassHits` (Set, cleared per out/back pass) + `ship.orbTouch` (Map target→time for the
+  orbit tick gate, pruned past 48 entries). Dead fields `_orbHit`/`orbHitGen` removed from object/
+  ship factories in game.js + sim.js. Regression-tested in node: 2 ships parked on one target for
+  2s = 12 orbit hits (was ~240); 2 full throw cycles through a target = exactly 4 hits (out+back
+  × 2 ships). `src/weapons.js wreckingOrb`.
+- *Physics: cruise (sustained acceleration):* hold one heading and the engines keep spooling —
+  speed ramps from base toward `base × cruise.maxMult` (1.4) over `rampSec` (2.4s). Swinging the
+  input past ~53° (`alignDot` 0.6) dumps the bonus instantly, so top speed is a commitment;
+   8-way diagonal adjustments (45°) keep it. Coasting decays it. New `player.cruise` config;
+  same code in `game.js` + `sim.js` simShip. Verified in the headless sim world: 392 px/s after
+  3s straight (exactly the cap), 0 after a 90° turn.
+- *Railship afterburner [Shift]:* rail-family escape burn — instant impulse kick (260) along the
+  move direction (or backward off aim if standing still), then 0.9s of ×1.9 speed with ×2.2
+  acceleration; costs +30 heat (dumps it INTO the gun — escape now or shoot now, pick one) on a
+  5s cooldown. New `railship.afterburner` config; Shift edge in playerStep; rail HUD hint shows
+  ready/cooldown; cyan flare bloom + trail particles; rail BOTS burn when fleeing. Verified
+  headless-sim: +30 heat, 576 px/s mid-burn, hammerhead ignores the intent.
+- *FIX — NaN cascade with bots on (invisible constant damage, immortal ships, endless shake):*
+  the ship factories in game.js/sim.js pre-created `bot.ai` with the OLD field shape, so the new
+  bots.js `bot.ai || (...)` init never ran → `ai.skill` undefined → aim error NaN → `intent.aim`
+  NaN → ship aim/velocity/orb position all NaN. A NaN-positioned flail orb passes NO distance
+  check ("> r² is false"), so it hit EVERY hittable on the map each gate window — the invisible
+  constant damage + permanent screen shake — while NaN hp made ships unkillable ("immortal
+  flailship"). Fix: bots.js owns the ai shape and re-inits if missing OR stale
+  (`bot.ai.skill == null`); both factories now set `ai: null`. LESSON: lazy `x || (x = init)`
+  breaks silently when another module pre-creates a stale `x` — keep single ownership.
+  Verified: 2 sim-minutes × 6 bots = 0 unexplained player-damage events, 0 non-finite fields,
+  bots evolve and die normally.
+- *RAIL BRANCH REDESIGN (user direction: tier-2s weren't novel enough):* Lancer is RETIRED;
+  the railship now branches at lvl 8 into two genuinely different weapons:
+  - **Helion** (branch A, new class + `helionBeam` weapon + `config.helion`): continuous beam
+    whose damage RAMPS 24→82 dps over 2.6s on-trigger; heat cost accelerates with the ramp
+    (net −10/s at ramp 0, +24/s at full — ~5.8s of sustained beam force-vents). Fully-ramped
+    beam applies Armor Crack. Reuses the rail chassis systems (charge bar = ramp, charge
+    move-slow, vents, afterburner). Model: short barrel into a focusing LENS RING that glows
+    white-hot with ramp.
+  - **Star Piercer** (moved tier 3→2, reworked: `mawRail` weapon + `railship.mawRail` config):
+    siege railgun. 1.9s charge OPENS the maw — jaw gape == beam half-width (10→34px with
+    charge); release fires ONE sustained steerable wide beam for 0.85s ticking 55→170 dps
+    (Last-Prism-style burst), then a 1.5s recycle + heat. Redline/blowout rules still apply at
+    full hold. NO charge-lance telegraph — the tells are the essence intake (existing rail
+    charging FX) + the visibly opening maw + condensing core (new in ships.js `mawOpen`).
+  - Both weapons share a new `beamHits()` corridor helper; beam visuals use throttled
+    `fx.spawnBeam` (every 2nd tick, 0.1s life) so they read continuous AND relay to MP at 30/s.
+  - Tier-3 finals for both branches are TODO (childrenOf returns none at lvl 15).
+  - Touched: classes.js, config.js (helion block, mawRail block, evolveMods emptied),
+    weapons.js, ships.js (helion model, mawOpen prongs, noLance), visuals.js, bots.js
+    (per-class rail firing), game.js+sim.js (IMPLEMENTED/FAMILY/blurbs/resetClassState).
+  - Verified headless: dps ramp 18→76/s, force-vent at 5.8s, maw width 34 at full charge,
+    full beam ≈148 dmg (theory 145), recycle blocks refire, 5-min mixed-bot lobby with both
+    classes = zero non-finite state; model gallery renders idle/30/70/100%/firing states.
+- *TITAN ASTEROIDS — landmark obstacles (user direction):* new neutral type `titan`:
+  r170 (≈10× a ship), 9000hp (idealized max-DPS kill ≈ 1.6min; real ships with vent/recycle
+  downtime = several minutes), payout `scrapPerTitan` 950 ≈ LEVEL 15 IN ONE KILL, delivered
+  as a wide 48-mote fountain with 30s life (the jackpot survives your approach). 7 spawn per
+  world, CENTER-BIASED placement (rejection sampling, `titans.centerBias`; median distance
+  from center 1565 vs 1963 pre-fix — the fix: accept prob is (1-d/half)^bias, NOT ^(1/bias)),
+  ≥900px separation, clear of the pulsar core, 5-min respawn on their own clock. They are
+  terrain: immovable (no knockback, no contact shove), can't be gravity-captured, block
+  beams/rocks by being hittable, bots ignore them when farming, and they show as gray
+  landmark dots on the minimap. Render: craggy 14-vert silhouette + craters + ridge line
+  (game.js `titanPath`). Config in `farming.titans` + titanHP/titanRadius/scrapPerTitan/
+  motesPerObject.titan/contactDamage.titan (14 — ramming a mountain hurts). Verified
+  headless: 7 spawn, min separation 1179, immovable under sustained fire, kill+collect =
+  950 scrap in one run. KNOWN LIMIT: a titan counts toward rail LINE BREAK pierce counts
+  (it's a neutral hit) — minor free bonus when shooting through rocks into a titan.
+- *GRAVITOR anti-sitting-duck (user: "relying on asteroids is inherently sucky"):* the identity
+  stays (terrain = ammo) but the well now guarantees a FLOOR. (1) **Dust Accretion**
+  (`gravitor.accretion`): when below capacity with NOTHING capturable inside pullRadius, the
+  well condenses a pebble every 3.2s (max 2 held). Pebbles are visually small (violet-grey),
+  hit for ×0.55 on both throws AND orbit-contact — real rocks stay strictly better, so
+  terrain still matters; you are just never disarmed. (2) **Shatter Recycling**
+  (`gravitor.recycle`): a thrown non-pebble rock that dies leaves a real capturable debris
+  fragment 50% of the time (radius ×0.6) — volleys reseed the battlefield for everyone.
+  Guards: fragments only spawn under `maxWorldObjects` (380) AND carry `recycled: true` so
+  breakObject skips the respawn schedule for them (without both, world object count crept
+  320→464/5min; with them it is bounded at 368/6min). Also hardened `OBJDEF[rockType].hue`
+  lookups against unknown types. Verified headless: 2 pebbles accrete in 7.5s of empty space,
+  pebble throw = exactly 13.2 dmg, pebble orbit-contact scaled, 9 fragments from 30 expired
+  throws, zero non-finite in a 6-min lobby. CLASSES.md updated.
+- *FLAIL TREE REBUILT — Twinmaul (user direction):* chainmaul/ironmoon/graviflail/orbitCrusher
+  are REMOVED (nodes, configs `orbModByClass`/`chainmaul`/`powerSwing`/`moonSlam`/`orbitLock`/
+  `gravityCrush`, abilities/specials, ship models, visuals rows, blurbs, dead ship fields).
+  One lvl-8 upgrade: **Twinmaul** — TWO maces on two chains. `wreckingOrb` generalized to an
+  N-head state machine (`ship.maces[]`, per-head trail/spin/windup/out/back + per-head
+  attacker-side hit gates; shared spin momentum; heads spin 180° apart). Release modes:
+  **LMB** = natural hammer-throw windup — opposite phases cross the aim line ~250ms apart, a
+  rapid one-two volley for free; **RMB (new input: `Input.altFiring`, `intent.altFire`,
+  threaded through both simShip weapon ctxs)** = forced synchronized windup
+  (`twin.syncWindupSec`) — both release within 0ms. Per-head dmg ×`twin.dmgMult` (0.8).
+  Special [E] **Static Lash** (`staticLash` config): stun pulse of `radius` 150 around EACH
+  mace head — hard-stun 0.7s (new `stunTimer`: simShip freezes intent in BOTH sims), wipes
+  charge-ups (rail charge, ram windup, beam ramp, spin momentum), locks ability+special 2s,
+  10 dmg, 9s cd. Render: per-head chains/spiked heads (remote MP ships sync a second head via
+  `ox2/oy2`); twinmaul model = doubled counter-rotating winch drums. Verified headless: 2
+  heads trail behind, 180° spin phase, LMB stagger 250ms, RMB gap 0ms, lash stuns+scrambles a
+  0.63-charge rail (charge→0, abilityCd→2s, frozen 0.5s), 5-min mixed lobby zero non-finite,
+  duels: twinmaul>flailship 3-1, 7-5 vs maulbreaker. Tier-3 final: TODO.
+- *Playtest round 2 (post-redesigns) + two bot fixes:* FFA 3×6min: rail K/D 2.50 (peak Lv29),
+  hammer 2.13 (xp king), gravitor 0.52, flail 0.45 (38 deaths, capped Lv17). Tier-1 duels:
+  rail unbeaten (16-0 grav, 15-0 flail); the mace rework fixed flail 1v1s (12-4 vs hammer,
+  11-5 vs grav). Tier-2 grid: helion 5-5 starPiercer (balanced pair) but both stomp every
+  non-rail tier-2 ~10-0; singularity 10-0 vs both flail-2s; graviflail = worst class in the
+  game (1 win / 50 bouts). Farm/2min: gravitor 441, helion 379, flail 300, chainmaul 266,
+  graviflail 256, rail 141, starPiercer 104, hammer 17. BOT FIXES: (1) `REACH_CLASS`
+  per-class farm-approach override — helion parked at the rail family's 770px approach with
+  a 680px beam and farmed literally 1 scrap/2min (now 379); (2) starPiercer farmed at 700px
+  and never collected the MOTES its blasts dropped (motes only vacuum to nearby ships) —
+  approach 520 (now 104). Conclusions logged in session notes: rail family overtuned across
+  the board; hammer still can't farm; flail fine 1v1 but dies in crowds + hard-countered
+  0-15 by rail + its tier-2s are stat-mods with no identity.
+- *Hammer windup telegraph — fold-out boost jets (visual only, mechanics unchanged):* during
+  ram windup, lateral booster pods hinge outward from the flanks (deploy angle scales with
+  ramCharge) and their burn shifts yellow → deep red with charge, staying splayed + blazing
+  through the lunge. Drawn under the hull so pods emerge from beneath it; flame length,
+  alpha, and hinge angle all keyed to the same charge value the telegraph ring uses.
+  All hammer-family models get it (shared `hammerBody`). The old orange telegraph RING at the
+  ram face is REMOVED — the jets + the molten ram edge are the windup read now (still two
+  charge-scaled tells, so counterplay keeps its warning). `src/ships.js`. Verified via
+  state-gallery screenshot at 0/30/70/100%/lunge.
+- *FLAIL REDESIGN — Momentum Mace (user direction):* the Commanded Chain Orb cycle is replaced.
+  New states in `wreckingOrb`: **trail** (rest: spiked mace drags behind the hull on a slack
+  chain — light contact damage), **spin** (hold fire: radial momentum ramps 0→1 over
+  `spinUpSec` 2.1s; swing speed 3→11.5 rad/s and contact damage 9→30 scale with it),
+  **out/back** (release: FLING at the cursor — cast speed 520→1800 px/s AND damage 20→88
+  scale with banked momentum; same 340 maxReach; return sweep hits for 55%). Old
+  orbit/throw-cooldown keys deleted from `flailship.orb`; new momentum keys added. Ability
+  compat: swingControl burst = faster spin-up; powerSwing multiplies swing/fling damage;
+  Orbit Lock = sustains the spin hands-free (+wider circle). Mace head is now SPIKED
+  (7 spikes, tumbling with own rotation) and burns brighter with momentum (game.js flail
+  extras). Bots wind up while closing and release at >85% momentum in reach; the fire-range
+  gate lets flail (like grav) keep spinning beyond shot range. Verified headless-sim: trail
+  rests behind hull, momentum 0.48@1s / 1.0@2.1s, full fling = 111 dmg @ exactly 340 reach,
+  tap fling = 12 dmg; posed-remote screenshot shows trail + full-spin renders. CLASSES.md
+  updated. *Follow-up:* release no longer snaps the head to the aim line — new `windup` state
+  (hammer-throw): the mace keeps swinging in its spin direction (min `releaseSweepRadPerSec`
+  13) until it CROSSES the cursor line, then lets go. Verified: worst case (mace behind, aim
+  ahead) max per-tick head movement is 30px — smooth arc, no 148px teleport.
+  *Follow-up 3 — flight trail:* the thrown mace now sheds a dissolving wake (1 particle/tick
+  through out+back via fx.spawnParticles; life & size scale with flingPower — hotter throws
+  burn a longer, brighter trail; fades by particle lifetime).
+- *STAR PIERCER re-rework (user: Helion was getting mogged; SP should be ONE quick, far more
+  powerful, uncorrectable beam):* the 0.85s sustained/steerable beam is gone. `mawRail` now
+  fires ONE instantaneous hitscan blast the frame you release — direction locked at that
+  instant, not steerable after; the lingering flash is render-only (`beamVisualSec` 0.22).
+  Damage 40→120 by charge (deliberately just UNDER a tier-2 rail's ~133hp — devastating,
+  never a full-HP one-shot; the original 140 one-shot Helions and went 22-2 in duels),
+  range 980→900, recycle 1.4s, recoil scales with charge, keeps pierce-6/falloff/crack and
+  gains LINE BREAK on 3+ neutrals. Helion range 640→680. Duel ladder while tuning:
+  140dmg = 2-22 (SP one-shots) → 120dmg/1.8s = 20-4 (over-corrected) → 120dmg/1.4s = 16-8
+  helion in BOT duels — accepted, since bots cannot flick-aim and systematically undervalue
+  instant hitscan; expect ~even in human hands. Verified: full blast = exactly 140 (pre-nerf
+  math check) in the release tick, 0 damage after, aim-flick post-release hits nothing.
+  *Follow-up 2 — real mace flight physics:* the fling is now an outward SPIRAL, not a straight
+  ray. The head conserves angular momentum in flight (ω(r) = w0·(r0/r)², chain paying out at
+  constant v, midpoint-integrated), and release happens dPhi = w0·r0·(R−r0)/(v·R) BEFORE the
+  aim line so the spiral lands exactly on the cursor at full reach (sub-tick snap at the
+  release point). Verified at 3 momentum levels: 30-51px of visible arc, lands within 0.3° of
+  the cursor, motion stays ≤33px/tick. NOTE: tier-2/3 flail upgrades still ride the same weapon via orbModByClass —
+  bespoke upgrade mechanics are the next content slot (ideas pitched to the user).
+- *Verified headlessly:* screenshot shows the LV-3 evolve panel with all four family previews
+  rendering, players/bots spawning on the map rim (minimap), and in-flight asteroid/crystal/
+  debris keeping their silhouettes (ghost-injection harness). NOTE for future headless testing:
+  in Chrome `--screenshot --virtual-time-budget` mode, synthetic KeyboardEvent/MouseEvent
+  dispatch does NOT reach listeners and timers fast-forward out of sync with the rAF-driven sim —
+  stub `PULSAR.Input.key` (deriving state from query count) instead of dispatching events.
+
+---
+
 ## 2026-07-02 — Phase 6 Step 1: meta currency + persistence + cosmetic unlocks
 **What changed:** First slice of Phase 6 (meta & persistence). Complete loop, options-only, no power
 creep. Verified headlessly with a localStorage shim (bank → too-poor → buy → equip → persists).

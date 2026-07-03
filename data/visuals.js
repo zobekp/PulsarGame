@@ -10,53 +10,67 @@ window.PULSAR = window.PULSAR || {};
 //   brightness = threat (carried scrap / level; YOU are always brightest + white core)
 window.PULSAR.classVisuals = {
 
-  starter: { hue: "#9fb3c8", silhouette: "smallTriangle",
-             accent: "none", note: "Tiny neutral dart." },
+  // `silhouette` names a hull model in src/ships.js — every class has a unique one,
+  // built so the shape itself explains the weapon (barrels charge, plates brace,
+  // cores glow, drums spin). Adding a class = one row here + one model there.
 
-  // Railship — long narrow spear; glowing front spine while charging; beam-line trail.
-  railship: { hue: "#39d0ff", silhouette: "spear",
+  starter: { hue: "#9fb3c8", silhouette: "dart",
+             accent: "none", note: "Tiny neutral dart with a cockpit dot." },
+
+  // Railship — a gun with a ship attached: dominant barrel, twin accelerator rails,
+  // capacitor rings that light front-to-back with charge, rear heat vents.
+  railship: { hue: "#39d0ff", silhouette: "railship",
               accent: "frontSpineGlow",
-              cues: ["charge glow ramps on the nose", "beam-line trail on fire",
-                     "recoil kick", "heat-vent glow when hot"] },
-  lancer:      { inherits: "railship", silhouette: "thinSpear" },
-  starPiercer: { inherits: "railship", silhouette: "longSpear",
-                 cues: ["huge beam", "screen-shake on full charge",
-                        "weak-point marker on cracked leaders"] },
+              cues: ["capacitor rings light with charge", "beam-line trail on fire",
+                     "recoil kick", "heat-vent slats glow when hot"] },
+  helion:      { inherits: "railship", silhouette: "helion",
+                 note: "Solar-furnace rail: short barrel into a focusing lens ring that " +
+                       "glows hotter as the beam ramps.",
+                 cues: ["lens ring brightens with ramp", "continuous beam", "heavy vent glow"] },
+  starPiercer: { inherits: "railship", silhouette: "starPiercer",
+                 note: "Siege maw: twin jaws that OPEN wider with charge — maw width IS the " +
+                       "beam width. No charge-line; the tell is the intake + the open maw.",
+                 cues: ["maw opens with charge", "essence intake while charging",
+                        "ONE instant devastating blast", "weak-point marker on cracked leaders"] },
 
-  // Hammerhead — wide reinforced front; heavy nose; impact shockwave ring.
-  hammerhead: { hue: "#ff7a3c", silhouette: "wedge",
+  // Hammerhead — all mass forward: bolted ram slab, stubby tug body, oversized engines.
+  hammerhead: { hue: "#ff7a3c", silhouette: "hammerhead",
                 accent: "heavyNose",
-                cues: ["windup particles at front", "shockwave ring on impact",
+                cues: ["ram face heats orange->white with windup", "shockwave ring on impact",
                        "spark burst on collision"] },
-  maulbreaker:  { inherits: "hammerhead", silhouette: "broadWedge" },
-  worldsplitter:{ inherits: "hammerhead", silhouette: "massiveWedge",
+  maulbreaker:  { inherits: "hammerhead", silhouette: "maulbreaker",
+                  note: "Serrated maul face, armored cheeks." },
+  worldsplitter:{ inherits: "hammerhead", silhouette: "worldsplitter",
+                  note: "Anvil head with a central cleaving ridge + hazard chevrons.",
                   cues: ["big charge telegraph", "shockwave on full-charge hit"] },
 
-  // Gravitor — round/crescent body with a visible gravity-well circle + orbiting rocks.
-  gravitor: { hue: "#b06bff", silhouette: "crescent",
+  // Gravitor — crescent hull cradling an exposed gravity core in its mouth.
+  gravitor: { hue: "#b06bff", silhouette: "gravitor",
               accent: "gravityCore",
-              cues: ["visible well circle", "asteroids orbiting the core",
+              cues: ["core brightens as rocks are loaded", "asteroids orbiting the hull",
                      "launch trail on thrown rocks"] },
-  meteorist:   { inherits: "gravitor", silhouette: "crescentHeavy" },
-  starfall:    { inherits: "gravitor", silhouette: "crescentHeavy",
+  meteorist:   { inherits: "gravitor", silhouette: "meteorist",
+                 note: "Launcher rails grow from the crescent horns." },
+  starfall:    { inherits: "gravitor", silhouette: "starfall",
+                 note: "Central launch rail splits the mouth — a volley battery.",
                  cues: ["volley startup flash"] },
-  singularity: { inherits: "gravitor", silhouette: "crescentWide" },
-  eventHorizon:{ inherits: "gravitor", silhouette: "crescentWide",
+  singularity: { inherits: "gravitor", silhouette: "singularity",
+                 note: "Hull closes toward a ring around a VOID core (black, hot rim)." },
+  eventHorizon:{ inherits: "gravitor", silhouette: "eventHorizon",
+                 note: "Near-full ring + broken outer containment ring, counter-rotating.",
                  cues: ["collapse implosion effect", "strong drag field"] },
 
-  // Flailship — ship + chained orb; chain drawn as a line; orb trail while swinging.
-  flailship: { hue: "#ffd23c", silhouette: "ringedHull",
+  // Flailship — a working tug: hex hull, chain-guide yoke, winch drum whose spokes
+  // spin with the orb. The drivetrain that swings the wrecking ball is visible.
+  flailship: { hue: "#ffd23c", silhouette: "flailship",
                accent: "chainedOrb",
-               cues: ["chain line ship->orb", "orb motion trail",
+               cues: ["chain line ship->orb", "drum spokes spin with the orb",
                       "wider arc when extended"] },
-  chainmaul:   { inherits: "flailship", silhouette: "ringedHull",
-                 cues: ["larger orb"] },
-  ironmoon:    { inherits: "flailship", silhouette: "ringedHull",
-                 cues: ["massive orb", "slam launch + retract"] },
-  graviflail:  { inherits: "flailship", silhouette: "ringedHull",
-                 cues: ["stable defensive orbit ring"] },
-  orbitCrusher:{ inherits: "flailship", silhouette: "ringedHull",
-                 cues: ["spinning crush field", "small objects pulled in"] },
+  twinmaul:    { inherits: "flailship", silhouette: "twinmaul",
+                 note: "The drivetrain doubled: armored shoulders + TWO counter-rotating " +
+                       "winch drums, one per chain.",
+                 cues: ["two chained maces, opposite phase", "LMB volley staggers, RMB both at once",
+                        "STATIC LASH stun flash around the heads"] },
 };
 
 // Leader/crowned overlay (David-vs-Goliath legibility): bigger body, crown glyph,

@@ -22,29 +22,29 @@
     asteroid: { hp: 'asteroidHP', radius: 'asteroidRadius', scrap: 'scrapPerAsteroid', hue: '#6b7280' },
     crystal:  { hp: 'crystalHP',  radius: 'crystalRadius',  scrap: 'scrapPerCrystal',  hue: '#5eead4' },
     debris:   { hp: 'debrisHP',   radius: 'debrisRadius',   scrap: 'scrapPerDebris',   hue: '#7b8694' },
+    titan:    { hp: 'titanHP',    radius: 'titanRadius',    scrap: 'scrapPerTitan',    hue: '#9aa7c2' },
   };
   const EVO_GATES = [eco.levelChooseClass, eco.levelChoosePath, eco.levelFinalEvolution];
   const EVO_COSTS = [eco.evolutionCosts.class, eco.evolutionCosts.path, eco.evolutionCosts.final];
   const SPAWN = { x: cfg.arena.width / 2, y: cfg.arena.height * 0.80 };
-  const IMPLEMENTED = new Set(['starter', 'railship', 'lancer', 'starPiercer',
+  const IMPLEMENTED = new Set(['starter', 'railship', 'helion', 'starPiercer',
     'hammerhead', 'maulbreaker', 'worldsplitter', 'gravitor', 'meteorist', 'starfall',
-    'singularity', 'eventHorizon', 'flailship', 'chainmaul', 'ironmoon', 'graviflail', 'orbitCrusher']);
+    'singularity', 'eventHorizon', 'flailship', 'twinmaul']);
   const FAMILY = {
     starter: 'dart',
-    railship: 'rail', lancer: 'rail', starPiercer: 'rail',
+    railship: 'rail', helion: 'rail', starPiercer: 'rail',
     hammerhead: 'hammer', maulbreaker: 'hammer', worldsplitter: 'hammer',
     gravitor: 'grav', meteorist: 'grav', starfall: 'grav', singularity: 'grav', eventHorizon: 'grav',
-    flailship: 'flail', chainmaul: 'flail', ironmoon: 'flail', graviflail: 'flail', orbitCrusher: 'flail',
+    flailship: 'flail', twinmaul: 'flail',
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
-    gravitor: 'auto-pulls rocks · click to launch', flailship: 'chain orb — throw it out, it returns',
-    lancer: '+range · +charge dmg · thinner beam', starPiercer: 'huge beam · BROKEN CORE mark [E]',
+    gravitor: 'auto-pulls rocks · condenses PEBBLES when dry', flailship: 'SPIKED MACE — hold to SPIN UP, release to fling',
+    helion: 'SUSTAIN BEAM — dmg ramps while held, heat compounds', starPiercer: 'SIEGE MAW — charge WIDENS the beam · BROKEN CORE [E]',
     maulbreaker: '+ram reach · +knockback', worldsplitter: 'full-lunge SHOCKWAVE · slam burst [E]',
     meteorist: 'holds 3 rocks · harder throws', starfall: 'hold 9, hurl 3, no cooldown · BARRAGE [E]',
     singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [E]',
-    chainmaul: 'bigger, harder orb', ironmoon: 'Power Swing [Space] · MOON SLAM [E]',
-    graviflail: 'defensive Orbit Lock [Space]', orbitCrusher: 'GRAVITY CRUSH [E]',
+    twinmaul: 'TWO maces — LMB volley · RMB both at once · STATIC LASH [E]',
   };
 
   function classNode(id) { return PULSAR.classes[id]; }
@@ -80,10 +80,10 @@
         slow: 0, slowTimer: 0, alive: true, respawnTimer: 0,
         charge: 0, charging: false, heat: 0, ventTimer: 0, chargeFullTimer: 0,
         ramWinding: false, ramCharge: 0, ramActive: 0, ramHitList: [], ramHitBase: 0, ramFull: false, ramSlammed: false,
-        captured: [], orbSpin: 0, orbAngle: 0, orbRadius: null, orbX: o.x, orbY: o.y, orbState: 'orbit', orbCd: 0, orbHitGen: 0,
-        orbBurstTimer: 0, powerSwingTimer: 0, braceTimer: 0, orbLockTimer: 0, fireTimer: 0,
+        captured: [], orbSpin: 0, orbAngle: 0, orbRadius: null, orbX: o.x, orbY: o.y, orbState: 'trail', orbCd: 0,
+        orbBurstTimer: 0, braceTimer: 0, fireTimer: 0,
         cracked: false, crackTimer: 0, combatTimer: 0,
-        ai: o.isBot ? { state: 'farm', t: 0, dodge: 0, dodgeDir: 1, strafeDir: 1 } : null,
+        ai: null,   // bot AI state is owned + lazily initialized by src/bots.js
         _intent: null,
       };
     }
@@ -103,10 +103,11 @@
     }
     function resetClassState(s) {
       s.charge = 0; s.charging = false; s.heat = 0; s.ventTimer = 0; s.chargeFullTimer = 0;
+      s.beamRamp = 0; s.beamTimer = 0; s.beamWidth = 0; s.beamPower = 0;
       s.ramWinding = false; s.ramCharge = 0; s.ramActive = 0; s.ramHitList = [];
-      s.captured = []; s.orbSpin = 0; s.orbAngle = 0; s.orbRadius = null; s.orbX = s.x; s.orbY = s.y;
-      s.orbState = 'orbit'; s.orbCd = 0;
-      s.orbBurstTimer = 0; s.powerSwingTimer = 0; s.braceTimer = 0; s.orbLockTimer = 0; s.fireTimer = 0;
+      s.captured = []; s.orbSpin = 0; s.orbAngle = 0; s.orbRadius = null; s.orbX = s.x; s.orbY = s.y; s.maces = null; s.spinFrac = 0;
+      s.orbState = 'trail'; s.spinFrac = 0; s.flingPower = 0; s.orbCd = 0;
+      s.orbBurstTimer = 0; s.braceTimer = 0; s.fireTimer = 0;
     }
     function switchClass(s, id) {
       s.classId = id; resetClassState(s); applyClassStats(s, true);
@@ -155,7 +156,7 @@
     function densityAt(x, y) { const t = Math.min(1, Math.hypot(x - cfg.arena.width / 2, y - cfg.arena.height / 2) / (cfg.arena.width / 2)); return lerp(cfg.farming.densityAtCenter, cfg.farming.densityAtEdge, t); }
     function addObject(type, x, y) {
       const hp = cfg.farming[OBJDEF[type].hp];
-      state.objects.push({ type, x, y, px: x, py: y, vx: 0, vy: 0, radius: cfg.farming[OBJDEF[type].radius], hp, maxHp: hp, spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0, _orbHit: -9 });
+      state.objects.push({ type, x, y, px: x, py: y, vx: 0, vy: 0, radius: cfg.farming[OBJDEF[type].radius], hp, maxHp: hp, spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0 });
     }
     function spawnArenaObject() {
       const cx = cfg.arena.width / 2, cy = cfg.arena.height / 2;
@@ -174,23 +175,23 @@
       o.hp -= dmg * (o.cracked ? (1 + cfg.railship.armorCrack.damageAmp) : 1);
       o.flash = 0.12;
       if (opts.crack) { o.cracked = true; o.crackTimer = Math.max(o.crackTimer, cfg.railship.armorCrack.baseDurationSec); }
-      if (opts.knockback) { o.vx += (opts.dx || 0) * opts.knockback; o.vy += (opts.dy || 0) * opts.knockback; }
+      if (opts.knockback && o.type !== 'titan') { o.vx += (opts.dx || 0) * opts.knockback; o.vy += (opts.dy || 0) * opts.knockback; }
       fx.spawnParticles(o.x, o.y, cfg.fx.hitParticles, OBJDEF[o.type].hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 170 });
       if (o.hp <= 0) breakObject(o);
     }
     function damageThrownRock(r, dmg, opts) {
       opts = opts || {};
       r.hp -= dmg;
-      fx.spawnParticles(r.x, r.y, cfg.fx.hitParticles, OBJDEF[r.rockType || 'asteroid'].hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 170 });
+      fx.spawnParticles(r.x, r.y, cfg.fx.hitParticles, (OBJDEF[r.rockType] || OBJDEF.asteroid).hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 170 });
       if (r.hp <= 0) r._broken = true;
     }
     function crackObject(o) { o.cracked = true; o.crackTimer = Math.max(o.crackTimer, cfg.railship.armorCrack.baseDurationSec); }
     function breakObject(o) {
       const total = eco[OBJDEF[o.type].scrap], n = cfg.farming.motesPerObject[o.type];
-      ejectMotes(o.x, o.y, n, total / n);
+      ejectMotes(o.x, o.y, n, total / n, o.type === 'titan' ? { life: 30, speed: 150, evenIndex: true } : undefined);
       fx.spawnParticles(o.x, o.y, cfg.fx.breakParticles, OBJDEF[o.type].hue, { speed: 250 });
       const idx = state.objects.indexOf(o); if (idx >= 0) state.objects.splice(idx, 1);
-      state.respawns.push({ timer: cfg.farming.respawnSec });
+      if (!o.recycled) state.respawns.push(o.type === 'titan' ? { timer: cfg.farming.titans.respawnSec, titan: true } : { timer: cfg.farming.respawnSec });   // fragments are bonus matter, not part of the spawn budget
     }
     function damageShip(t, dmg, opts) {
       opts = opts || {};
@@ -285,9 +286,8 @@
       if (s.ventTimer > 0) s.ventTimer -= dt; if (s.abilityCd > 0) s.abilityCd -= dt;
       if (s.specialCd > 0) s.specialCd -= dt; if (s.contactCd > 0) s.contactCd -= dt;
       if (s.braceTimer > 0) s.braceTimer -= dt; if (s.ramActive > 0) s.ramActive -= dt;
-      if (s.orbBurstTimer > 0) s.orbBurstTimer -= dt; if (s.powerSwingTimer > 0) s.powerSwingTimer -= dt;
-      if (s.orbLockTimer > 0) s.orbLockTimer -= dt;
-      if (s.slowTimer > 0) { s.slowTimer -= dt; if (s.slowTimer <= 0) s.slow = 0; }
+      if (s.orbBurstTimer > 0) s.orbBurstTimer -= dt;
+            if (s.slowTimer > 0) { s.slowTimer -= dt; if (s.slowTimer <= 0) s.slow = 0; }
       s.heat = Math.max(0, s.heat - cfg.railship.heat.decayPerSec * dt);
       if (s.cracked) { s.crackTimer -= dt; if (s.crackTimer <= 0) s.cracked = false; }
       const regen = cfg.player.regen;
@@ -296,14 +296,46 @@
     }
 
     function simShip(s, dt, intent) {
-      s.px = s.x; s.py = s.y; s.aim = intent.aim;
+      s.px = s.x; s.py = s.y;
+      // Static Lash stun: frozen controls — no thrust, no fire, aim locked — until it wears off
+      if ((s.stunTimer || 0) > 0) { s.stunTimer -= dt; intent = { moveX: 0, moveY: 0, aim: s.aim, aimDist: intent.aimDist || 1, firing: false, ability: false, special: false }; }
+      s.aim = intent.aim;
       const fam = FAMILY[s.classId];
       let speedMul = 1;
       if (fam === 'rail' && s.charging) { const m = cfg.railship.movementWhileCharging; speedMul = s.charge > 1 ? m.overcharge : s.charge <= 0.5 ? m.to50 : s.charge <= 0.9 ? m.to90 : m.to100; }
       else if (fam === 'hammer' && s.ramWinding) speedMul = 0.4;
       if (s.slowTimer > 0) speedMul *= (1 - s.slow);
+      const thrusting = intent.moveX !== 0 || intent.moveY !== 0;
+      // Rail-family afterburner [Shift]: hard escape burn — kick + speed/accel boost, paid in heat.
+      if (fam === 'rail') {
+        const ab = cfg.railship.afterburner;
+        if ((s.burnCd || 0) > 0) s.burnCd -= dt;
+        if (intent.afterburner && (s.burnCd || 0) <= 0 && (s.burnTimer || 0) <= 0) {
+          s.burnTimer = ab.durationSec; s.burnCd = ab.cooldownSec;
+          s.heat = Math.min(cfg.railship.heat.max, (s.heat || 0) + ab.heatCost);
+          const kx = thrusting ? intent.moveX : -Math.cos(s.aim), ky = thrusting ? intent.moveY : -Math.sin(s.aim);
+          s.impX += kx * ab.kick; s.impY += ky * ab.kick;
+          if (!s.isBot) fx.spawnText(s.x, s.y - 30, 'AFTERBURN', '#7fdcff', { size: 13 });
+        }
+        if ((s.burnTimer || 0) > 0) {
+          s.burnTimer -= dt; speedMul *= ab.speedMult;
+          fx.spawnParticles(s.x, s.y, 2, '#7fdcff', { dir: s.aim + Math.PI, spread: 0.7, speed: 260, life: 0.3 });
+        }
+      }
+      // Cruise: sustained heading keeps the engines spooling past base speed; hard turns dump it.
+      const cz = cfg.player.cruise;
+      if (thrusting) {
+        const dot = intent.moveX * (s.cruiseDX || 0) + intent.moveY * (s.cruiseDY || 0);
+        s.cruise = dot >= cz.alignDot ? Math.min(1, (s.cruise || 0) + dt / cz.rampSec) : 0;
+        s.cruiseDX = intent.moveX; s.cruiseDY = intent.moveY;
+      } else s.cruise = Math.max(0, (s.cruise || 0) - cz.decayPerSec * dt);
+      speedMul *= 1 + (s.cruise || 0) * (cz.maxMult - 1);
       const speed = cfg.player.baseSpeed * (s.classStats.speed || 1) * speedMul;
-      s.vx = intent.moveX * speed; s.vy = intent.moveY * speed;
+      // Inertia: thrust steers velocity toward the input direction; releasing coasts + drifts.
+      const inr = cfg.player.inertia;
+      const accel = inr.accelPerSec * ((s.burnTimer || 0) > 0 ? cfg.railship.afterburner.accelMult : 1);
+      const k = Math.min(1, (thrusting ? accel : inr.coastDampPerSec) * dt);
+      s.vx += (intent.moveX * speed - s.vx) * k; s.vy += (intent.moveY * speed - s.vy) * k;
       s.x += (s.vx + s.impX) * dt; s.y += (s.vy + s.impY) * dt;
       const dampRate = s.ramActive > 0 ? cfg.hammerhead.lunge.glideDampPerSec : cfg.player.impulseDampPerSec;
       const damp = Math.max(0, 1 - dampRate * dt); s.impX *= damp; s.impY *= damp;
@@ -313,7 +345,7 @@
       if (intent.firing || intent.ability || intent.special) s.combatTimer = cfg.player.regen.delaySec;
       if (intent.ability && s.abilityCd <= 0) s.abilityCd = PULSAR.resolveAbility(classNode(s.classId).ability).activate(api, s) || 0;
       if (intent.special && s.specialCd <= 0) s.specialCd = PULSAR.resolveSpecial(classNode(s.classId).special).activate(api, s) || 0;
-      PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing, aimDist: intent.aimDist });
+      PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing, altFire: intent.altFire, aimDist: intent.aimDist });
 
       if (s.spawnProtect <= 0 && s.contactCd <= 0) {
         for (const o of state.objects) {
@@ -323,7 +355,7 @@
           let dmg = cfg.farming.contactDamage[o.type];
           if (s.ramActive > 0) dmg *= (1 - cfg.hammerhead.lunge.selfDamageReduction);
           damageShip(s, dmg, { dx: dx / d, dy: dy / d, knockback: cfg.combat.knockbackBase, source: null });
-          o.vx -= (dx / d) * 80; o.vy -= (dy / d) * 80; s.contactCd = cfg.farming.contactCooldownSec;
+          if (o.type !== 'titan') { o.vx -= (dx / d) * 80; o.vy -= (dy / d) * 80; } s.contactCd = cfg.farming.contactCooldownSec;
           break;
         }
       }
@@ -371,7 +403,19 @@
         }
         if (!dead && (pr.x < 0 || pr.y < 0 || pr.x > cfg.arena.width || pr.y > cfg.arena.height)) dead = true;
         if (dead) {
-          if (pr.isThrownRock) fx.spawnParticles(pr.x, pr.y, cfg.fx.breakParticles, OBJDEF[pr.rockType || 'asteroid'].hue, { speed: 240 });
+          if (pr.isThrownRock) {
+            fx.spawnParticles(pr.x, pr.y, cfg.fx.breakParticles, (OBJDEF[pr.rockType] || OBJDEF.asteroid).hue, { speed: 240 });
+            // SHATTER RECYCLING: dying rocks sometimes leave a real capturable fragment —
+            // the gravitor's volleys reseed the battlefield (for everyone). Pebbles don't.
+            const rc = cfg.gravitor.recycle;
+            if (pr.rockType !== 'pebble' && state.objects.length < rc.maxWorldObjects && Math.random() < rc.fragmentChance
+                && pr.x > 60 && pr.y > 60 && pr.x < cfg.arena.width - 60 && pr.y < cfg.arena.height - 60) {
+              const fr = Math.max(10, (pr.radius || 20) * rc.fragmentRadiusMult);
+              state.objects.push({ type: 'debris', x: pr.x, y: pr.y, px: pr.x, py: pr.y, vx: pr.vx * 0.1, vy: pr.vy * 0.1,
+                radius: fr, hp: cfg.farming.debrisHP, maxHp: cfg.farming.debrisHP, recycled: true,
+                spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0 });
+            }
+          }
           state.projectiles.splice(i, 1);
         }
       }
@@ -382,7 +426,7 @@
         const damp = Math.max(0, 1 - 4 * dt); o.vx *= damp; o.vy *= damp;
         if (o.flash > 0) o.flash -= dt; if (o.cracked) { o.crackTimer -= dt; if (o.crackTimer <= 0) o.cracked = false; }
       }
-      for (let i = state.respawns.length - 1; i >= 0; i--) { state.respawns[i].timer -= dt; if (state.respawns[i].timer <= 0) { spawnArenaObject(); state.respawns.splice(i, 1); } }
+      for (let i = state.respawns.length - 1; i >= 0; i--) { state.respawns[i].timer -= dt; if (state.respawns[i].timer <= 0) { state.respawns[i].titan ? spawnTitan() : spawnArenaObject(); state.respawns.splice(i, 1); } }
     }
     function simulateMotes(dt) {
       for (let i = state.motes.length - 1; i >= 0; i--) {
@@ -421,7 +465,24 @@
       for (let i = 0; i < n; i++) { const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)]; const sp = randomSpawn(); addShip({ classId: cls, isBot: true, aim: Math.random() * TAU, x: sp.x, y: sp.y }); }
     }
     function clearBots() { for (let i = state.ships.length - 1; i >= 0; i--) if (state.ships[i].isBot) state.ships.splice(i, 1); }
-    function populateField() { for (let i = 0; i < af.count; i++) spawnArenaObject(); }
+    function populateField() { for (let i = 0; i < af.count; i++) spawnArenaObject(); for (let i = 0; i < cfg.farming.titans.count; i++) spawnTitan(); }
+    // TITANS: center-biased landmark placement — rejection-sample toward mid-map, keep them
+    // apart from each other and off the pulsar core. Immovable mountains; see config note.
+    function spawnTitan() {
+      const T = cfg.farming.titans, cx = cfg.arena.width / 2, cy = cfg.arena.height / 2, half = cfg.arena.width / 2;
+      for (let t = 0; t < 60; t++) {
+        const x = 300 + Math.random() * (cfg.arena.width - 600), y = 300 + Math.random() * (cfg.arena.height - 600);
+        const d = Math.hypot(x - cx, y - cy);
+        if (d < T.minDistFromPulsar) continue;
+        if (Math.random() > Math.pow(1 - Math.min(1, d / half), T.centerBias)) continue;   // center bias
+        let crowded = false;
+        for (const o of state.objects) if (o.type === 'titan' && Math.hypot(o.x - x, o.y - y) < T.minSeparation) { crowded = true; break; }
+        if (crowded) continue;
+        addObject('titan', x, y);
+        return;
+      }
+    }
+
     populateField();
 
     return {

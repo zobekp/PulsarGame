@@ -13,6 +13,20 @@ window.PULSAR = window.PULSAR || {};
     return (v && v.hue) || '#ffffff';
   }
 
+  // Shared beam corridor query: everything hittable within `halfWidth` of the ray, sorted
+  // near-to-far. Used by the continuous beams (helion / maw); chargeRail keeps its own.
+  function beamHits(api, ship, ox, oy, dx, dy, range, halfWidth) {
+    const hits = [];
+    for (const t of api.hittables(ship)) {
+      const along = (t.x - ox) * dx + (t.y - oy) * dy;
+      if (along < 0 || along > range) continue;
+      const perp = Math.abs((t.x - ox) * -dy + (t.y - oy) * dx);
+      if (perp <= halfWidth + t.radius) hits.push({ t, along });
+    }
+    hits.sort((a, b) => a.along - b.along);
+    return hits;
+  }
+
   // ---- WEAPONS -------------------------------------------------------------
   const weapons = {
 
@@ -114,6 +128,106 @@ window.PULSAR = window.PULSAR || {};
       },
     },
 
+    // HELION (rail branch A) — continuous beam, damage RAMPS while held, heat compounds.
+    // Reuses the rail chassis systems: s.charging/charge drive the HUD bar, movement slow,
+    // bloom and capacitor-ring visuals; heat/vent are the same meter the family shares.
+    helionBeam: {
+      update(api, ship, dt, ctx) {
+        const B = api.config.helion.beam, R = api.config.railship;
+        if (ship.ventTimer > 0) { ship.beamRamp = 0; ship.charging = false; ship.charge = 0; return; }
+        if (!ctx.firing) {
+          ship.beamRamp = Math.max(0, (ship.beamRamp || 0) - B.rampDownPerSec * dt);
+          ship.charging = false; ship.charge = 0;
+          return;
+        }
+        const ramp = ship.beamRamp = Math.min(1, (ship.beamRamp || 0) + dt / B.rampSec);
+        ship.charging = true; ship.charge = ramp;
+        // heat accelerates with the ramp; maxing the bar force-vents (greed's fuse)
+        ship.heat = Math.min(R.heat.max, ship.heat + (B.heatPerSecBase + (B.heatPerSecMax - B.heatPerSecBase) * ramp) * dt);
+        if (ship.heat >= R.heat.max) {
+          ship.ventTimer = B.overheatVentSec; ship.beamRamp = 0; ship.charging = false; ship.charge = 0;
+          api.fx.spawnParticles(ship.x, ship.y, 24, '#ff4530', { speed: 300, life: 0.5 });
+          if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax * 0.7);
+          return;
+        }
+        const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);
+        const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
+        const dps = B.dpsBase + (B.dpsMax - B.dpsBase) * ramp;
+        const hits = beamHits(api, ship, ox, oy, dx, dy, B.range, B.halfWidth);
+        let pierced = 0, end = B.range;
+        for (const h of hits) {
+          if (pierced >= B.pierce) break;
+          const fall = h.t.isShip ? R.pierceFalloff.players : R.pierceFalloff.neutral;
+          api.damage(h.t, dps * fall[Math.min(pierced, fall.length - 1)] * dt,
+            { dx, dy, knockback: 0, crack: ramp >= B.crackAtRamp, source: ship });
+          pierced++;
+          if (pierced >= B.pierce) end = h.along;   // beam honestly stops at its last victim
+        }
+        // continuous beam visual — every 2nd tick (short life overlaps into a solid beam,
+        // and halves the MP relay chatter)
+        if ((ship._beamTick = (ship._beamTick || 0) + 1) % 2 === 0)
+          api.fx.spawnBeam(ox, oy, ox + dx * end, oy + dy * end, hueFor(ship.classId),
+            B.halfWidth * (0.8 + 0.8 * ramp), 0.1, 0.12 + 0.55 * ramp);
+      },
+    },
+
+    // STAR PIERCER (rail branch B) — siege maw. Long charge OPENS the cannon (width of the
+    // maw == width of the blast); release fires ONE instantaneous blast — all the damage
+    // lands the frame you let go, along the aim you committed to. Fired, NOT steered: a
+    // miss wastes the whole recycle. Redline rules still apply at full hold.
+    mawRail: {
+      update(api, ship, dt, ctx) {
+        const R = api.config.railship, M = R.mawRail, ch = R.charge;
+        if (ship.fireTimer > 0) ship.fireTimer -= dt;
+        if ((ship.beamTimer || 0) > 0) ship.beamTimer -= dt;   // render-only: jaws stay open through the flash
+        if (ship.ventTimer > 0) { ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0; return; }
+
+        if (ctx.firing && ship.fireTimer <= 0) {               // ---- charging: the maw opens
+          ship.charging = true;
+          ship.charge = Math.min(1, ship.charge + dt / M.chargeTimeSec);
+          if (ship.charge >= 1) {                              // same redline/blowout rule as the base rail
+            ship.chargeFullTimer = (ship.chargeFullTimer || 0) + dt;
+            if (ship.chargeFullTimer >= ch.overheatSec) {
+              ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0;
+              ship.heat = R.heat.max; ship.ventTimer = ch.overheatVentSec;
+              api.fx.spawnParticles(ship.x, ship.y, 32, '#ff4530', { speed: 340, life: 0.6 });
+              if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
+            }
+          } else ship.chargeFullTimer = 0;
+        } else if (ship.charging) {                            // ---- release: the blast happens NOW
+          const c = ship.charge;
+          ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0;
+          if (c >= M.minChargeToFire) this.fire(api, ship, c);
+        }
+      },
+      fire(api, ship, c) {
+        const R = api.config.railship, M = R.mawRail;
+        const w = M.minHalfWidth + (M.maxHalfWidth - M.minHalfWidth) * c;
+        const dmg = M.damageAtMin + (M.damageAtFull - M.damageAtMin) * c;
+        const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);        // locked at this instant
+        const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
+        const hits = beamHits(api, ship, ox, oy, dx, dy, M.range, w);
+        let pierced = 0, neutrals = 0;
+        for (const h of hits) {
+          if (pierced >= M.pierce) break;
+          const fall = h.t.isShip ? R.pierceFalloff.players : R.pierceFalloff.neutral;
+          api.damage(h.t, dmg * fall[Math.min(pierced, fall.length - 1)],
+            { dx, dy, knockback: R.beam.knockback * (1 + c), crack: c >= M.crackAtCharge, source: ship });
+          pierced++; if (!h.t.isShip) neutrals++;
+        }
+        if (neutrals >= R.lineBreakThreshold) api.lineBreak(ship, neutrals, ox, oy);
+        api.fx.spawnBeam(ox, oy, ox + dx * M.range, oy + dy * M.range, hueFor(ship.classId), w, M.beamVisualSec, 0.6 + 0.4 * c);
+        api.fx.spawnParticles(ox + dx * ship.radius, oy + dy * ship.radius, 10 + Math.round(c * 18),
+          hueFor(ship.classId), { dir: ship.aim, spread: 0.5, speed: 320 + c * 260 });
+        api.applyImpulse(ship, -dx * M.recoil * c, -dy * M.recoil * c);
+        ship.beamTimer = M.beamVisualSec; ship.beamPower = c; ship.beamWidth = w;   // render: jaws + flash
+        ship.fireTimer = M.recycleSec;
+        ship.heat = Math.min(R.heat.max, ship.heat + M.heatCost * c);
+        if (ship.heat >= R.heat.max && R.heat.ventStateAtMax) ship.ventTimer = R.heat.ventStateSec;
+        if (!ship.isBot) api.fx.addShake(Math.min(api.config.fx.screenShakeMax, 5 + c * 9));
+      },
+    },
+
     // HAMMERHEAD line — wind up, lunge; contact = momentum impact (neutral OR ship).
     hammerRam: {
       update(api, ship, dt, ctx) {
@@ -205,22 +319,36 @@ window.PULSAR = window.PULSAR || {};
             e.slow = Math.max(e.slow || 0, td.slow); e.slowTimer = Math.max(e.slowTimer || 0, 0.12);
           }
         }
-        // ALL wells disrupt high-momentum chargers: extra inward pull + bleed the lunge + brief slow,
-        // so a straight charge through the field bends and stalls (counterplay, not a root).
-        const w = G.well;
-        if (api.isHighMomentum) for (const e of api.enemiesOf(ship)) {
-          if (!api.isHighMomentum(e)) continue;
-          const dx = ship.x - e.x, dy = ship.y - e.y, d = Math.hypot(dx, dy);
-          if (d > w.pullRadius) continue;
-          e.vx += (dx / (d || 1)) * w.enemyPull * w.highMomentumPullMult * dt;
-          e.vy += (dy / (d || 1)) * w.enemyPull * w.highMomentumPullMult * dt;
-          e.impX *= (1 - w.highMomentumDamping); e.impY *= (1 - w.highMomentumDamping);
-          e.slow = Math.max(e.slow || 0, w.highMomentumSlow); e.slowTimer = Math.max(e.slowTimer || 0, 0.15);
+        // Orbiting rocks are a melee HAZARD, not a force field. No momentum stall: a rusher
+        // who dives the well gets in, but any orbiting rock he touches hits like a thrown one
+        // (same damage) and shatters. Per-enemy rehit grace so a dive costs rocks-worth of HP,
+        // not the entire ring in one frame.
+        const oc = G.orbitContact, orbR = ship.radius + G.orbit.radius;
+        if (ship.captured.length > 0) for (const e of api.enemiesOf(ship)) {
+          if (e._rockHitCd > 0) { e._rockHitCd -= dt; continue; }
+          const d = Math.hypot(e.x - ship.x, e.y - ship.y);
+          if (d > orbR + e.radius + 30) continue;
+          const n = ship.captured.length;
+          for (let i = n - 1; i >= 0; i--) {
+            const rock = ship.captured[i], a = ship.orbSpin + i * (Math.PI * 2 / n);   // must match render placement
+            const rx = ship.x + Math.cos(a) * orbR, ry = ship.y + Math.sin(a) * orbR;
+            const rr = (rock.radius || 18) + e.radius, ddx = e.x - rx, ddy = e.y - ry;
+            if (ddx * ddx + ddy * ddy > rr * rr) continue;
+            let dmg = G.well.launchDamage;                 // same hit as if this rock were launched
+            if (ship.classId === 'meteorist' || ship.classId === 'starfall') dmg *= (1 + G.momentumStrike.medThrowBonus);
+            if (rock.pebble) dmg *= G.accretion.pebbleDamageMult;
+            const dd = Math.hypot(ddx, ddy) || 1;
+            api.damage(e, dmg, { dx: ddx / dd, dy: ddy / dd, knockback: oc.knockback, source: ship });
+            ship.captured.splice(i, 1);
+            e._rockHitCd = oc.rehitSec;
+            api.fx.spawnParticles(rx, ry, 12, '#b06bff', { speed: 230 });
+            break;                                          // one rock per enemy per contact
+          }
         }
         const cap = (G.launchByClass[ship.classId] || G.launchByClass.gravitor).cap;
-        if (ship.captured.length >= cap) return;
+        if (ship.captured.length >= cap) { ship.accretionT = 0; return; }
         const need = cap - ship.captured.length, cands = [];
-        for (const o of api.state.objects) { const d = Math.hypot(o.x - ship.x, o.y - ship.y); if (d < G.well.pullRadius) cands.push({ o, d }); }
+        for (const o of api.state.objects) { if (o.type === 'titan') continue; const d = Math.hypot(o.x - ship.x, o.y - ship.y); if (d < G.well.pullRadius) cands.push({ o, d }); }   // titans are mountains, not ammo
         cands.sort((a, b) => a.d - b.d);
         for (let i = 0; i < Math.min(need, cands.length); i++) {
           const o = cands[i].o, d = cands[i].d || 1;
@@ -233,76 +361,167 @@ window.PULSAR = window.PULSAR || {};
             api.fx.spawnParticles(ship.x, ship.y, 6, '#b06bff', { speed: 150 });
           }
         }
+        // DUST ACCRETION: nothing capturable in range -> the well condenses a pebble from
+        // dust. Weak floor ammo — never disarmed in open space, but real rocks stay better.
+        if (cands.length === 0) {
+          const A = G.accretion;
+          const pebbles = ship.captured.reduce((n, c) => n + (c.pebble ? 1 : 0), 0);
+          if (pebbles < A.maxPebbles) {
+            ship.accretionT = (ship.accretionT || 0) + dt;
+            if (ship.accretionT >= A.intervalSec) {
+              ship.accretionT = 0;
+              ship.captured.push({ type: 'pebble', radius: A.pebbleRadius, pebble: true });
+              api.fx.spawnParticles(ship.x, ship.y, 8, '#9a8fc8', { speed: 90, life: 0.5 });
+            }
+          }
+        } else ship.accretionT = 0;
       },
     },
 
-    // FLAILSHIP line — COMMANDED CHAIN ORB. A tethered orb that defends, then COMMITS on a throw:
-    //   ORBIT ('orbit'): circles the hull as a defensive shield — low damage, punishes divers, and
-    //          — like every state — intercepts enemy projectiles it touches.
-    //   THROW: fire (when off cooldown) shoots the orb OUT to the aimed point ('out'), then it
-    //          AUTO-RETURNS ('back') and a longish cooldown begins. It can't be held out.
-    // Triggered off ctx.firing as a LEVEL + a cooldown gate, so bots use the same code path —
-    // hold or tap, you get one throw per cooldown.
+    // FLAILSHIP line — MOMENTUM MACE(S). At rest each spiked mace TRAILS behind the hull on a
+    // slack chain. HOLD fire: radial momentum — the maces swing around the ship, faster and
+    // faster (Twinmaul's pair spins in opposite phase). RELEASE (LMB): hammer-throw windup —
+    // each head lets go as it crosses the cursor line, so a twin's heads naturally stagger
+    // into a rapid one-two volley. ALT-FIRE (RMB): forced synchronized windup — BOTH heads
+    // whip onto the line together and fling at once. Blocks enemy shots in every state.
     wreckingOrb: {
       update(api, ship, dt, ctx) {
         const F = api.config.flailship, O = F.orb;
-        const om = F.orbModByClass[ship.classId] || null;
-        const reachMult = om ? om.radiusMult : 1, dmgMult = om ? om.dmgMult : 1;
-        const lock = ship.orbLockTimer > 0;                 // Graviflail Orbit Lock pins to a wide orbit
-        const orbitR = O.orbitRadius * reachMult * (lock ? (F.orbitLock.radiusMult || 1.6) : 1);
-        const maxReach = O.maxReach * reachMult;
-        if (ship.orbRadius == null) { ship.orbRadius = orbitR; ship.orbState = 'orbit'; ship.orbCd = 0; ship.orbHitGen = 0; }
+        const twin = ship.classId === 'twinmaul';
+        const nHeads = twin ? 2 : 1;
+        const dmgMult = twin ? F.twin.dmgMult : 1;
+        if (!ship.maces || ship.maces.length !== nHeads) {
+          ship.maces = [];
+          for (let i = 0; i < nHeads; i++) ship.maces.push({
+            state: 'trail', angle: ship.aim + Math.PI + (i - (nHeads - 1) / 2) * 0.7,
+            radius: O.trailDistance, x: ship.x, y: ship.y, selfSpin: i * 1.3,
+            flingPower: 0, flingW: 0, flingR0: 1, syncW: 0,
+            passHits: new Set(), touch: new Map(),
+          });
+          ship.spinFrac = 0; ship.orbCd = 0;
+        }
         if (ship.orbCd > 0) ship.orbCd -= dt;
+        const spinBoost = ship.orbBurstTimer > 0 ? F.swingControl.burstSpeedMult : 1;
+        const M = ship.maces;
+        const allTrail = M.every(m => m.state === 'trail');
+        const anySpin = M.some(m => m.state === 'spin');
 
-        // Launch: fire while resting + off cooldown shoots the orb out at FULL chain range along the
-        // aim direction (the cursor sets direction, not distance). Locked at launch so it returns.
-        if (ship.orbState === 'orbit' && !lock && ctx.firing && ship.orbCd <= 0) {
-          ship.orbThrowDist = maxReach;
-          ship.orbState = 'out'; ship.orbHitGen++;       // new pass — every target can be hit once on the way out
+        // engage: from full rest, holding fire spins ALL heads up, evenly phased
+        if (allTrail && ctx.firing && ship.orbCd <= 0) {
+          const base = Math.atan2(M[0].y - ship.y, M[0].x - ship.x);   // pick up where head 0 hangs
+          M.forEach((m, i) => { m.state = 'spin'; m.angle = base + i * (Math.PI * 2 / nHeads); });
         }
-        // Resolve the cycle: extend to full reach, hang briefly so the throw reads, then retract.
-        if (ship.orbState === 'out') {
-          ship.orbRadius += O.throwSpeed * dt;
-          if (ship.orbRadius >= ship.orbThrowDist) { ship.orbRadius = ship.orbThrowDist; ship.orbState = 'hold'; ship.orbHang = O.apexHangSec; }
-        } else if (ship.orbState === 'hold') {
-          ship.orbHang -= dt;
-          if (ship.orbHang <= 0) { ship.orbState = 'back'; ship.orbHitGen++; } // back pass can hit again
-        } else if (ship.orbState === 'back') {
-          ship.orbRadius -= O.recallSpeed * dt;
-          if (ship.orbRadius <= orbitR) { ship.orbRadius = orbitR; ship.orbState = 'orbit'; ship.orbCd = O.throwCooldownSec; }
-        } else {
-          const dr = orbitR - ship.orbRadius, step = O.recallSpeed * dt;   // settle to orbit (handles lock radius change)
-          ship.orbRadius += Math.abs(dr) <= step ? dr : (dr < 0 ? -step : step);
+        if (anySpin) {
+          ship.spinFrac = Math.min(1, (ship.spinFrac || 0) + (dt / O.spinUpSec) * spinBoost);
+          if (!ctx.firing || ctx.altFire) {
+            // release: every spinning head banks the momentum and enters windup.
+            // LMB: natural sweep — opposite phases cross the aim line at different times
+            //      (the rapid-succession volley falls out of the physics for free).
+            // RMB: forced sweep speed so ALL heads reach their release points together.
+            const p = ship.spinFrac; ship.spinFrac = 0;
+            for (const m of M) if (m.state === 'spin') {
+              m.state = 'windup'; m.flingPower = p;
+              m.syncW = 0;
+              if (ctx.altFire) {
+                const w = Math.max(O.spinSpeedMin + (O.spinSpeedMax - O.spinSpeedMin) * p, O.releaseSweepRadPerSec);
+                const v = O.flingSpeedMin + (O.flingSpeedMax - O.flingSpeedMin) * p;
+                const dPhi = w * m.radius * (O.maxReach - m.radius) / (v * O.maxReach);
+                let da = (ship.aim - dPhi - m.angle) % (Math.PI * 2);
+                if (da < 0) da += Math.PI * 2;
+                m.syncW = Math.max(w, da / Math.max(0.05, F.twin.syncWindupSec));
+              }
+            }
+          }
         }
-        const thrown = ship.orbState === 'out' || ship.orbState === 'hold' || ship.orbState === 'back';
 
-        // Angle: circle while resting; steer toward the cursor while airborne (lightly steerable).
-        if (!thrown) {
-          const burst = (ship.orbBurstTimer > 0 || lock) ? F.swingControl.burstSpeedMult : 1;
-          ship.orbAngle = (ship.orbAngle || 0) + O.orbitSpeed * burst * dt;
-        } else {
-          let da = ship.aim - (ship.orbAngle || 0);
-          da = Math.atan2(Math.sin(da), Math.cos(da));      // shortest arc toward aim
-          ship.orbAngle = (ship.orbAngle || 0) + da * Math.min(1, O.sweepEase * dt);
-        }
-        const ox = ship.x + Math.cos(ship.orbAngle) * ship.orbRadius;
-        const oy = ship.y + Math.sin(ship.orbAngle) * ship.orbRadius;
-        ship.orbX = ox; ship.orbY = oy;
         ship.orbActive = true; ship.orbBlockRadius = O.tipRadius;   // shield: intercepts enemy shots
-
-        // Damage by state: throw-out/hold (big committed hit) > throw-back (return sweep) > orbit (defensive).
-        let dmg = (ship.orbState === 'back' ? O.recallDamage : (ship.orbState === 'out' || ship.orbState === 'hold') ? O.throwDamage : O.orbitDamage) * dmgMult;
-        if (ship.powerSwingTimer > 0) dmg *= F.powerSwing.damageMult;
-        for (const t of api.hittables(ship)) {
-          const rr = O.tipRadius + t.radius;
-          if ((ox - t.x) ** 2 + (oy - t.y) ** 2 > rr * rr) continue;
-          // Thrown: gate per PASS (out, back) so a target takes the out-hit AND the return sweep.
-          // Orbit: gate by time so one circling pass = one hit.
-          if (thrown) { if (t._orbGen === ship.orbHitGen) continue; t._orbGen = ship.orbHitGen; }
-          else { if (api.state.time - (t._orbHit || -9) < O.hitCooldownSec) continue; t._orbHit = api.state.time; }
-          const d = Math.hypot(ox - t.x, oy - t.y) || 1;
-          api.damage(t, dmg, { dx: (t.x - ox) / d, dy: (t.y - oy) / d, knockback: 60, source: ship });
+        for (const m of M) {
+          let dmg = 0, thrown = false;
+          if (m.state === 'trail') {
+            // slack chain: tuck in behind the hull (behind velocity if moving, else aim);
+            // multiple heads hang splayed so they don't overlap
+            const sp = Math.hypot(ship.vx || 0, ship.vy || 0);
+            const ba = Math.atan2(sp > 40 ? -ship.vy : -Math.sin(ship.aim), sp > 40 ? -ship.vx : -Math.cos(ship.aim))
+                     + (M.indexOf(m) - (nHeads - 1) / 2) * 0.55;
+            const tx = ship.x + Math.cos(ba) * (ship.radius + O.trailDistance);
+            const ty = ship.y + Math.sin(ba) * (ship.radius + O.trailDistance);
+            const k = Math.min(1, O.trailFollowPerSec * dt);
+            m.x += (tx - m.x) * k; m.y += (ty - m.y) * k;
+            m.radius = Math.hypot(m.x - ship.x, m.y - ship.y);
+            m.angle = Math.atan2(m.y - ship.y, m.x - ship.x);
+            m.selfSpin += 2.5 * dt;
+            dmg = O.trailDamage * dmgMult;
+          } else if (m.state === 'spin') {
+            const w = O.spinSpeedMin + (O.spinSpeedMax - O.spinSpeedMin) * ship.spinFrac;
+            m.angle += w * dt;
+            m.radius += (O.spinRadius - m.radius) * Math.min(1, 6 * dt);
+            m.selfSpin += w * 1.6 * dt;
+            dmg = (O.spinDamageMin + (O.spinDamageMax - O.spinDamageMin) * ship.spinFrac) * dmgMult;
+          } else if (m.state === 'windup') {
+            // hammer-throw release: sweep to dPhi BEFORE the aim line, then let go — the
+            // conserved-momentum spiral lands on the cursor at full reach (see 'out').
+            const wNat = Math.max(O.spinSpeedMin + (O.spinSpeedMax - O.spinSpeedMin) * m.flingPower, O.releaseSweepRadPerSec);
+            const w = Math.max(wNat, m.syncW || 0);
+            const v = O.flingSpeedMin + (O.flingSpeedMax - O.flingSpeedMin) * m.flingPower;
+            const dPhi = wNat * m.radius * (O.maxReach - m.radius) / (v * O.maxReach);
+            let da = (ship.aim - dPhi - m.angle) % (Math.PI * 2);
+            if (da < 0) da += Math.PI * 2;
+            const step = w * dt;
+            if (da <= step) {
+              m.angle = ship.aim - dPhi;                  // sub-tick correction: exact release point
+              m.state = 'out'; m.passHits.clear();
+              m.flingW = wNat; m.flingR0 = m.radius;      // flight keeps the NATURAL momentum
+              api.fx.spawnParticles(m.x, m.y, 6 + Math.round(m.flingPower * 10), '#ffd23c',
+                { dir: m.angle + Math.PI / 2, spread: 0.5, speed: 260 + 300 * m.flingPower });
+            } else m.angle += step;
+            m.selfSpin += w * 1.6 * dt;
+            dmg = (O.spinDamageMin + (O.spinDamageMax - O.spinDamageMin) * m.flingPower) * dmgMult;
+          } else if (m.state === 'out') {
+            thrown = true;
+            // conserved angular momentum: outward SPIRAL (midpoint-integrated), not a bullet
+            const vFling = O.flingSpeedMin + (O.flingSpeedMax - O.flingSpeedMin) * m.flingPower;
+            m.angle += m.flingW * (m.flingR0 / (m.radius + vFling * dt / 2)) ** 2 * dt;
+            m.radius += vFling * dt;
+            if (m.radius >= O.maxReach) { m.radius = O.maxReach; m.state = 'back'; m.passHits.clear(); }
+            m.selfSpin += 14 * dt;
+            dmg = (O.flingDamageMin + (O.flingDamageMax - O.flingDamageMin) * m.flingPower) * dmgMult;
+            api.fx.spawnParticles(m.x, m.y, 1, '#ffd23c',
+              { speed: 16, spread: Math.PI, life: 0.28 + 0.3 * m.flingPower, size: O.tipRadius * (0.4 + 0.35 * m.flingPower) });
+          } else {                                        // 'back' — the return sweep
+            thrown = true;
+            m.radius -= O.recallSpeed * dt;
+            if (m.radius <= ship.radius + O.trailDistance) {
+              m.state = 'trail';
+              if (M.every(x => x.state === 'trail' || x === m)) ship.orbCd = O.rethrowDelaySec;
+            }
+            m.selfSpin += 8 * dt;
+            dmg = (O.flingDamageMin + (O.flingDamageMax - O.flingDamageMin) * m.flingPower) * O.recallDamageFrac * dmgMult;
+            api.fx.spawnParticles(m.x, m.y, 1, '#ffd23c',
+              { speed: 14, spread: Math.PI, life: 0.22 + 0.2 * m.flingPower, size: O.tipRadius * 0.35 });
+          }
+          if (m.state !== 'trail') {
+            m.x = ship.x + Math.cos(m.angle) * m.radius;
+            m.y = ship.y + Math.sin(m.angle) * m.radius;
+          }
+          // per-head hit gates on the ATTACKER (see the shared-gate instakill postmortem)
+          for (const t of api.hittables(ship)) {
+            const rr = O.tipRadius + t.radius;
+            if ((m.x - t.x) ** 2 + (m.y - t.y) ** 2 > rr * rr) continue;
+            if (thrown) { if (m.passHits.has(t)) continue; m.passHits.add(t); }
+            else {
+              if (api.state.time - (m.touch.get(t) || -9) < O.hitCooldownSec) continue;
+              m.touch.set(t, api.state.time);
+              if (m.touch.size > 48) { const cut = api.state.time - O.hitCooldownSec; for (const [k, v] of m.touch) if (v < cut) m.touch.delete(k); }
+            }
+            const d = Math.hypot(m.x - t.x, m.y - t.y) || 1;
+            api.damage(t, dmg, { dx: (t.x - m.x) / d, dy: (t.y - m.y) / d,
+              knockback: 40 + 90 * (m.flingPower || ship.spinFrac || 0), source: ship });
+          }
         }
+        // ship-level mirrors: head 0 feeds the net snapshot, bots, and single-orb consumers
+        ship.orbX = M[0].x; ship.orbY = M[0].y; ship.orbState = M[0].state;
+        ship.orbSelfSpin = M[0].selfSpin; ship.orbRadius = M[0].radius; ship.flingPower = M[0].flingPower;
+        if (nHeads > 1) { ship.orbX2 = M[1].x; ship.orbY2 = M[1].y; ship.orbSelfSpin2 = M[1].selfSpin; }
       },
     },
   };
@@ -313,10 +532,12 @@ window.PULSAR = window.PULSAR || {};
     const ox = ship.x + dx * (ship.radius + G.orbit.radius), oy = ship.y + dy * (ship.radius + G.orbit.radius);
     let dmg = G.well.launchDamage;
     if (ship.classId === 'meteorist' || ship.classId === 'starfall') dmg *= (1 + G.momentumStrike.medThrowBonus);
-    const hpKey = { asteroid: 'asteroidHP', crystal: 'crystalHP', debris: 'debrisHP' }[rock.type] || 'asteroidHP';
+    if (rock.pebble || rock.type === 'pebble') dmg *= G.accretion.pebbleDamageMult;   // dust floor, not a free asteroid
+    const hpKey = { asteroid: 'asteroidHP', crystal: 'crystalHP', debris: 'debrisHP', pebble: 'debrisHP' }[rock.type] || 'asteroidHP';
     const hp = (api.config.farming[hpKey] || 12) * G.thrownRockHpMult;   // tankier than a normal rock — shootable but takes a real hit
     api.state.projectiles.push({ x: ox, y: oy, px: ox, py: oy, vx: dx * G.well.launchSpeed, vy: dy * G.well.launchSpeed,
-      radius: rock.radius || G.thrownRockRadius, rockType: rock.type, isThrownRock: true, hp, damage: dmg, pierceLeft: 3, life: 2.4, color: '#b06bff', kind: 'rock', harvest: true, team: ship.team, owner: ship });
+      radius: rock.radius || G.thrownRockRadius, rockType: rock.type, isThrownRock: true, hp, damage: dmg, pierceLeft: 3, life: 2.4, color: '#b06bff', kind: 'rock', harvest: true, team: ship.team, owner: ship,
+      spin: Math.random() * Math.PI * 2 });   // visual-only tumble phase (render adds time-based rotation)
     api.fx.spawnParticles(ox, oy, 8, '#b06bff', { dir: ang, spread: 0.4, speed: 220 });
   }
 
@@ -354,27 +575,6 @@ window.PULSAR = window.PULSAR || {};
     },
     swingControl: {
       activate(api, ship) { const s = api.config.flailship.swingControl; ship.orbBurstTimer = s.durationSec; return s.cooldownSec; },
-    },
-    powerSwing: {
-      activate(api, ship) { const s = api.config.flailship.powerSwing; ship.powerSwingTimer = s.durationSec; api.fx.spawnParticles(ship.x, ship.y, 12, '#ffd23c', { speed: 160 }); return s.cooldownSec; },
-    },
-    moonSlam: {
-      activate(api, ship) {
-        const m = api.config.flailship.moonSlam;
-        const ox = ship.orbX != null ? ship.orbX : ship.x, oy = ship.orbY != null ? ship.orbY : ship.y;
-        for (const t of api.hittables(ship)) {
-          const d = Math.hypot(t.x - ox, t.y - oy);
-          if (d > 130) continue;
-          api.damage(t, m.damage, { dx: (t.x - ox) / (d || 1), dy: (t.y - oy) / (d || 1), knockback: m.knockback, source: ship });
-        }
-        api.fx.spawnParticles(ox, oy, 24, '#ffd23c', { speed: 320 });
-        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
-        return m.chargeSec + 2.5;
-      },
-    },
-    // Graviflail: lock the orb into a wide, fast DEFENSIVE orbit for a few seconds.
-    orbitLock: {
-      activate(api, ship) { const o = api.config.flailship.orbitLock; ship.orbLockTimer = o.durationSec; api.fx.spawnParticles(ship.x, ship.y, 14, '#ffd23c', { speed: 200 }); return o.cooldownSec; },
     },
   };
 
@@ -436,21 +636,6 @@ window.PULSAR = window.PULSAR || {};
         return 7.0;
       },
     },
-    // Ironmoon: moon slam in the special slot (same move, independent cooldown from ability).
-    moonSlam: {
-      activate(api, ship) {
-        const m = api.config.flailship.moonSlam;
-        const ox = ship.orbX != null ? ship.orbX : ship.x, oy = ship.orbY != null ? ship.orbY : ship.y;
-        for (const t of api.hittables(ship)) {
-          const d = Math.hypot(t.x - ox, t.y - oy);
-          if (d > 130) continue;
-          api.damage(t, m.damage, { dx: (t.x - ox) / (d || 1), dy: (t.y - oy) / (d || 1), knockback: m.knockback, source: ship });
-        }
-        api.fx.spawnParticles(ox, oy, 24, '#ffd23c', { speed: 320 });
-        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
-        return m.chargeSec + 2.5;
-      },
-    },
     // Event Horizon: implode the well — yank in nearby enemies and detonate by rocks held.
     collapse: {
       activate(api, ship) {
@@ -469,19 +654,33 @@ window.PULSAR = window.PULSAR || {};
         return c.channelSec + 3.0;
       },
     },
-    // Orbit Crusher: a spin-up crush burst — heavy AoE damage + pull around the hull.
-    gravityCrush: {
+    // Twinmaul: STATIC LASH — a stun pulse around EACH mace head. Scrambles whatever the
+    // victims were winding up (rail charge, ram windup, beam ramp, spin momentum), locks
+    // their ability/special for a beat, and hard-stuns briefly. Radius is around the MACES,
+    // not the ship — where your heads are IS the ability.
+    staticLash: {
       activate(api, ship) {
-        const g = api.config.flailship.gravityCrush;
-        for (const t of api.hittables(ship)) {
-          const d = Math.hypot(t.x - ship.x, t.y - ship.y);
-          if (d > g.radius) continue;
-          api.damage(t, g.dps, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: 120, source: ship });
-          if (t.isShip) { t.slow = Math.max(t.slow || 0, 0.3); t.slowTimer = Math.max(t.slowTimer || 0, 0.4); }
+        const S = api.config.flailship.staticLash;
+        const heads = ship.maces || [{ x: ship.orbX != null ? ship.orbX : ship.x, y: ship.orbY != null ? ship.orbY : ship.y }];
+        let hit = 0;
+        for (const e of api.enemiesOf(ship)) {
+          let near = false;
+          for (const h of heads) if (Math.hypot(e.x - h.x, e.y - h.y) <= S.radius) { near = true; break; }
+          if (!near) continue;
+          e.stunTimer = Math.max(e.stunTimer || 0, S.stunSec);
+          e.charge = 0; e.charging = false; e.chargeFullTimer = 0;      // rail charge gone
+          e.ramWinding = false; e.ramCharge = 0;                        // ram windup gone
+          e.beamRamp = 0; e.spinFrac = 0;                               // beam ramp / spin momentum gone
+          e.abilityCd = Math.max(e.abilityCd || 0, S.abilityLockSec);   // abilities locked out
+          e.specialCd = Math.max(e.specialCd || 0, S.abilityLockSec);
+          api.damage(e, S.damage, { dx: 0, dy: 0, source: ship });
+          api.fx.spawnParticles(e.x, e.y, 14, '#fff3a0', { speed: 200, life: 0.4 });
+          api.fx.spawnText(e.x, e.y - 30, 'SCRAMBLED', '#fff3a0', { size: 12 });
+          hit++;
         }
-        api.fx.spawnParticles(ship.x, ship.y, 30, '#ffd23c', { speed: 300 });
-        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax * 0.8);
-        return 6.0;
+        for (const h of heads) api.fx.spawnParticles(h.x, h.y, 16, '#fff3a0', { speed: 260, life: 0.35 });
+        if (!ship.isBot && hit) api.fx.addShake(api.config.fx.screenShakeMax * 0.5);
+        return S.cooldownSec;
       },
     },
   };

@@ -24,6 +24,8 @@ window.PULSAR.config = {
     pulsarRadius: 220,            // the central neutron-star honeypot
     pulsarPulseIntervalSec: 4,    // rhythm on which it ejects scrap motes
     edgeSafeMargin: 800,          // outer band where asteroids are dense & PvP is rare
+    spawnEdgeInset: 250,          // spawns land between this and edgeSafeMargin from the wall —
+                                  // you wake up in the calm farming band, never at the pulsar brawl
   },
 
   // ---- Player base -----------------------------------------------------------
@@ -34,6 +36,13 @@ window.PULSAR.config = {
     spawnProtectionSec: 3,        // brief invuln so TTK-to-fun < 10s holds
     scrapTrickleOnSpawn: 5,       // tiny seed so a fresh player is acting, not idle
     impulseDampPerSec: 9,         // how fast recoil/dash/knockback kicks bleed off
+    // Inertia: thrust ACCELERATES toward the input direction instead of setting velocity.
+    // accel = how fast you reach full speed (higher = snappier); coastDamp = how fast you
+    // bleed off when you let go (lower = longer space-drift).
+    inertia: { accelPerSec: 7.5, coastDampPerSec: 3.2 },
+    // Cruise: hold one heading and the engines keep spooling past base speed. Turning hard
+    // (input swings past ~53° = alignDot) dumps the bonus — speed is a commitment.
+    cruise: { rampSec: 2.4, maxMult: 1.4, alignDot: 0.6, decayPerSec: 2.5 },
     respawnDelaySec: 1.7,         // wreck -> respawn wait
     regen: { delaySec: 5.0, perSec: 18 }, // passive regen after 5s of no weapon use
   },
@@ -46,6 +55,7 @@ window.PULSAR.config = {
     scrapPerAsteroid: 3,
     scrapPerCrystal: 6,           // higher-yield, rarer neutral object
     scrapPerDebris: 2,
+    scrapPerTitan: 950,           // one titan ≥ level 15 (levelCurve L15 ≈ 925 xp) — a mountain worth mining
     pulsarScrapPerMote: 4,        // motes the pulsar ejects on each pulse
     pulsarMotesPerPulse: 8,
     killScrapFraction: 0.5,       // killer collects this share of victim's carried scrap
@@ -91,11 +101,18 @@ window.PULSAR.config = {
     count: 6,
     respawnDelaySec: 3.0,
     senseRange: 1150,             // notice enemies within this
-    engageRange: 880,             // start fighting within this
+    engageRange: 700,             // start fighting within this (~on-screen, no offscreen hunts)
     fleeHpFraction: 0.20,         // flee below this HP fraction (commit to fights longer)
     aggression: 0.88,             // 0 = farmer, 1 = always hunts
-    aimErrorRad: 0.07,            // aim noise (higher = worse shots)
+    aimErrorRad: 0.09,            // base aim noise — grows with range and shrinks with skill
     decisionSec: 0.25,            // re-evaluate state this often (avoids jitter)
+    // ---- human-ish aiming (bots track SNAPSHOTS of you, not your live position) ----
+    reactionSec: 0.28,            // how often a bot's picture of your position refreshes (÷ skill)
+    acquireSec: 0.55,             // hold-fire pause when a fresh target is picked up (÷ skill)
+    aimTurnRadPerSec: 7.5,        // max aim swivel speed — no instant flicks (× skill)
+    skillMin: 0.55, skillMax: 1.0, // per-bot skill rolled at spawn; scales reaction/error/swivel
+    // don't open fire beyond ~a screen — you should always SEE who is shooting you
+    fireRange: { rail: 800, hammer: 360, grav: 640, flail: 330, dart: 700 },
     telegraphDodgeChance: 0.6,    // chance to sidestep a detected charge/lunge aimed at them
     evolveBranchRandom: true,     // bots pick a random available branch on evolve
     // preferred fighting distance per family (px) — sniper kites, rammer dives, etc.
@@ -155,6 +172,9 @@ window.PULSAR.config = {
   // Lineage: descends from the old Lance weapon (Railpiercer -> Star Piercer).
   railship: {
     stats: { hp: 0.85, speed: 1.00, sizeMult: 0.92, difficulty: "medium-high" },
+    // Afterburner [Shift] — the sniper's escape hatch: a short hard burn (kick + big speed/accel
+    // boost) that DUMPS heat into the gun. Escaping costs you your next shots — pick one.
+    afterburner: { durationSec: 0.9, speedMult: 1.9, accelMult: 2.2, kick: 260, heatCost: 30, cooldownSec: 5 },
     charge: {
       // % thresholds and the shot they produce
       snapMax: 0.25,  focusMax: 0.75,  lanceMax: 1.00, // beyond 1.0 == overcharge
@@ -198,14 +218,24 @@ window.PULSAR.config = {
     pierceFalloff: { neutral: [1.0, 0.9, 0.8, 0.7], players: [1.0, 0.7, 0.45] },
     lineBreakThreshold: 3,
     // Tier mods applied by class id. Multipliers/values vs the base rail above.
-    evolveMods: {
-      lancer:      { rangeMult: 1.30, fullChargeDamageMult: 1.20, beamWidthMult: 0.82,
-                     closeRange: 320, closeDamageMult: 0.70,          // weakerUpClose
-                     perfectLineRangeFrac: 0.60, perfectLineBonus: 0.20 }, // perfectLine passive
-      starPiercer: { rangeMult: 1.50, fullChargeDamageMult: 1.35, beamWidthMult: 0.72,
-                     closeRange: 320, closeDamageMult: 0.70,
-                     perfectLineRangeFrac: 0.60, perfectLineBonus: 0.20,
-                     brokenCoreMarkSec: 2.0 },   // brokenCore: weak-point on cracked leaders (scaffold)
+    evolveMods: {},   // tier-2 rails now have their OWN weapons (helionBeam / mawRail) — no stat-mod evolutions
+    brokenCoreMarkSec: 2.0,   // Star Piercer special: weak-point mark duration on cracked leaders
+    // Star Piercer siege maw (branch B weapon). Charging OPENS the cannon — beam width IS
+    // maw width. Release fires ONE instantaneous blast: all the damage lands the frame you
+    // let go, along the aim you committed to. Fired, not steered — miss = recycle wasted.
+    mawRail: {
+      chargeTimeSec: 1.9,             // much slower than the base rail's 1.05 — siege pacing
+      minChargeToFire: 0.3,           // release below this fizzles (no beam, no heat)
+      minHalfWidth: 10, maxHalfWidth: 34,   // beam half-thickness at min/full charge (hitbox == visual)
+      range: 980,
+      damageAtMin: 40, damageAtFull: 120,  // ONE instant blast. Deliberately just UNDER a tier-2
+                                           // rail's ~133hp — devastating, never a full-HP one-shot
+      beamVisualSec: 0.22,            // how long the flash lingers on screen (render only)
+      pierce: 6,                      // targets the wide blast chews through
+      heatCost: 38,                   // heat per shot at full charge (scales with charge)
+      recycleSec: 1.4,                // lockout after firing — the "slower firerate"
+      recoil: 260,
+      crackAtCharge: 0.85,            // blasts fired at/above this charge apply Armor Crack
     },
   },
 
@@ -237,6 +267,28 @@ window.PULSAR.config = {
     armorDent: { slow: 0.2, durationSec: 1.2 }, // Maulbreaker+ on charged impact
   },
 
+  // ---- CLASS 2b: Helion (rail branch A — the sustain beam) --------------------
+  // A solar furnace: hold the trigger for a continuous beam whose damage RAMPS over
+  // time — and whose heat cost accelerates with the ramp. The fantasy is greed with a
+  // fuse: the longer you stay on target the scarier you get, until the bar maxes and
+  // the gun force-vents.
+  helion: {
+    stats: { hp: 0.85, speed: 0.97, sizeMult: 0.94, difficulty: "medium" },
+    beam: {
+      range: 680, halfWidth: 6,        // thin, honest hitbox (bloom matches)
+      dpsBase: 24, dpsMax: 82,         // ramp start -> full fury
+      rampSec: 2.6,                    // trigger-time to reach dpsMax
+      rampDownPerSec: 1.6,             // ramp fraction lost per second off-trigger
+      pierce: 3,
+      // NOTE: family heat DECAYS at railship.heat.decayPerSec (22) even while firing — these
+      // are gross rates. Net: ramp-0 beam is heat-sustainable (-10/s), full fury builds +24/s
+      // so ~4s of max beam forces the vent. Greed has a fuse.
+      heatPerSecBase: 12, heatPerSecMax: 46,
+      overheatVentSec: 1.4,            // forced vent lockout when the beam maxes heat
+      crackAtRamp: 0.85,               // fully-ramped beam applies Armor Crack
+    },
+  },
+
   // ---- CLASS 3: Gravitor (asteroid control / indirect / zone) ----------------
   // Lineage: descends from Nova (Collapse/Event Horizon == Nova "pull-then-detonate").
   gravitor: {
@@ -244,10 +296,11 @@ window.PULSAR.config = {
     well: {
       pullRadius: 440, enemyPull: 30, enemySlow: 0.10,
       launchSpeed: 660, launchDamage: 24,
-      // ALL gravitor wells disrupt high-momentum targets: extra inward pull + momentum damping +
-      // a brief slow, so a straight charge through the field is unreliable (not a root).
-      highMomentumPullMult: 1.8, highMomentumDamping: 0.22, highMomentumSlow: 0.22,
     },
+    // Orbiting rocks are a melee HAZARD, not a force field: touch one and it deals a thrown
+    // rock's damage (well.launchDamage) and shatters. A committed rusher gets through — paying
+    // HP per rock — instead of being momentum-stalled forever.
+    orbitContact: { knockback: 150, rehitSec: 0.35 },   // rehit = per-enemy grace so a dive costs ~1-2 rocks, not the whole ring at once
     // Orbital Shield — if a gravitor has a rock in orbit, it spends one to soak a heavy/charged hit.
     orbitalShield: { damageReduction: 0.55, heavyThreshold: 30 },
     // Captured rocks circle the hull until you launch them at the cursor. Farming style:
@@ -267,6 +320,14 @@ window.PULSAR.config = {
       singularity:  { cap: 4, per: 1, cd: 0.5 },
       eventHorizon: { cap: 6, per: 2, cd: 0.35 },
     },
+    // DUST ACCRETION — the anti-sitting-duck floor. When the well is below capacity and
+    // there is NOTHING capturable in range, it condenses a small PEBBLE from dust every
+    // intervalSec (max maxPebbles held). Pebbles hit for pebbleDamageMult — a real asteroid
+    // is always strictly better, so terrain still matters; you're just never disarmed.
+    accretion: { intervalSec: 3.2, maxPebbles: 2, pebbleRadius: 12, pebbleDamageMult: 0.55 },
+    // SHATTER RECYCLING — a thrown rock that dies leaves a real debris fragment in the world
+    // with this chance. Your volleys partially reseed the battlefield (for everyone).
+    recycle: { fragmentChance: 0.5, fragmentRadiusMult: 0.6, maxWorldObjects: 380 },  // hard cap: recycling never floods the map
     // Singularity/Event Horizon passive: the well drags + SLOWS enemy ships inside it.
     tidalDrag: { pull: 240, slow: 0.45, radiusMult: 1.15 },
     momentumStrike: { medThrowBonus: 0.15, longThrowBonus: 0.30 }, // Meteorist+
@@ -278,50 +339,54 @@ window.PULSAR.config = {
   // Lineage: the orbiting flail from day one + Tether's zoning.
   flailship: {
     stats: { hp: 1.00, speed: 0.92, sizeMult: 1.06, difficulty: "easy-medium" },
-    // Commanded Chain Orb — a tethered orb that defends, then COMMITS on a throw cycle:
-    //   ORBIT (resting): circles the hull as a defensive shield — low damage, blocks
-    //     projectiles it touches, punishes divers. NOT the kill tool.
-    //   THROW: fire (when off cooldown) shoots the orb out to the aimed point and it AUTO-RETURNS
-    //     — high damage on the way out and back. It cannot be held out; then a longish cooldown.
+    // MOMENTUM MACE — a spiked mace that TRAILS behind the ship at rest on a slack chain.
+    //   HOLD fire: RADIAL MOMENTUM — the mace swings around the hull, faster and faster.
+    //   RELEASE:   FLING at the cursor — cast speed AND damage scale with banked momentum.
+    // A panic tap is a slow, weak lob; a full spin-up is a cannonball. The mace still blocks
+    // enemy shots in every state.
     orb: {
-      orbitRadius: 70,                  // defensive orbit distance (base rotational state)
-      maxReach: 340,                    // chain length — every throw commits to THIS full range
-      apexHangSec: 0.12,                // brief hang at full extension so the throw reads (not held)
-      throwSpeed: 1700,                 // px/sec the orb travels OUT on a throw (snappy launch)
-      recallSpeed: 1500,                // px/sec the orb retracts (+20% — snappier recall counterplay)
-      throwCooldownSec: 1.4,            // gate after the orb returns — snappy but not spammy
-      orbitSpeed: 3.2,                  // angular speed while circling in orbit mode
-      sweepEase: 9,                     // how fast the airborne orb steers toward the cursor (per sec)
-      tipRadius: 16,                    // the orb's own size == its hitbox == its block radius
-      hitCooldownSec: 0.35,             // per-target re-hit gate so out-pass and back-pass each land once
-      orbitDamage: 12,                  // ORBIT: low — it's a shield, not the kill tool
-      throwDamage: 72,                  // THROW out: the big committed hit
-      recallDamage: 44,                 // THROW back: the return sweep
+      tipRadius: 16,                    // the mace head's size == hitbox == block radius
+      spikes: 7,                        // render: spike count on the head (it's a MACE, not a ball)
+      trailDistance: 55,                // slack chain length while trailing (resting state)
+      trailFollowPerSec: 7,             // how snappily the trailing mace tucks in behind the hull
+      trailDamage: 6,                   // dragging the mace across something still stings
+      spinRadius: 74,                   // swing-circle radius while spinning up
+      spinUpSec: 2.1,                   // hold-time from standstill to full radial momentum
+      spinSpeedMin: 3.0, spinSpeedMax: 11.5,   // rad/sec at momentum 0 -> 1
+      spinDamageMin: 9, spinDamageMax: 30,     // contact damage while swinging, by momentum
+      maxReach: 340,                    // chain length — a fling can reach THIS far (unchanged)
+      releaseSweepRadPerSec: 13,        // min swing speed while releasing — the mace SWINGS to the
+                                        // cursor line and lets go (hammer-throw), never teleports
+      flingSpeedMin: 520, flingSpeedMax: 1800, // cast speed scales with momentum
+      flingDamageMin: 20, flingDamageMax: 88,  // fling payload scales with momentum
+      recallSpeed: 1500,                // px/sec the mace retracts after a fling
+      recallDamageFrac: 0.55,           // the return sweep hits for this fraction of fling damage
+      rethrowDelaySec: 0.5,             // beat after the mace re-seats before it can spin again
+      hitCooldownSec: 0.35,             // per-target re-hit gate for trail/spin contact
     },
-    swingControl: { burstSpeedMult: 2.2, durationSec: 0.6, cooldownSec: 4 }, // base ability: orb speed burst
-    chainmaul: { orbRadiusMult: 1.25, contactDamageMult: 1.30 },             // largerOrb/longerChain
-    // per-class orb mods (reach × damage) — branch A heavier, branch B wider defensive orbit.
-    orbModByClass: {
-      chainmaul:   { radiusMult: 1.25, dmgMult: 1.30 }, ironmoon:     { radiusMult: 1.28, dmgMult: 1.30 },
-      graviflail:  { radiusMult: 1.30, dmgMult: 1.05 }, orbitCrusher: { radiusMult: 1.35, dmgMult: 1.10 },
-    },
-    powerSwing: { damageMult: 1.5, durationSec: 3, cooldownSec: 8 }, // Chainmaul+
-    moonSlam: { chargeSec: 0.5, damage: 50, knockback: 260, splash: 0.3 }, // Ironmoon
-    orbitLock: { durationSec: 4, cooldownSec: 9, radiusMult: 1.6 }, // Graviflail: wide defensive orbit (pins to orbit mode)
+    swingControl: { burstSpeedMult: 2.2, durationSec: 0.6, cooldownSec: 4 }, // base ability: spin-up burst
+    // TWINMAUL (the single lvl-8 upgrade): two maces on two chains, opposite phase.
+    // LMB release = hammer-throw physics naturally staggers them into a one-two volley;
+    // RMB = forced synchronized windup, BOTH fling at once. Per-head damage trimmed so the
+    // pair lands ~1.6x a single mace, not 2x.
+    twin: { dmgMult: 0.8, syncWindupSec: 0.18 },
+    // Static Lash [E]: stun pulse around EACH mace head — scrambles charge-ups (rail charge,
+    // ram windup, beam ramp, spin momentum), locks ability/special for a beat, brief hard stun.
+    // Radius is around the MACES, not the ship: placement is the skill.
+    staticLash: { radius: 150, stunSec: 0.7, damage: 10, abilityLockSec: 2.0, cooldownSec: 9 },
     // Orb Parry — if the orb is positioned between you and a charging attacker, it softens the ram
     // and bleeds the attacker's momentum. Position-based: the orb must be near the incoming hull.
     orbParry: { ramDamageReduction: 0.55, attackerVelocityReduction: 0.6, attackerSlow: 0.4, attackerSlowSec: 0.45, reach: 18 },
-    gravityCrush: { radius: 200, dps: 30, pullSmallObjects: true }, // Orbit Crusher
   },
 
   // ---- Neutral farming objects ----------------------------------------------
   farming: {
-    asteroidHP: 12, crystalHP: 22, debrisHP: 6,
+    asteroidHP: 12, crystalHP: 22, debrisHP: 6, titanHP: 9000,
     // honest hitboxes: each drawn blob radius == its collision radius
-    asteroidRadius: 36, crystalRadius: 22, debrisRadius: 15,
-    motesPerObject: { asteroid: 3, crystal: 4, debris: 2 }, // motes ejected on break
+    asteroidRadius: 36, crystalRadius: 22, debrisRadius: 15, titanRadius: 170,
+    motesPerObject: { asteroid: 3, crystal: 4, debris: 2, titan: 48 }, // motes ejected on break
     // Ramming a neutral object hurts (honest mutual hitbox; the death-loop trigger in P1).
-    contactDamage: { asteroid: 13, crystal: 7, debris: 4 },
+    contactDamage: { asteroid: 13, crystal: 7, debris: 4, titan: 14 },
     contactCooldownSec: 0.7,  // i-frames between contact ticks so you can peel off
     densityAtCenter: 0.4, densityAtEdge: 1.0, // edges are the calm farm; center is risk
     respawnSec: 8,
@@ -330,6 +395,14 @@ window.PULSAR.config = {
     // (you go to the middle for the pulsar + fights, not rocks). The gradient is emergent —
     // no authored rings. `weights` pick the type; the pulsar core is kept clear.
     field: { count: 320, weights: { asteroid: 5, crystal: 1, debris: 4 }, pulsarClearRadius: 380 },
+    // TITANS — the landmark obstacles. Massive, immovable, EXTREMELY tanky asteroids that
+    // pay out a fortune (scrapPerTitan ≈ level 15 in one kill) after minutes of focused
+    // fire. Few enough to be landmarks, never clutter; placement is CENTER-BIASED (the
+    // inverse of the normal field) so the risky mid-map is where the mountains live.
+    // They block beams/thrown rocks (they're hittable), can't be gravity-captured, and
+    // don't budge from knockback — you play AROUND them.
+    titans: { count: 7, respawnSec: 300, minSeparation: 900, minDistFromPulsar: 520,
+              centerBias: 2.0 },   // higher = tighter clustering toward mid-map
   },
 
   // ---- FX (cosmetic feel — particles, beams, shake). Not balance, but kept here so

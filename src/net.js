@@ -27,7 +27,7 @@ window.PULSAR.Net = (function () {
       r = { isShip: true, isRemote: true, netId: id, team: id,   // unique team => FFA vs everyone
         classId: s.c, x: s.x, y: s.y, px: s.x, py: s.y, netX: s.x, netY: s.y, vx: 0, vy: 0,
         orbAngle: 0, orbSpin: 0, hitFlash: 0, cracked: false, captured: [], classStats: { speed: 1 },
-        abilityCd: 0, specialCd: 0, orbLockTimer: 0, chargeFullTimer: 0, kills: 0, xp: 0 };
+        abilityCd: 0, specialCd: 0, chargeFullTimer: 0, kills: 0, xp: 0 };
       byId.set(id, r); remotes.push(r);
     }
     r.classId = s.c; r.netX = s.x; r.netY = s.y; r.aim = s.a; r.radius = s.r; r.name = s.nm || '';
@@ -35,6 +35,7 @@ window.PULSAR.Net = (function () {
     r.alive = s.al !== 0; r.isLeader = !!s.ld; r.spawnProtect = s.sp ? 1 : 0;
     r.charging = !!s.cg; r.charge = s.ch || 0; r.heat = s.ht || 0; r.ventTimer = s.vt || 0;
     r.orbRadius = s.orad || 0; if (s.ox != null) { r.orbX = s.ox; r.orbY = s.oy; }
+    if (s.ox2 != null) { r.orbX2 = s.ox2; r.orbY2 = s.oy2; } else { r.orbX2 = null; }
     r.ramWinding = !!s.rw; r.ramActive = s.ra ? 1 : 0; r.ramCharge = s.rc || 0;
     syncCaptured(r, s.cap || 0);
   }
@@ -46,6 +47,7 @@ window.PULSAR.Net = (function () {
       al: p.alive ? 1 : 0, ld: p.isLeader ? 1 : 0, sp: p.spawnProtect > 0 ? 1 : 0,
       cg: p.charging ? 1 : 0, ch: +p.charge.toFixed(2), ht: Math.round(p.heat), vt: +(p.ventTimer || 0).toFixed(2),
       ox: Math.round(p.orbX), oy: Math.round(p.orbY), orad: Math.round(p.orbRadius || 0),
+      ox2: p.orbX2 != null ? Math.round(p.orbX2) : undefined, oy2: p.orbY2 != null ? Math.round(p.orbY2) : undefined,
       rw: p.ramWinding ? 1 : 0, ra: p.ramActive > 0 ? 1 : 0, rc: +(p.ramCharge || 0).toFixed(2),
       cap: p.captured ? p.captured.length : 0 };
   }
@@ -53,7 +55,7 @@ window.PULSAR.Net = (function () {
     if (connected) ws.send(JSON.stringify({ t: 'beam', b: { x1: Math.round(x1), y1: Math.round(y1), x2: Math.round(x2), y2: Math.round(y2), col, hw, life, pw } }));
   }
   function sendProjectile(pr) {
-    if (connected) ws.send(JSON.stringify({ t: 'proj', p: { x: Math.round(pr.x), y: Math.round(pr.y), vx: Math.round(pr.vx), vy: Math.round(pr.vy), r: pr.radius, col: pr.color, k: pr.kind || '', life: +(pr.life || 1.5).toFixed(2) } }));
+    if (connected) ws.send(JSON.stringify({ t: 'proj', p: { x: Math.round(pr.x), y: Math.round(pr.y), vx: Math.round(pr.vx), vy: Math.round(pr.vy), r: pr.radius, col: pr.color, k: pr.kind || '', rt: pr.rockType || '', life: +(pr.life || 1.5).toFixed(2) } }));
   }
 
   function connect() {
@@ -69,7 +71,7 @@ window.PULSAR.Net = (function () {
       else if (m.t === 'hit') { if (onHit) onHit(m.dmg, { crack: m.crack }, m.from); }
       else if (m.t === 'kill') { if (onKill) onKill(m.bounty, m.vn); }
       else if (m.t === 'beam') { const b = m.b; rawBeam.call(PULSAR.Fx, b.x1, b.y1, b.x2, b.y2, b.col, b.hw, b.life, b.pw); }
-      else if (m.t === 'proj') { const q = m.p; ghosts.push({ x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: q.r, col: q.col, kind: q.k, life: q.life }); }
+      else if (m.t === 'proj') { const q = m.p; ghosts.push({ x: q.x, y: q.y, vx: q.vx, vy: q.vy, r: q.r, col: q.col, kind: q.k, rockType: q.rt || 'asteroid', life: q.life }); }
     };
   }
 

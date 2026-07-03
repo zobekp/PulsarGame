@@ -37,10 +37,15 @@ scaffold the scaling fn even before leader data is wired.
 **Farming — Line Break.** One shot breaking 3+ neutral objects gives a bonus (scrap / heat
 refund / `LINE BREAK` floating text). Makes farming itself skillful.
 
-**Evolutions.** *Lancer* (pure sniper: longer range, thinner beam, stronger crack, weaker up
-close; passive *Perfect Line* = bonus damage past 60% range). *Star Piercer* (anti-leader: huge
-beam, strong feedback, *Broken Core* = full-charge vs a large/leader target exposes a weak point
-others can punish).
+**Evolutions (branch at lvl 8 — two different WEAPONS, not stat mods).**
+*Helion* (sustain): the rail reforged into a solar furnace — a continuous beam whose damage
+ramps the longer it stays on target, with a heat cost that accelerates alongside it; ramp-0 is
+heat-sustainable, full fury forces a vent in seconds. Fully-ramped beam applies Armor Crack.
+*Star Piercer* (siege): long-charge railgun whose maw visibly OPENS with charge — jaw gape IS
+beam width. Release fires ONE instantaneous, far heavier blast — all damage lands the frame you let go,
+along the aim you committed to (fired, not steered; a miss wastes the recycle). No charge-line telegraph: the tells are the essence intake and the open
+maw. Keeps *Broken Core* (full-charge vs leader exposes a weak point). Tier-3 finals for both
+branches: TODO.
 
 **Counterplay:** fragile; punished by fast rushers and close-range chaos; slowed while charging.
 
@@ -96,9 +101,18 @@ well into an implosion — drags enemies, damage scales with stored asteroids, t
 great for trapping leaders for others to punish. Visible, delayed, escapable; vulnerable while
 channeling.
 
-**Counterplay:** orbiting rocks can be destroyed pre-launch; well is visible; weak in open zones
-with no asteroids; fast ships dodge meteors; rail pierces through orbiting rocks; rushed if caught
-unloaded.
+**Dust Accretion (anti-sitting-duck floor).** When the well is below capacity with nothing
+capturable in range, it condenses a small PEBBLE from dust every few seconds (max 2 held).
+Pebbles hit for ~55% — real asteroids stay strictly better, so terrain still matters, but a
+gravitor is never fully disarmed in open space.
+
+**Shatter Recycling.** A thrown rock that dies has a coin-flip chance to leave a real debris
+fragment where it broke — volleys partially reseed the battlefield (for everyone; capped so
+the map never floods).
+
+**Counterplay:** orbiting rocks can be destroyed pre-launch; well is visible; WEAKER (not
+helpless) in open zones — pebbles are a floor, not a substitute; fast ships dodge meteors;
+rail pierces through orbiting rocks; rushed if caught unloaded.
 
 ---
 
@@ -109,22 +123,25 @@ unloaded.
 **Fantasy:** a ship with a heavy wrecking orb on a chain. Swing it through asteroids, block
 space, punish anyone who gets close.
 
-**Weapon — Wrecking Orb.** Orbits/trails the ship, damages on contact, has (simulated) momentum,
-extends/retracts. **MVP physics:** fake it with an orbital anchor — orb follows a point rotating
-around the player; movement influences orbit speed/angle; hold to widen radius, release to
-retract; draw the chain as a line. Gets the fantasy without physics bugs.
+**Weapon — Momentum Mace.** A spiked mace that TRAILS behind the ship at rest on a slack chain
+(light contact damage). HOLD fire to engage **radial momentum**: the mace swings around the
+hull, faster and faster (contact damage scales with spin). RELEASE to **fling** it at the
+cursor — cast speed AND payload scale with the momentum banked; same max chain reach; the mace
+sweeps damage on the return too. A panic tap is a slow weak lob; a full spin-up is a
+cannonball. Blocks enemy shots in every state.
 
 **Passive — Momentum Hit.** Orb damage scales with orb speed.
 
 **Farming:** one of the best — swing through clusters, extend for wide clears, retract for safety.
 
-**Branch A — Chainmaul → Ironmoon (heavy).** Larger orb, longer chain, more momentum damage, more
-commitment. *Power Swing*: orb briefly heavier/faster/stronger. *Ironmoon*: *Moon Slam* launches
-the orb outward for big impact then retracts (big telegraph, dodgeable, weak to kiting).
-
-**Branch B — Graviflail → Orbit Crusher (control).** Smoother/wider orbit, slight scrap pull,
-better anti-rush, less burst. *Orbit Lock*: stable defensive orbit for a window. *Orbit Crusher*:
-*Gravity Crush* spins the orb to damage nearby enemies and pull in small objects — area denial.
+**Upgrade (lvl 8) — Twinmaul.** Two maces on two chains, spinning in opposite phase off a
+doubled winch. LMB release: the hammer-throw physics stagger the heads into a rapid one-two
+volley at the cursor. RMB: a forced synchronized windup hurls BOTH at once. Special [E]
+*Static Lash*: a stun pulse around EACH mace head — briefly hard-stuns victims, scrambles
+whatever they were winding up (rail charge, ram windup, beam ramp, spin momentum), and locks
+their ability/special for a beat. The radius is around the maces, not the ship: where your
+heads are IS the ability. Per-head damage is trimmed so the pair lands ~1.6x a single mace.
+Tier-3 final: TODO.
 
 **Counterplay:** must close distance; loses to long-range kiting and precise rail shots.
 

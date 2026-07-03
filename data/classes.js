@@ -29,20 +29,26 @@ window.PULSAR.classes = {
     passive: "armorCrack",      // full-charge marks target vulnerable
     farmingPassive: "lineBreak",// 3+ neutral objects in one shot = bonus
   },
-  lancer: {
-    id: "lancer", displayName: "Lancer", tier: 2, parentId: "railship",
-    configKey: "railship", branchOf: "railship",
-    weapon: "chargeRail", ability: "ventDash", passive: "armorCrack",
-    mods: { rangeUp: true, fullChargeDamageUp: true, thinnerBeam: true,
-            weakerUpClose: true },
-    extraPassive: "perfectLine", // hits beyond 60% range take +20%
+  // Branch A (lvl 8): HELION — the rail reforged into a solar furnace. A continuous beam
+  // whose damage RAMPS the longer it stays on, paid for in compounding heat.
+  helion: {
+    id: "helion", displayName: "Helion", tier: 2, parentId: "railship",
+    configKey: "helion", branchOf: "railship", branch: "A",
+    weapon: "helionBeam", ability: "ventDash", passive: "armorCrack",
+    note: "Hold the beam: damage ramps toward max, heat cost accelerates with it. " +
+          "Maxing the heat bar forces a vent lockout — greed has a fuse.",
   },
+  // Branch B (lvl 8): STAR PIERCER — the siege railgun. Charging OPENS the maw wider and
+  // wider (cannon width == blast width); release fires ONE instantaneous devastating blast
+  // along the committed aim — fired, not steered — then a slow recycle. No charge-line
+  // telegraph: the tell is the essence intake + the opening maw itself.
   starPiercer: {
-    id: "starPiercer", displayName: "Star Piercer", tier: 3, parentId: "lancer",
-    configKey: "railship", branchOf: "railship",
-    weapon: "chargeRail", ability: "ventDash", passive: "armorCrack",
+    id: "starPiercer", displayName: "Star Piercer", tier: 2, parentId: "railship",
+    configKey: "railship", branchOf: "railship", branch: "B",
+    weapon: "mawRail", ability: "ventDash", passive: "armorCrack",
     special: "brokenCore",       // full-charge vs leader exposes a weak point for allies
   },
+  // TODO(tier-3): lvl-15 finals for both rail branches — childrenOf() returns none until added.
 
   // ===== HAMMERHEAD (rammer) ==============================================
   hammerhead: {
@@ -110,32 +116,18 @@ window.PULSAR.classes = {
     ability: "swingControl",
     passive: "momentumHit",      // orb damage scales with orb speed
   },
-  // Branch A: Chainmaul (heavy damage)
-  chainmaul: {
-    id: "chainmaul", displayName: "Chainmaul", tier: 2, parentId: "flailship",
-    configKey: "flailship", branchOf: "flailship", branch: "A",
-    weapon: "wreckingOrb", ability: "powerSwing", passive: "momentumHit",
-    mods: { largerOrb: true, longerChain: true, moreCommitment: true },
+  // Single upgrade (lvl 8): TWINMAUL — two maces on two chains, spinning in opposite phase.
+  // LMB release = the hammer-throw physics stagger them naturally into a rapid one-two volley;
+  // RMB = a forced synchronized windup hurls BOTH at once. Special [E] Static Lash: a stun
+  // pulse around each mace head that SCRAMBLES nearby enemies' charge-ups (rail charge, ram
+  // windup, beam ramp, spin momentum) and locks their abilities for a beat.
+  twinmaul: {
+    id: "twinmaul", displayName: "Twinmaul", tier: 2, parentId: "flailship",
+    configKey: "flailship", branchOf: "flailship",
+    weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
+    special: "staticLash",
   },
-  ironmoon: {
-    id: "ironmoon", displayName: "Ironmoon", tier: 3, parentId: "chainmaul",
-    configKey: "flailship", branchOf: "flailship", branch: "A",
-    weapon: "wreckingOrb", ability: "powerSwing", passive: "momentumHit",
-    special: "moonSlam",         // launch orb outward, big impact, retract; weak to kiting
-  },
-  // Branch B: Graviflail (control/orbit)
-  graviflail: {
-    id: "graviflail", displayName: "Graviflail", tier: 2, parentId: "flailship",
-    configKey: "flailship", branchOf: "flailship", branch: "B",
-    weapon: "wreckingOrb", ability: "orbitLock", passive: "momentumHit",
-    mods: { smootherOrbit: true, widerDefensiveOrbit: true, slightScrapPull: true },
-  },
-  orbitCrusher: {
-    id: "orbitCrusher", displayName: "Orbit Crusher", tier: 3, parentId: "graviflail",
-    configKey: "flailship", branchOf: "flailship", branch: "B",
-    weapon: "wreckingOrb", ability: "gravityCrush", passive: "momentumHit",
-    special: "gravityCrush",     // spin orb, damage + pull small objects; area denial
-  },
+  // TODO(tier-3): lvl-15 final for the flail line — childrenOf() returns none until added.
 };
 
 // Cross-class balance triangle (the combat ecosystem — no class universally good):
