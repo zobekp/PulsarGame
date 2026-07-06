@@ -20,9 +20,11 @@ require('./src/weapons.js'); require('./src/bots.js'); require('./src/sim.js');
 
 const cfg = global.PULSAR.config;
 const TICK = 1 / 60;                 // authoritative sim step (matches SP's 60Hz — same tuned feel)
-// Dev cheats (admin panel) are honored by default — this is a dev/LAN server. Set PULSAR_ADMIN=0
-// to refuse them (do that before hosting anything you care about).
-const ALLOW_ADMIN = process.env.PULSAR_ADMIN !== '0';
+// PUBLIC MODE (PULSAR_PUBLIC=1): serve the minified dist/ build (no comments, mangled names —
+// run `node tools/build-dist.js` first) and refuse admin cheats. Dev default: readable source +
+// cheats on. PULSAR_ADMIN=0 disables cheats independently.
+const PUBLIC = process.env.PULSAR_PUBLIC === '1';
+const ALLOW_ADMIN = !PUBLIC && process.env.PULSAR_ADMIN !== '0';
 const SNAP_HZ = 60;                  // snapshots per second (render-rate; interp delay can be tiny)
 const OBJ_EVERY = 6;                 // send the (mostly static) asteroid field every Nth snapshot (10Hz)
 
@@ -90,10 +92,18 @@ function wsSend(sock, obj) {
 function broadcast(obj) { for (const sock of clients.keys()) wsSend(sock, obj); }
 
 // ---- static file server ----
-const ROOT = __dirname;
+// Serves ONLY what the game client needs — never docs/, tools/, .git/, or this file.
+// In public mode the root is the minified dist/ build.
+const ROOT = PUBLIC ? path.join(__dirname, 'dist') : __dirname;
+if (PUBLIC && !fs.existsSync(path.join(ROOT, 'index.html'))) {
+  console.error('PULSAR_PUBLIC=1 but dist/ is missing — run: node tools/build-dist.js');
+  process.exit(1);
+}
+const SERVABLE = /^\/(index\.html|(data|src)\/[\w.-]+\.js)$/;
 const MIME = { '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.json': 'application/json', '.ico': 'image/x-icon', '.png': 'image/png' };
 const server = http.createServer((req, res) => {
   let urlPath = decodeURIComponent(req.url.split('?')[0]); if (urlPath === '/') urlPath = '/index.html';
+  if (!SERVABLE.test(urlPath)) { res.writeHead(404); return res.end('not found'); }
   const filePath = path.normalize(path.join(ROOT, urlPath));
   if (!filePath.startsWith(ROOT)) { res.writeHead(403); return res.end('forbidden'); }
   fs.readFile(filePath, (err, data) => {

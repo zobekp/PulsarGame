@@ -50,6 +50,18 @@ finals haven't run yet (fold into the next balance session; rail family was alre
 overtuned). Bots don't lead the rift (they never aim where an enemy WILL be). Hammer branch B
 is now the only structural gap in the tree.
 
+**Follow-up (2026-07-06) — PUBLIC deployment mode (play it, don't read it):** client JS can never
+be truly hidden (the browser downloads it), so the public build ships MINIFIED+MANGLED code and
+the readable source stays in the private GitHub repo. `tools/build-dist.js` (deploy-only; dev
+stays no-build) terser-minifies every script index.html loads into `dist/` (247kb→115kb, zero
+comments — the design-note comments are half the IP and they're gone). `PULSAR_PUBLIC=1 node
+mpserver.js` serves dist/ AND hard-disables admin cheats. The static server now has an ALLOWLIST
+in every mode (`/index.html`, `/data|src/*.js` only) — it previously served docs/, tools/, .git/,
+and mpserver.js itself to anyone who asked. Verified: game plays through the public server
+(probe moves, acks ok), admin refused (lvl stayed 1), all sensitive paths 404. Public URL: run
+`cloudflared tunnel --url http://localhost:8080` (installed via winget; free quick-tunnel, no
+account) — or a real Node host later. dist/ is gitignored (rebuilt per deploy).
+
 **Follow-up (same session) — CLASS TREE overlay [T]:** full evolution tree at a glance — live
 idling hull models (same posed-ship trick as the evolve previews), display names, EVOLVE_BLURB
 one-liners (wrapped), parent→child connectors, LV 3/8/15 gate labels, and your current class

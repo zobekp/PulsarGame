@@ -21,3 +21,6 @@ build/
 
 # Claude Code local config (machine-specific)
 .claude/
+
+# public build artifact (rebuilt per deploy)
+dist/
