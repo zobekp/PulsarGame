@@ -47,6 +47,17 @@ for GC hitches, pool if seen); object drift between authoritative frames is ease
 - *Asteroid hp arc never drew* — client rebuilt objects with hp==maxHp. Object frames now carry
   `h` (hp fraction, OBJ_EVERY 10→6 ⇒ 10Hz), and object hit-flash latches on + decays locally.
 
+**Follow-up 2 — "abilities on twinmaul aren't working" (MP edge race):** edge-triggered intents
+(ability/special/afterburner/altFire) are one-tick pulses from the client, but `setIntent` REPLACED
+the pending intent — at 60Hz send vs 60Hz tick on independent clocks, two packets routinely land
+between ticks and the second (edge=false) killed the first's edge before any tick consumed it.
+Twinmaul (Space/E/RMB — all edges) read as fully broken; gravitor click-launch + afterburner had the
+same race. FIX in `sim.js`: `setIntent` now ORs unconsumed edge flags from the previous pending
+intent, and `step()` clears them after exactly one tick (level fields still take the newest value;
+guarded so the shared IDLE object is never mutated). Verified: `tools/edgetest.js` (new) reproduces
+the overwrite race headlessly — ventDash + staticLash both fire despite it, and the cd decays
+(consume-once) instead of re-arming.
+
 ---
 
 ## 2026-07-02 — Phase 5 Step 2b: CLIENT-SIDE PREDICTION (the snappiness fix) + Node installed

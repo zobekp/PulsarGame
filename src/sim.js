@@ -450,7 +450,11 @@
         if (s.isRemote) continue;
         if (!s.alive) { s.respawnTimer -= dt; if (s.respawnTimer <= 0) respawnShip(s); continue; }
         if (s.isBot) botStep(s, dt);
-        else simShip(s, dt, s._intent || IDLE);
+        else {
+          simShip(s, dt, s._intent || IDLE);
+          // consume one-shot edges — applied for exactly one tick, never re-triggered
+          if (s._intent) s._intent.ability = s._intent.special = s._intent.afterburner = s._intent.altFire = false;
+        }
       }
       updateLeader();
       simulateProjectiles(dt); simulateObjects(dt); simulateMotes(dt);
@@ -489,7 +493,21 @@
       state, api, config: cfg,
       FAMILY, EVOLVE_BLURB, SPAWN, classNode, hueFor,
       addShip, removeShip, getShip, spawnBots, clearBots,
-      setIntent(id, intent) { const s = getShip(id); if (s) s._intent = intent; },
+      setIntent(id, intent) {
+        const s = getShip(id); if (!s) return;
+        // One-shot edge flags LATCH until a sim tick consumes them (see step). A 60Hz sender can
+        // deliver two packets between ticks — a plain replace drops the first packet's edge, which
+        // made edge-driven abilities (Twinmaul lash/sync-throw, gravitor launch, afterburner)
+        // randomly dead in MP. Level fields (move/aim/firing) still just take the newest value.
+        const prev = s._intent;
+        if (prev) {
+          intent.ability = intent.ability || prev.ability;
+          intent.special = intent.special || prev.special;
+          intent.afterburner = intent.afterburner || prev.afterburner;
+          intent.altFire = intent.altFire || prev.altFire;
+        }
+        s._intent = intent;
+      },
       step,
       enemiesOf, evolveOptions, chooseEvolution, applyClassStats, xpForLevel,
       earn,                                  // for admin/level cheats
