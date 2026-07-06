@@ -60,82 +60,143 @@ window.PULSAR.Ships = (function () {
   }
 
   // ============================ RAIL FAMILY ==================================
-  // A gun that happens to have a ship attached. The barrel dominates; capacitor
-  // rings light up front-to-back as charge builds; rear vents glow with heat.
+  // A space gun with a ship attached. At rest the weapon hides inside a sealed
+  // clamshell cowl — the sprite reads as a sleek closed gun pod with a small tail
+  // craft bolted on. Charging SPLITS the shell open and the inner rail telescopes
+  // out, growing longer and brighter until the shot. The furnace branch (Helion /
+  // Supernova) drives the same reveal with beam ramp instead of charge.
   function railBody(ctx, r, s, P, t, o) {
     const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-    // rear fins (swept back — a braced firing platform, not a dogfighter)
-    poly(ctx, [[-0.15 * r, 0.20 * r], [-1.0 * r, o.back * r], [-0.55 * r, 0.12 * r]]);
+    // reveal driver: charge (held past full = overcharge) or beam ramp
+    const chRaw = o.useRamp ? (s.beamRamp || 0)
+                : Math.max(s.charging ? (s.charge || 0) : 0,
+                           (s.beamTimer || 0) > 0 ? (s.beamPower || 0) : 0);
+    const ch = Math.min(1, chRaw);
+    const open = Math.min(1, ch * 1.5);           // shell snaps open early...
+    const bl = (o.len + (o.ext || 0) * ch) * r;   // ...then the barrel keeps growing
+    const bh = o.barrel * r;
+
+    // --- tail craft: the small ship attached to the back of the gun
+    engine(ctx, s, -1.15 * r, 0, 0.32 * r, P, t);
+    poly(ctx, [[-0.30 * r, 0.16 * r], [-1.05 * r, o.back * r], [-1.15 * r, 0.10 * r]]);
     fillStroke(ctx, plateFill, 1.2);
-    poly(ctx, [[-0.15 * r, -0.20 * r], [-1.0 * r, -o.back * r], [-0.55 * r, -0.12 * r]]);
+    poly(ctx, [[-0.30 * r, -0.16 * r], [-1.05 * r, -o.back * r], [-1.15 * r, -0.10 * r]]);
     fillStroke(ctx, plateFill, 1.2);
-    // fuselage: narrow elongated hex hugging the barrel
-    poly(ctx, [[0.9 * r, 0], [0.25 * r, 0.40 * r], [-0.8 * r, 0.30 * r], [-0.95 * r, 0],
-               [-0.8 * r, -0.30 * r], [0.25 * r, -0.40 * r]]);
+    poly(ctx, [[-0.20 * r, 0.30 * r], [-1.15 * r, 0.20 * r], [-1.15 * r, -0.20 * r], [-0.20 * r, -0.30 * r]]);
     fillStroke(ctx, bodyFill);
-    // heat vents: three rear slats, cold-dim -> molten as heat rises; venting = red pulse
+    ctx.fillStyle = 'rgba(235,245,255,0.85)';
+    ctx.beginPath(); ctx.arc(-0.50 * r, 0, 0.10 * r, 0, TAU); ctx.fill();   // cockpit: the pilot rides the gun
+    // heat vents: tail slats, cold-dim -> molten as heat rises; venting = red pulse
     const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
     const hf = Math.min(1, (s.heat || 0) / heatMax);
     const venting = (s.ventTimer || 0) > 0;
     for (let i = 0; i < 3; i++) {
-      const vx = -0.45 * r - i * 0.18 * r;
+      const vx = -0.62 * r - i * 0.17 * r;
       const a = venting ? 0.55 + 0.4 * Math.sin(t * 22) : 0.15 + 0.75 * hf;
       ctx.strokeStyle = `rgba(255,${Math.round(190 - 130 * Math.max(hf, venting ? 1 : 0))},90,${a})`;
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(vx, 0.24 * r); ctx.lineTo(vx, -0.24 * r); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(vx, 0.22 * r); ctx.lineTo(vx, -0.22 * r); ctx.stroke();
     }
-    // barrel: the identity. Twin accelerator rails as bright edge lines.
-    const bl = o.len * r, bh = o.barrel * r;
+
+    // --- the gun itself (hidden under the cowl until the shell opens)
+    // breech block
     ctx.fillStyle = plateFill;
-    ctx.fillRect(-0.2 * r, -bh, bl + 0.2 * r, bh * 2);
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.3;
-    ctx.strokeRect(-0.2 * r, -bh, bl + 0.2 * r, bh * 2);
-    ctx.strokeStyle = P.accent; ctx.lineWidth = 1.2;
+    ctx.fillRect(-0.30 * r, -bh * 1.6, 0.55 * r, bh * 3.2);
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.2;
+    ctx.strokeRect(-0.30 * r, -bh * 1.6, 0.55 * r, bh * 3.2);
+    // main barrel + thinner telescoping forward section (the "gun gets longer" read)
+    const seg = o.len * r * 0.7;
+    ctx.fillStyle = plateFill;
+    ctx.fillRect(0.25 * r, -bh, seg - 0.25 * r, bh * 2);
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.2;
+    ctx.strokeRect(0.25 * r, -bh, seg - 0.25 * r, bh * 2);
+    ctx.fillStyle = bodyFill;
+    ctx.fillRect(seg, -bh * 0.72, bl - seg, bh * 1.44);
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.1;
+    ctx.strokeRect(seg, -bh * 0.72, bl - seg, bh * 1.44);
+    // muzzle collar
+    ctx.fillStyle = plateFill;
+    ctx.fillRect(bl - 0.10 * r, -bh * 1.25, 0.14 * r, bh * 2.5);
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.1;
+    ctx.strokeRect(bl - 0.10 * r, -bh * 1.25, 0.14 * r, bh * 2.5);
+    // twin accelerator rails: brighten and thicken as the charge builds
+    ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.65 * ch})`;
+    ctx.lineWidth = 1.1 + 1.6 * ch;
     ctx.beginPath();
-    ctx.moveTo(-0.15 * r, -bh * 0.55); ctx.lineTo(bl, -bh * 0.55);
-    ctx.moveTo(-0.15 * r, bh * 0.55); ctx.lineTo(bl, bh * 0.55);
+    ctx.moveTo(0.25 * r, -bh * 0.5); ctx.lineTo(bl, -bh * 0.4);
+    ctx.moveTo(0.25 * r, bh * 0.5); ctx.lineTo(bl, bh * 0.4);
     ctx.stroke();
-    // capacitor rings: light sequentially with charge (front sight of "almost ready")
-    const ch = s.charging ? Math.min(1, s.charge || 0) : 0;
+    // capacitor rings ride the growing barrel, lighting front-to-back with charge
     for (let i = 0; i < o.rings; i++) {
-      const rx = r * (0.35 + (i + 1) * (o.len - 0.55) / (o.rings + 1));
+      const rx = 0.35 * r + (i + 1) * (bl - 0.55 * r) / (o.rings + 1);
       const lit = ch > (i + 0.5) / o.rings;
       ctx.strokeStyle = lit ? 'rgba(255,255,255,0.95)' : P.dim;
       ctx.lineWidth = lit ? 2.2 : 1.4;
       ctx.beginPath(); ctx.moveTo(rx, -bh * 1.55); ctx.lineTo(rx, bh * 1.55); ctx.stroke();
       if (lit) { ctx.strokeStyle = P.accent; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(rx, 0, bh * 1.9, 0, TAU); ctx.stroke(); }
     }
+    // energy sleeve + muzzle bloom: the whole gun brightens as the shot condenses
+    if (ch > 0.02) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.10 + 0.25 * ch})`;
+      ctx.fillRect(0.2 * r, -bh * 1.8, bl - 0.2 * r, bh * 3.6);
+      if (!o.prong) {
+        ctx.beginPath(); ctx.arc(bl + 0.06 * r, 0, r * (0.06 + 0.26 * ch), 0, TAU);
+        ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.30 + 0.45 * ch})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(bl + 0.06 * r, 0, r * (0.03 + 0.12 * ch), 0, TAU);
+        ctx.fillStyle = `rgba(255,255,255,${0.35 + 0.55 * ch})`; ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    }
+    // overcharge (held past full): golden shimmer along the extended rail
+    if (!o.useRamp && chRaw > 1.0) {
+      ctx.strokeStyle = 'rgba(255,210,120,0.9)'; ctx.lineWidth = 2;
+      ctx.strokeRect(0.2 * r, -bh * 1.1, bl - 0.2 * r, bh * 2.2);
+    }
     // muzzle fork: twin jaws where the beam forms. With o.mawOpen the jaws HINGE OPEN as
     // charge builds (or hold open while the beam is lit) — the maw's gape IS the beam width.
     if (o.prong) {
-      const open = o.mawOpen ? Math.max(s.charging ? Math.min(1, s.charge || 0) : 0,
-                                        (s.beamTimer || 0) > 0 ? (s.beamPower || 0) : 0) : 0;
-      const py = o.prong * r * (1 + open * (o.mawOpen || 0));
+      const py = o.prong * r * (1 + ch * (o.mawOpen || 0));
       poly(ctx, [[bl - 0.15 * r, -bh], [bl + 0.85 * r, -py], [bl + 0.85 * r, -py + 0.12 * r], [bl, 0]]);
       fillStroke(ctx, plateFill, 1.2);
       poly(ctx, [[bl - 0.15 * r, bh], [bl + 0.85 * r, py], [bl + 0.85 * r, py - 0.12 * r], [bl, 0]]);
       fillStroke(ctx, plateFill, 1.2);
-      if (o.mawOpen && open > 0.05) {
+      if (o.mawOpen && ch > 0.05) {
         // essence core condensing in the open maw — the "shot about to exist"
         ctx.globalCompositeOperation = 'lighter';
-        ctx.beginPath(); ctx.arc(bl + 0.45 * r, 0, r * (0.10 + 0.34 * open), 0, TAU);
-        ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.45 * open})`; ctx.fill();
-        ctx.beginPath(); ctx.arc(bl + 0.45 * r, 0, r * (0.05 + 0.16 * open), 0, TAU);
-        ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.5 * open})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(bl + 0.45 * r, 0, r * (0.10 + 0.34 * ch), 0, TAU);
+        ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.45 * ch})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(bl + 0.45 * r, 0, r * (0.05 + 0.16 * ch), 0, TAU);
+        ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.5 * ch})`; ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
       }
     }
-    // charge lance: growing aim-line from the muzzle (base rail only — the maw classes
-    // telegraph with the opening jaws + essence intake instead)
-    if (s.charging && !o.noLance) {
-      const c = Math.min(1.25, s.charge || 0);
-      const x0 = o.prong ? bl + 0.85 * r : bl;
-      ctx.beginPath(); ctx.moveTo(0.4 * r, 0); ctx.lineTo(x0 + c * 0.8 * r, 0);
-      ctx.strokeStyle = c > 1.0 ? 'rgba(255,210,120,0.95)' : `rgba(255,255,255,${0.5 + 0.5 * c})`;
-      ctx.lineWidth = 1.5 + c * 2.5; ctx.stroke();
+    // --- clamshell cowl, drawn LAST so it hides the gun when sealed. Both halves
+    // lift laterally and flare outward on a rear hinge as the shell opens.
+    const hingeX = -0.35 * r;
+    const lift = open * (o.cowlGap || 0.55) * r;
+    const cLen = (o.len * 0.95 + 0.35) * r;       // hinge -> cowl tip
+    for (const sgn of [1, -1]) {
+      ctx.save();
+      ctx.translate(hingeX, sgn * lift);
+      ctx.rotate(sgn * open * 0.15);
+      poly(ctx, [[cLen, sgn * 0.02 * r], [cLen * 0.60, sgn * 0.28 * r], [0.15 * r, sgn * 0.42 * r],
+                 [0, sgn * 0.30 * r], [0, sgn * 0.035 * r]]);
+      fillStroke(ctx, bodyFill, 1.3);
+      // accent rake along the shell — the closed pod still reads as a weapon
+      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(cLen * 0.88, sgn * 0.07 * r); ctx.lineTo(0.22 * r, sgn * 0.34 * r); ctx.stroke();
+      ctx.restore();
     }
-    engine(ctx, s, -0.9 * r, 0, 0.34 * r, P, t);
+    // seam flash: light knifing out of the crack as the shell first splits
+    if (open > 0.02 && open < 0.95) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${open * (1 - open) * 2.2})`;
+      ctx.lineWidth = 1.5 + 3 * open;
+      ctx.beginPath(); ctx.moveTo(hingeX, 0); ctx.lineTo(hingeX + cLen, 0); ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 
   // =========================== HAMMER FAMILY =================================
@@ -153,17 +214,22 @@ window.PULSAR.Ships = (function () {
       ctx.strokeStyle = RIM; ctx.lineWidth = 1.1; ctx.strokeRect(-1.25 * r, ey - ew * 0.55, 0.3 * r, ew * 1.1);
       engine(ctx, s, -1.25 * r, ey, ew, P, t);
     }
-    // Fold-out boost jets: THE windup telegraph. As the ram charges, lateral booster pods
-    // hinge outward from the flanks and their burn shifts yellow -> deep red toward full
-    // commit; they stay splayed and blazing through the lunge. Pure visual — mechanics
-    // unchanged. Drawn before the hull so the pods emerge from under it.
+    // Deploy-out boost jets: THE windup telegraph. As the ram charges, lateral booster pods
+    // slide straight OUT from the flanks on a strut and light up yellow -> deep red toward
+    // full commit; they stay extended and blazing through the lunge. Crucially the pods stay
+    // axis-aligned — their exhaust points dead astern, same as the main thrusters, so all the
+    // thrust drives the ram FORWARD. Pure visual — mechanics unchanged. Drawn before the hull.
     if (c > 0.03) {
       const jg = Math.round(205 - 150 * c), jb = Math.round(100 - 80 * c);   // yellow -> red
       const flick = 0.8 + 0.35 * Math.sin(t * 27);
       for (const sgn of [1, -1]) {
+        const baseY = 0.46 * r * o.span * sgn;             // hull flank at the pod station
+        const outY = baseY + (0.12 + 0.30 * c) * r * sgn;  // slides out as charge builds
+        // deploy strut: hull -> pod, so the pod reads as extended rather than floating
+        ctx.strokeStyle = plateFill; ctx.lineWidth = 3.5;
+        ctx.beginPath(); ctx.moveTo(-0.30 * r, baseY); ctx.lineTo(-0.30 * r, outY); ctx.stroke();
         ctx.save();
-        ctx.translate(-0.30 * r, 0.52 * r * o.span * sgn);
-        ctx.rotate(sgn * (0.22 + 0.85 * c));               // hinge outward with charge
+        ctx.translate(-0.30 * r, outY);                    // NO rotation — burn stays astern
         poly(ctx, [[0.34 * r, -0.09 * r], [-0.42 * r, -0.14 * r], [-0.52 * r, 0],
                    [-0.42 * r, 0.14 * r], [0.34 * r, 0.09 * r]]);
         fillStroke(ctx, plateFill, 1.1);
@@ -362,12 +428,14 @@ window.PULSAR.Ships = (function () {
       ctx.beginPath(); ctx.arc(0.35 * r, 0, 0.16 * r, 0, TAU); ctx.fill();
     },
 
-    railship(ctx, r, s, P, t)    { railBody(ctx, r, s, P, t, { len: 2.1, back: 0.72, barrel: 0.15, rings: 2 }); },
-    // Helion: short heavy barrel ending in a focusing LENS RING that glows with the beam
-    // ramp — a solar furnace, not a sniper rifle.
+    // Railship: the base pattern — sealed gun pod at rest; charging splits the shell
+    // and the rail telescopes out to nearly double length at full charge.
+    railship(ctx, r, s, P, t)    { railBody(ctx, r, s, P, t, { len: 1.35, ext: 1.05, back: 0.62, barrel: 0.16, rings: 2 }); },
+    // Helion: the shell opens on beam ramp; short heavy barrel extends into a focusing
+    // LENS RING that glows with the ramp — a solar furnace, not a sniper rifle.
     helion(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 1.7, back: 0.78, barrel: 0.18, rings: 2, noLance: true });
-      const ramp = s.beamRamp || 0, lx = 1.7 * r + 0.28 * r;
+      railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.5, back: 0.68, barrel: 0.19, rings: 2, useRamp: true });
+      const ramp = Math.min(1, s.beamRamp || 0), lx = (1.05 + 0.5 * ramp) * r + 0.28 * r;
       ctx.globalCompositeOperation = 'lighter';
       ctx.beginPath(); ctx.arc(lx, 0, r * 0.42, 0, TAU);
       ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.45 + 0.5 * ramp})`;
@@ -384,13 +452,15 @@ window.PULSAR.Ships = (function () {
         ctx.beginPath(); ctx.arc(lx, 0, r * (0.6 - 0.1 * ramp), a, a + 0.9); ctx.stroke();
       }
     },
-    starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 2.4, back: 0.9, barrel: 0.2, rings: 3, prong: 0.34, mawOpen: 1.6, noLance: true }); },
+    // Star Piercer: siege pod — heavier shell, wider split, jaws hinge open at the
+    // muzzle of the extending rail.
+    starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 1.55, ext: 0.95, back: 0.80, barrel: 0.21, rings: 3, prong: 0.34, mawOpen: 1.6, cowlGap: 0.62 }); },
     // Supernova: the furnace gone critical — oversized lens, and a CORONA ring around the
     // whole hull that burns brighter as HEAT builds (the nova you're owed). Prominence arcs
     // grow agitated as the bar fills.
     supernova(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 1.6, back: 0.85, barrel: 0.20, rings: 3, noLance: true });
-      const ramp = s.beamRamp || 0, lx = 1.6 * r + 0.32 * r;
+      railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.55, back: 0.75, barrel: 0.21, rings: 3, useRamp: true, cowlGap: 0.62 });
+      const ramp = Math.min(1, s.beamRamp || 0), lx = (1.05 + 0.55 * ramp) * r + 0.32 * r;
       const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
       const hf = Math.min(1, (s.heat || 0) / heatMax);
       ctx.globalCompositeOperation = 'lighter';
@@ -415,7 +485,7 @@ window.PULSAR.Ships = (function () {
     // Starbreak: heavier siege chassis — dorsal rift-blades with shimmering edges (space is
     // thin around this ship), and faint rift dashes flicker ahead of the maw as it charges.
     starbreak(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 2.6, back: 1.0, barrel: 0.22, rings: 4, prong: 0.42, mawOpen: 1.8, noLance: true });
+      railBody(ctx, r, s, P, t, { len: 1.75, ext: 1.30, back: 0.95, barrel: 0.23, rings: 4, prong: 0.42, mawOpen: 1.8, cowlGap: 0.68 });
       const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
       for (const sgn of [1, -1]) {
         poly(ctx, [[0.15 * r, 0.42 * r * sgn], [-0.25 * r, 1.05 * r * sgn], [-0.65 * r, 0.95 * r * sgn], [-0.55 * r, 0.38 * r * sgn]]);
@@ -428,8 +498,9 @@ window.PULSAR.Ships = (function () {
       if (c > 0.15) {
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.25 * c})`; ctx.lineWidth = 1.3;
+        const muzzle = 1.75 + 1.30 * c + 0.85;    // extended rail + jaws
         for (let i = 0; i < 4; i++) {
-          const x0 = (3.6 + i * 0.55 + 0.2 * Math.sin(t * 11 + i)) * r;
+          const x0 = (muzzle + 0.35 + i * 0.55 + 0.2 * Math.sin(t * 11 + i)) * r;
           ctx.beginPath(); ctx.moveTo(x0, -0.3 * r * c); ctx.lineTo(x0, 0.3 * r * c); ctx.stroke();
         }
         ctx.globalCompositeOperation = 'source-over';

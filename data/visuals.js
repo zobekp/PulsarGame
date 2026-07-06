@@ -17,31 +17,35 @@ window.PULSAR.classVisuals = {
   starter: { hue: "#9fb3c8", silhouette: "dart",
              accent: "none", note: "Tiny neutral dart with a cockpit dot." },
 
-  // Railship — a gun with a ship attached: dominant barrel, twin accelerator rails,
-  // capacitor rings that light front-to-back with charge, rear heat vents.
+  // Railship — a GUN with a ship attached: at rest a sealed clamshell gun pod with a
+  // small tail craft. Charging splits the shell open and the inner rail telescopes
+  // out, growing longer and brighter until the shot.
   railship: { hue: "#39d0ff", silhouette: "railship",
               accent: "frontSpineGlow",
-              cues: ["capacitor rings light with charge", "beam-line trail on fire",
-                     "recoil kick", "heat-vent slats glow when hot"] },
+              cues: ["shell splits open when charging", "barrel telescopes longer + brighter",
+                     "capacitor rings light with charge", "golden overcharge shimmer",
+                     "heat-vent slats glow when hot"] },
   helion:      { inherits: "railship", silhouette: "helion",
-                 note: "Solar-furnace rail: short barrel into a focusing lens ring that " +
-                       "glows hotter as the beam ramps.",
-                 cues: ["lens ring brightens with ramp", "continuous beam", "heavy vent glow"] },
+                 note: "Solar-furnace pod: the shell opens on BEAM RAMP and the barrel extends " +
+                       "into a focusing lens ring that glows hotter as the beam ramps.",
+                 cues: ["shell opens + barrel extends with ramp", "lens ring brightens",
+                        "continuous beam", "heavy vent glow"] },
   starPiercer: { inherits: "railship", silhouette: "starPiercer",
-                 note: "Siege maw: twin jaws that OPEN wider with charge — maw width IS the " +
-                       "beam width. No charge-line; the tell is the intake + the open maw.",
-                 cues: ["maw opens with charge", "essence intake while charging",
-                        "ONE instant devastating blast", "weak-point marker on cracked leaders"] },
+                 note: "Siege pod: wider shell split, and twin jaws at the extending muzzle " +
+                       "that OPEN with charge — maw width IS the beam width.",
+                 cues: ["shell splits + rail extends with charge", "maw opens with charge",
+                        "essence intake while charging", "ONE instant devastating blast",
+                        "weak-point marker on cracked leaders"] },
   supernova:   { inherits: "railship", silhouette: "supernova",
-                 note: "The furnace gone critical: oversized lens + a CORONA ring around the " +
-                       "whole hull that burns brighter as heat builds — the bomb it's carrying.",
+                 note: "The furnace gone critical: shell opens on ramp into an oversized lens, " +
+                       "plus a CORONA ring around the hull that burns brighter as heat builds.",
                  cues: ["corona brightens with HEAT (the nova you're owed)", "prominence arcs lick off the ring",
                         "FLARE NOVA blast ring on [E]"] },
   starbreak:   { inherits: "railship", silhouette: "starbreak",
-                 note: "Heavier siege chassis with dorsal rift-blades — space is thin around " +
-                       "this ship. Its blast scar lingers and detonates.",
-                 cues: ["huge maw gape at full charge", "lingering RIFT scar on the shot line",
-                        "scar pulses faster, then collapses"] },
+                 note: "Heaviest shell, longest telescope, dorsal rift-blades — space is thin " +
+                       "around this ship. Its blast scar lingers and detonates.",
+                 cues: ["huge maw gape + full rail extension at max charge",
+                        "lingering RIFT scar on the shot line", "scar pulses faster, then collapses"] },
 
   // Hammerhead — all mass forward: bolted ram slab, stubby tug body, oversized engines.
   hammerhead: { hue: "#ff7a3c", silhouette: "hammerhead",

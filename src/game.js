@@ -347,29 +347,28 @@ window.PULSAR = window.PULSAR || {};
     } else if (fam === 'rail') {
       const RC = cfg.railship.charge, t = state.time;
       const full = s.charge >= RC.lanceMax;
-      // BEFORE full: the ship DRAINS energy from the space around it — streaks spiral inward and
-      // brighten as they fall toward the hull. The intake STOPS once full charge is reached.
+      // BEFORE full: the cannon FEEDS — little energy orbs condense in a forward cone and get
+      // pulled into the muzzle, falling faster as they close. Intake STOPS at full charge.
       if (s.charging && !full) {
         const ch = Math.min(1, s.charge), hue = [150, 232, 255];
-        const Rmax = s.radius * (4.5 + 3.0 * ch);
+        const aim = s.aim || 0;
+        const mr = s.radius * (1.5 + 1.1 * ch);            // muzzle rides the extending barrel
+        const mx = cx + Math.cos(aim) * mr, my = cy + Math.sin(aim) * mr;
+        const Rmax = s.radius * (3.5 + 2.5 * ch);
         R.setComposite('lighter');
-        ctx.lineCap = 'round';
-        for (let i = 0; i < 12; i++) {
-          const phase = (t * (0.55 + 0.6 * ch) + i / 12) % 1;
-          const frac = 1 - phase;
-          const a = (i / 12) * TAU + (1 - frac) * 1.7 + t * 0.25;
-          const r = s.radius * 0.5 + frac * Rmax;
-          const x = cx + Math.cos(a) * r, y = cy + Math.sin(a) * r;
-          const tr = r + Rmax * 0.16, tx = cx + Math.cos(a + 0.16) * tr, ty = cy + Math.sin(a + 0.16) * tr;
-          const al = ch * (0.18 + 0.55 * (1 - frac));
-          ctx.strokeStyle = `rgba(${hue[0]},${hue[1]},${hue[2]},${al})`;
-          ctx.lineWidth = 1 + 1.6 * (1 - frac) * ch;
-          ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(x, y); ctx.stroke();
-          R.glow(x, y, (2 + 3 * (1 - frac)) * (0.7 + ch * 0.5), hue, al * 0.8);
+        for (let i = 0; i < 9; i++) {
+          const phase = (t * (0.7 + 0.7 * ch) + i * 0.318) % 1;
+          const frac = 1 - phase;                          // 1 = just spawned far out, 0 = swallowed
+          const spread = Math.sin(i * 12.9898) * 1.25;     // stable per-orb cone angle (±~70°)
+          const a = aim + spread * (0.35 + 0.65 * frac);   // cone tightens as the orb falls in
+          const d = frac * frac * Rmax;                    // ease-in: accelerates toward the muzzle
+          const x = mx + Math.cos(a) * d, y = my + Math.sin(a) * d;
+          const al = ch * (0.25 + 0.65 * (1 - frac));
+          const sz = (1.5 + 2.5 * (1 - frac)) * (0.8 + 0.5 * ch);
+          R.glow(x, y, sz * 2.2, hue, al * 0.8);
+          ctx.fillStyle = `rgba(255,255,255,${al})`;
+          ctx.beginPath(); ctx.arc(x, y, sz * 0.5, 0, TAU); ctx.fill();
         }
-        const ring = Rmax * (0.7 + 0.3 * Math.sin(t * 6));
-        ctx.strokeStyle = `rgba(${hue[0]},${hue[1]},${hue[2]},${0.12 * ch})`;
-        ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(cx, cy, ring, 0, TAU); ctx.stroke();
         R.setComposite('source-over');
       } else if (s.charging && full) {
         // AT full: intake stops; the core REDLINES — gold -> deep red over overheatSec, pulsing

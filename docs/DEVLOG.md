@@ -6,6 +6,54 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-06 — Hammer family: boost pods deploy straight, exhaust points astern
+**What changed:** The hammer windup telegraph (`hammerBody` in `src/ships.js`) had its fold-out
+booster pods **hinging** outward with charge — which rotated the whole pod so the exhaust flames
+aimed diagonally out to the sides (nonsensical: side-thrust wouldn't drive a forward ram). Now the
+pods **slide straight out** from the flanks on a short deploy strut and stay **axis-aligned**, so
+their burn points dead astern — same direction as the main thrusters — and all the thrust drives
+the ram FORWARD. Slide distance + burn color (yellow→red) still scale with charge.
+
+**Files touched:** `src/ships.js` (`hammerBody` boost-jet block only). Pure visual; drives off the
+existing `ramWinding`/`ramCharge`/`ramActive` fields, MP-safe. Verified across hammerhead /
+maulbreaker / worldsplitter at charge 0→1.
+
+---
+
+## 2026-07-06 — Rail family resprite: clamshell gun pods (a GUN with a ship attached)
+**What changed:** `railBody` in `src/ships.js` rebuilt around a new concept. At rest every rail
+class is a **sealed clamshell gun pod** — the weapon is hidden inside a sleek two-half cowl, with
+a small tail craft (fins, engine, cockpit dot, heat-vent slats) bolted to the back. Charging
+**splits the shell open** (halves lift laterally + flare on a rear hinge) and the inner rail
+**telescopes out** — barrel gets longer AND brighter as charge builds (energy sleeve, thickening
+accelerator rails, muzzle bloom, capacitor rings riding the growing barrel). Seam flash knifes
+out of the crack as the shell first opens. The old charge-lance aim line is gone; the extending
+barrel + rings + maw are the telegraph now.
+
+**Per class:** Railship extends ~1.35r→2.4r with gold overcharge shimmer past full. Helion /
+Supernova open on **beam ramp** (`useRamp`), lens ring rides the extending muzzle. Star Piercer /
+Starbreak keep the hinging maw jaws at the (now moving) muzzle, wider cowl split; Starbreak's
+rift dashes track the extended muzzle instead of a fixed offset.
+
+**Also:** the old charge intake aura (12 streaks spiraling around the whole hull + pulsing ring,
+`game.js` rail-family overlay) is replaced by a **muzzle feed**: little energy orbs condense in a
+forward cone ahead of the cannon and accelerate into the muzzle as charge builds. Front-only —
+nothing orbits the hull anymore. The full-charge redline glow is unchanged.
+
+**Files touched:** `src/ships.js` (railBody + 5 rail models), `src/game.js` (rail charge intake),
+`data/visuals.js` (rail cues/notes).
+Pure visual — no sim/config changes, MP-safe (draws off existing snapshot fields:
+charge/charging/beamRamp/beamTimer/beamPower/heat/ventTimer).
+
+**How to test:** open `index.html`, pick Railship: idle = closed pod; hold LMB = shell splits,
+barrel telescopes + brightens, gold shimmer on overcharge hold. Helion/Supernova: shell opens as
+the beam ramps. Star Piercer/Starbreak: jaws gape at the end of the extended rail.
+
+**Known limits:** shell open/close snaps with the charge value (no eased shut animation after
+firing — charge drop closes it in one frame; looks like recoil-slam, acceptable for now).
+
+---
+
 ## 2026-07-02 — TIER-3 FINALS: Supernova, Starbreak, Binary Star (the tree is complete)
 **What changed:** The three empty lvl-15 slots are filled — every family now branches to a real
 final. Design bar (set when Lancer was retired): a final adds a NEW VERB on the tier-2 identity,
