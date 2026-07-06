@@ -25,7 +25,9 @@ const TICK = 1 / 60;                 // authoritative sim step (matches SP's 60H
 // cheats on. PULSAR_ADMIN=0 disables cheats independently.
 const PUBLIC = process.env.PULSAR_PUBLIC === '1';
 const ALLOW_ADMIN = !PUBLIC && process.env.PULSAR_ADMIN !== '0';
-const SNAP_HZ = 60;                  // snapshots per second (render-rate; interp delay can be tiny)
+// Snapshot rate: 60Hz on LAN; 30Hz for public/internet hosting (halves bandwidth — the client
+// reads the rate from the welcome message and widens its interp delay to match).
+const SNAP_HZ = PUBLIC ? 30 : 60;
 const OBJ_EVERY = 6;                 // send the (mostly static) asteroid field every Nth snapshot (10Hz)
 
 // FX recorder — the sim emits cosmetic events; we forward them to clients to replay.
@@ -61,21 +63,40 @@ function shipSnap(s) {
     ox2: s.orbX2 != null ? Math.round(s.orbX2) : null, oy2: s.orbX2 != null ? Math.round(s.orbY2) : null, oss2: +(s.orbSelfSpin2 || 0).toFixed(2),
     rw: s.ramWinding ? 1 : 0, ra: s.ramActive > 0 ? 1 : 0, rc: +(s.ramCharge || 0).toFixed(2), cap: s.captured ? s.captured.length : 0 };
 }
+// Ships beyond view range only need what the minimap + leaderboard read — a third of the bytes.
+// (Missing combat fields default safely to 0/false client-side.)
+function shipSnapFar(s) {
+  return { id: s.id, c: s.classId, nm: s.name || '', bt: s.isBot ? 1 : 0, team: s.team,
+    x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(2), r: Math.round(s.radius),
+    al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, scr: Math.round(s.scrap) };
+}
 let snapN = 0, nextNid = 1;          // entity ids let the client interpolate between snapshots
 const nid = (e) => e._nid || (e._nid = nextNid++);
-function snapshot() {
+// INTEREST MANAGEMENT — the arena is 6000² but a client sees ~1100px. Each client gets a
+// PERSONAL snapshot: all ships (minimap) + all titans (landmarks), but projectiles/motes/fx/
+// objects only within a box around their own ship. Cuts bandwidth ~10x, which is the difference
+// between LAN-only and playable-over-the-internet.
+const CULL = 1400, CULL_FX = 1600, CULL_OBJ = 1500;
+const near = (x, y, s, r) => !s || (Math.abs(x - s.x) < r && Math.abs(y - s.y) < r);
+function snapshotFor(c) {
   const st = world.state;
-  const snap = { t: 't', tm: +st.time.toFixed(3), pt: +st.pulsarTimer.toFixed(3),
-    sh: st.ships.map(shipSnap),
-    pr: st.projectiles.map(p => ({ id: nid(p), x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '', rt: p.rockType || '' })),
-    mo: st.motes.map(m => ({ id: nid(m), x: Math.round(m.x), y: Math.round(m.y), p: m.pulsar ? 1 : 0 })),
-    ev: fxEvents };
-  if (snapN % OBJ_EVERY === 0) snap.ob = st.objects.map(o => ({ id: nid(o), t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, h: +(o.hp / o.maxHp).toFixed(2), cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2), sr: +o.spinRate.toFixed(3) }));
-  // per-client input acks (client-side prediction reconciles against these)
-  const aq = {}; for (const c of clients.values()) if (c.lastSeq != null) aq[c.shipId] = c.lastSeq;
-  snap.aq = aq;
-  snapN++;
-  fxEvents = [];
+  const me = world.getShip(c.shipId);
+  const snap = { t: 't', tm: +st.time.toFixed(3), pt: +st.pulsarTimer.toFixed(3), ack: c.lastSeq || 0,
+    sh: st.ships.map(s => (s.id === c.shipId || near(s.x, s.y, me, CULL)) ? shipSnap(s) : shipSnapFar(s)),
+    pr: [], mo: [], ev: [] };
+  for (const p of st.projectiles) if (near(p.x, p.y, me, CULL))
+    snap.pr.push({ id: nid(p), x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '', rt: p.rockType || '' });
+  for (const m of st.motes) if (near(m.x, m.y, me, CULL))
+    snap.mo.push({ id: nid(m), x: Math.round(m.x), y: Math.round(m.y), p: m.pulsar ? 1 : 0 });
+  for (const e of fxEvents) {
+    if (e[0] === 's') { if (e[2] === c.shipId) snap.ev.push(e); }                    // your shake only
+    else if (near(e[1], e[2], me, CULL_FX) || (e[0] === 'b' && near(e[3], e[4], me, CULL_FX))) snap.ev.push(e);
+  }
+  if (snapN % OBJ_EVERY === 0) {
+    snap.ob = [];
+    for (const o of st.objects) if (o.type === 'titan' || near(o.x, o.y, me, CULL_OBJ))
+      snap.ob.push({ id: nid(o), t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, h: +(o.hp / o.maxHp).toFixed(2), cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2), sr: +o.spinRate.toFixed(3) });
+  }
   return snap;
 }
 
@@ -125,7 +146,7 @@ server.on('upgrade', (req, socket) => {
 
   const ship = world.addShip({ isBot: false, classId: 'starter' });
   clients.set(socket, { shipId: ship.id });
-  wsSend(socket, { t: 'welcome', id: ship.id, arena: { w: cfg.arena.width, h: cfg.arena.height } });
+  wsSend(socket, { t: 'welcome', id: ship.id, hz: SNAP_HZ, arena: { w: cfg.arena.width, h: cfg.arena.height } });
   console.log(`+ player ship ${ship.id} (now ${clients.size})`);
 
   let buf = Buffer.alloc(0);
@@ -166,7 +187,12 @@ setInterval(() => {
   if (frame > 0.25) frame = 0.25; acc += frame;
   while (acc >= TICK) { world.step(TICK); acc -= TICK; }
   snapAcc += frame;
-  if (snapAcc >= 1 / SNAP_HZ) { snapAcc = 0; if (clients.size) broadcast(snapshot()); }
+  if (snapAcc >= 1 / SNAP_HZ) {
+    snapAcc = 0;
+    for (const [sock, c] of clients) wsSend(sock, snapshotFor(c));   // personal culled snapshots
+    snapN++;
+    fxEvents = [];   // always drain — with zero clients these used to accumulate forever
+  }
 }, 1000 / 60);
 
 const PORT = process.env.PORT || 8080;

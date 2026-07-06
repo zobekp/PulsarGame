@@ -21,7 +21,7 @@ const sock = net.connect(PORT, '127.0.0.1', () => {
 });
 
 let handshook = false, buf = Buffer.alloc(0), snaps = 0, myId = null, firstX = null, moved = false;
-let sentSeq = 0, lastAck = null, lastLvl = 1;
+let sentSeq = 0, lastAck = null, lastLvl = 1, snapBytes = 0, snapHz = 60;
 sock.on('data', (chunk) => {
   buf = Buffer.concat([buf, chunk]);
   if (!handshook) {
@@ -39,10 +39,12 @@ sock.on('data', (chunk) => {
     if (buf.length < off + len) break;
     const payload = buf.slice(off, off + len); buf = buf.slice(off + len);
     let m; try { m = JSON.parse(payload.toString('utf8')); } catch (e) { continue; }
-    if (m.t === 'welcome') { myId = m.id; console.log('welcome id=', myId, 'arena=', JSON.stringify(m.arena)); }
+    if (m.t === 'welcome') { myId = m.id; snapHz = m.hz || 60; console.log('welcome id=', myId, 'hz=', snapHz, 'arena=', JSON.stringify(m.arena)); }
     else if (m.t === 't') {
       snaps++;
-      if (m.aq && m.aq[myId] != null) lastAck = m.aq[myId];
+      snapBytes += payload.length;
+      if (m.ack != null) lastAck = m.ack;
+      else if (m.aq && m.aq[myId] != null) lastAck = m.aq[myId];
       // keep sending intent so the ship keeps moving
       sock.write(encode(JSON.stringify({ t: 'in', i: { moveX: 1, moveY: 0, aim: 0, aimDist: 500, firing: true }, q: ++sentSeq })));
       const me = m.sh.find(s => s.id === myId);
@@ -65,6 +67,8 @@ sock.on('data', (chunk) => {
         const adminOk = lastLvl >= 4;
         console.log(`ack check: lastAck=${lastAck} sentSeq=${sentSeq} → ${ackOk ? 'OK' : 'FAIL'}`);
         console.log(`admin check: lvl after 3x levelUp = ${lastLvl} → ${adminOk ? 'OK' : 'FAIL'}`);
+        const kbps = (snapBytes / snaps) * snapHz / 1024;   // avg snapshot size × actual rate
+        console.log(`bandwidth: avg snapshot ${(snapBytes / snaps / 1024).toFixed(2)}KB → ~${kbps.toFixed(0)}KB/s (~${(kbps * 8 / 1024).toFixed(1)}Mbps) per client`);
         console.log(`RESULT: received ${snaps} snapshots; my ship moved under intent = ${moved}`);
         sock.end(); process.exit(ackOk && moved && adminOk ? 0 : 1);
       }

@@ -3,7 +3,8 @@
 // the client stops simulating: it sends INPUT INTENT and renders the world the server broadcasts.
 // This is the cheat-resistant shared-world path that supersedes the relay (src/net.js).
 //
-// REMOTE ships are interpolated: drawn ~INTERP_MS in the past so 20Hz snapshots look smooth.
+// REMOTE ships are interpolated: drawn ~interpMs in the past (scaled to the server's snapshot
+// rate, from the welcome message) so snapshots look smooth at any rate.
 // YOUR OWN ship is PREDICTED: its movement (inertia/cruise/afterburner — all input-driven, hence
 // predictable) is simulated locally the instant input happens, so control feels like single-player.
 // Weapons/damage/economy stay server-side. Every intent send carries a sequence number; snapshots
@@ -18,7 +19,7 @@ window.PULSAR.MP = (function () {
     && !/\bsolo\b/.test((typeof location !== 'undefined' && location.search) || '');   // ?solo = force local SP even when served by mpserver
   const TAU = Math.PI * 2;
   const SEND_HZ = 60;                 // intent send rate (a click reaches the server within ~16ms)
-  const INTERP_MS = 40;              // render this far in the past (≈2.5 snapshots @60Hz) for smooth interp
+  let interpMs = 40;                 // render this far in the past (≈2.5 snapshot intervals; set from the welcome's hz)
 
   let ws = null, connected = false, myId = 0, arena = null;
   let getIntent = null, myName = '', onKillCb = null;
@@ -169,7 +170,7 @@ window.PULSAR.MP = (function () {
     ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); lastObjects = null; objView.clear(); lastSyncAt = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-      if (m.t === 'welcome') { myId = m.id; arena = m.arena; }
+      if (m.t === 'welcome') { myId = m.id; arena = m.arena; interpMs = Math.max(40, Math.round(2500 / (m.hz || 60))); }
       else if (m.t === 't') ingest(m);
       else if (m.t === 'kill') { if (onKillCb) onKillCb(m.kn || null, m.vn || 'Ship', !!m.ld); }
     };
@@ -184,7 +185,7 @@ window.PULSAR.MP = (function () {
     for (const s of snap.sh) {
       if (s.id !== myId) continue;
       if (s.al === 0) pred.ready = false;    // dead: stop predicting (death cam follows server)
-      else reconcile(s, snap.aq ? snap.aq[myId] : null);
+      else reconcile(s, snap.ack != null ? snap.ack : (snap.aq ? snap.aq[myId] : null));
       break;
     }
     replayFx(snap.ev);
@@ -222,7 +223,7 @@ window.PULSAR.MP = (function () {
   let lastSyncAt = 0;
   const objView = new Map();   // id → persistent render object, spun locally between object frames
   function syncState(state, p) {
-    const br = bracket(now() - INTERP_MS);
+    const br = bracket(now() - interpMs);
     if (!br) return;
     const { a, b, t, dt } = br;
     const tNow = now();

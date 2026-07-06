@@ -50,6 +50,24 @@ finals haven't run yet (fold into the next balance session; rail family was alre
 overtuned). Bots don't lead the rift (they never aim where an enemy WILL be). Hammer branch B
 is now the only structural gap in the tree.
 
+**Follow-up (2026-07-06) — INTEREST MANAGEMENT ("mad laggy" tunnel fix):** first public playtest
+through a Cloudflare quick-tunnel was unplayable — snapshots shipped the ENTIRE arena (330
+objects, 120 motes, all fx) to every client at 60Hz ≈ 5-6Mbps each, saturating home upload.
+Fixes, all in mpserver + mpclient:
+- *Per-client CULLED snapshots* (`snapshotFor(c)`): projectiles/motes/fx/objects only within a
+  box around the client's ship (CULL 1400 / fx 1600 / obj 1500 — view is ~1100px, pop-in stays
+  off-screen). Titans always (minimap landmarks). Shake events now only go to their owner.
+- *Far-ship slim records* (`shipSnapFar`): ships beyond view range send only what the minimap +
+  leaderboard read (~1/3 the bytes); full combat detail within range + always for your own ship
+  (prediction needs it). Missing fields default safely client-side.
+- *Ack is per-client scalar* (`ack`) instead of the broadcast `aq` map.
+- *Public mode runs 30Hz snapshots*; the welcome message carries `hz` and the client scales its
+  interp delay (`interpMs = max(40, 2500/hz)`). Dev stays 60Hz.
+- *Leak fix:* fxEvents accumulated unboundedly while zero clients were connected (pre-existing).
+Measured via wsprobe (now prints avg snapshot size × actual rate; worst-case dense edge band):
+dev 60Hz ≈ 1.7Mbps, public 30Hz ≈ 0.8Mbps per client — ~7x less than before. Next lever if
+still needed: binary/delta encoding (JSON keys are most of the remaining bytes).
+
 **Follow-up (2026-07-06) — PUBLIC deployment mode (play it, don't read it):** client JS can never
 be truly hidden (the browser downloads it), so the public build ships MINIFIED+MANGLED code and
 the readable source stays in the private GitHub repo. `tools/build-dist.js` (deploy-only; dev
