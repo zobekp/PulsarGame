@@ -161,6 +161,9 @@ window.PULSAR = window.PULSAR || {};
   // ---- simulation ------------------------------------------------------------
   // SP = step the local world (the same sim.js the server runs). MP = send intent, render snapshots.
   function simulate(dt) {
+    const tDown = Input.key('KeyT');                        // [T] class tree — works in every mode, even dead
+    if (tDown && !_treePrev) showTree = !showTree;
+    _treePrev = tDown;
     if (PULSAR.MP && PULSAR.MP.connected) return mpSimulate(dt);
     if (!gameStarted) p.spawnProtect = Math.max(p.spawnProtect, 0.5);        // idle + safe behind the title
     if (gameStarted && p.alive) spControls(dt);
@@ -205,6 +208,86 @@ window.PULSAR = window.PULSAR || {};
 
     uiButtons = [];
     drawHud(); drawLeaderboard(); drawKillFeed(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
+    if (showTree) drawClassTree();
+  }
+
+  // ---- class tree overlay [T] -------------------------------------------------
+  // The whole evolution tree at a glance: live idling hull models, names, one-line blurbs,
+  // connectors with the level gates, and your current class highlighted. Non-blocking —
+  // the game keeps running behind it (same philosophy as the evolve overlay).
+  let showTree = /\btree\b/.test(location.search);   // ?tree auto-opens (dev/screenshot hook)
+  let _treePrev = false;
+  function wrapText(ctx, text, maxW) {
+    const words = String(text || '').split(' ');
+    const lines = []; let cur = '';
+    for (const w of words) {
+      const test = cur ? cur + ' ' + w : w;
+      if (ctx.measureText(test).width > maxW && cur) { lines.push(cur); cur = w; }
+      else cur = test;
+    }
+    if (cur) lines.push(cur);
+    return lines.slice(0, 3);
+  }
+  function drawClassTree() {
+    const ctx = Render.ctx;
+    ctx.fillStyle = 'rgba(4,6,12,0.86)'; ctx.fillRect(0, 0, Render.viewW, Render.viewH);   // dim the game
+    const panelW = Math.min(Render.viewW - 30, 1360);
+    const x0 = (Render.viewW - panelW) / 2, colW = panelW / 6;
+    const rowH = 128, nodeH = 96, nodeW = colW - 14;
+    const topY = Math.max(26, (Render.viewH - 570) / 2);
+    const yFor = (row) => topY + 56 + row * rowH + nodeH / 2;
+    const colCX = (c) => x0 + colW * (c + 0.5);
+    ctx.textAlign = 'center';
+    ctx.font = '800 20px system-ui, sans-serif'; ctx.fillStyle = '#bfe9ff';
+    ctx.fillText('CLASS TREE', Render.viewW / 2, topY + 16);
+    ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(160,190,220,0.6)';
+    ctx.fillText('[T] to close', Render.viewW / 2, topY + 32);
+    // node layout: [classId, column-center (in leaf-column units), row]
+    // leaf columns: 0 rail-A · 1 rail-B · 2 hammer · 3 grav-A · 4 grav-B · 5 flail
+    const NODES = [
+      ['starter', 2.5, 0],
+      ['railship', 0.5, 1], ['hammerhead', 2, 1], ['gravitor', 3.5, 1], ['flailship', 5, 1],
+      ['helion', 0, 2], ['starPiercer', 1, 2], ['maulbreaker', 2, 2], ['meteorist', 3, 2], ['singularity', 4, 2], ['twinmaul', 5, 2],
+      ['supernova', 0, 3], ['starbreak', 1, 3], ['worldsplitter', 2, 3], ['starfall', 3, 3], ['eventHorizon', 4, 3], ['binaryStar', 5, 3],
+    ];
+    const pos = new Map();
+    for (const [id, c, row] of NODES) pos.set(id, { x: colCX(c), y: yFor(row) });
+    // tier gate labels on the left margin
+    ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(160,190,220,0.55)';
+    ['LV 3', 'LV 8', 'LV 15'].forEach((g, i) => ctx.fillText(g, x0 + 2, yFor(i + 1) - nodeH / 2 - 8));
+    // connectors parent → child
+    ctx.strokeStyle = 'rgba(120,180,240,0.28)'; ctx.lineWidth = 1.4;
+    for (const [id] of NODES) {
+      const node = classNode(id); if (!node || !node.parentId) continue;
+      const a = pos.get(node.parentId), b = pos.get(id); if (!a || !b) continue;
+      ctx.beginPath(); ctx.moveTo(a.x, a.y + nodeH / 2 - 6); ctx.lineTo(b.x, b.y - nodeH / 2 + 2); ctx.stroke();
+    }
+    for (const [id] of NODES) {
+      const pnt = pos.get(id), node = classNode(id);
+      const bx = pnt.x - nodeW / 2, by = pnt.y - nodeH / 2;
+      const isYou = p.classId === id;
+      ctx.fillStyle = isYou ? 'rgba(28,58,88,0.94)' : 'rgba(12,20,34,0.94)';
+      ctx.fillRect(bx, by, nodeW, nodeH);
+      ctx.strokeStyle = isYou ? '#39d0ff' : 'rgba(90,130,180,0.45)'; ctx.lineWidth = isYou ? 2 : 1;
+      ctx.strokeRect(bx, by, nodeW, nodeH);
+      // live idling model (drums spin, cores pulse), clipped to the box top
+      ctx.save();
+      ctx.beginPath(); ctx.rect(bx + 1, by + 1, nodeW - 2, 40); ctx.clip();
+      ctx.translate(pnt.x, by + 22); ctx.rotate(-0.35);
+      PULSAR.Ships.draw(ctx, {
+        classId: id, radius: 11, aim: 0, vx: 0, vy: 0, hitFlash: 0,
+        charging: false, charge: 0, heat: 0, ventTimer: 0, ramWinding: false, ramCharge: 0,
+        ramActive: 0, orbSpin: state.time * 2.2, orbSelfSpin: state.time * 2.2, captured: [], spawnProtect: 0,
+      }, state.time);
+      ctx.restore();
+      ctx.textAlign = 'center';
+      ctx.font = '700 12px system-ui, sans-serif'; ctx.fillStyle = isYou ? '#9fe8ff' : '#eaf6ff';
+      ctx.fillText(node.displayName + (isYou ? ' ◂ YOU' : ''), pnt.x, by + 54);
+      ctx.font = '400 10px system-ui, sans-serif'; ctx.fillStyle = 'rgba(180,205,230,0.75)';
+      const blurb = id === 'starter' ? 'spawn ship — farm to LV 3, then choose a family' : (EVOLVE_BLURB[id] || '');
+      wrapText(ctx, blurb, nodeW - 10).forEach((ln, i) => ctx.fillText(ln, pnt.x, by + 67 + i * 11));
+    }
+    ctx.textAlign = 'left';
   }
 
   function shipBloom(R, s, alpha, isPlayer) {
@@ -419,7 +502,7 @@ window.PULSAR = window.PULSAR || {};
       : fam === 'flail' ? (p.classId === 'twinmaul' ? 'hold=SPIN · LMB=volley · RMB=BOTH · E=lash' : 'hold=SPIN UP · release=fling at cursor')
       : fam === 'rail' ? ((p.burnCd || 0) > 0 ? `hold=charge · Shift=burn ${p.burnCd.toFixed(1)}s` : 'hold=charge · Shift=AFTERBURN')
       : 'hold=fire · Space=ability';
-    ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · ${fireHint} · E=special`, x, spec ? 144 : 128);
+    ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · ${fireHint} · E=special · T=tree`, x, spec ? 144 : 128);
     if (PULSAR.MP && PULSAR.MP.AUTH) {
       const on = PULSAR.MP.connected;
       ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';

@@ -144,6 +144,8 @@
     // Keep keystrokes in the name box out of the game's input handler (so Space etc. type normally).
     inp.addEventListener('keydown', function (e) { e.stopPropagation(); if (e.key === 'Enter') go(); });
     setTimeout(function () { inp.focus(); }, 80);
+    // ?tree — dev/screenshot hook: skip the title and open the class tree overlay immediately.
+    if (/\btree\b/.test(location.search)) go();
   })();
 </script>
 </body>

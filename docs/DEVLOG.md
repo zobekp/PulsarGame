@@ -50,6 +50,14 @@ finals haven't run yet (fold into the next balance session; rail family was alre
 overtuned). Bots don't lead the rift (they never aim where an enemy WILL be). Hammer branch B
 is now the only structural gap in the tree.
 
+**Follow-up (same session) — CLASS TREE overlay [T]:** full evolution tree at a glance — live
+idling hull models (same posed-ship trick as the evolve previews), display names, EVOLVE_BLURB
+one-liners (wrapped), parent→child connectors, LV 3/8/15 gate labels, and your current class
+highlighted (◂ YOU). Toggles with [T] in every mode (SP/MP/dead); non-blocking — the game runs
+behind the dim. `?tree` query param skips the title and auto-opens it (dev/screenshot hook — used
+to verify the layout headlessly; screenshot confirmed all 17 nodes render). `drawClassTree` +
+`wrapText` in game.js; HUD hint line mentions T.
+
 **Follow-up (same session) — dev panel works ONLINE:** the admin panel now shows in MP and its
 buttons send `{t:'admin', a:'levelUp'|'bots'}` to the authority, which applies them server-side
 (`world.earn` for +1 LVL — [L] key wired in mpControls too; bots toggle spawns/clears the
