@@ -20,6 +20,9 @@ require('./src/weapons.js'); require('./src/bots.js'); require('./src/sim.js');
 
 const cfg = global.PULSAR.config;
 const TICK = 1 / 60;                 // authoritative sim step (matches SP's 60Hz — same tuned feel)
+// Dev cheats (admin panel) are honored by default — this is a dev/LAN server. Set PULSAR_ADMIN=0
+// to refuse them (do that before hosting anything you care about).
+const ALLOW_ADMIN = process.env.PULSAR_ADMIN !== '0';
 const SNAP_HZ = 60;                  // snapshots per second (render-rate; interp delay can be tiny)
 const OBJ_EVERY = 6;                 // send the (mostly static) asteroid field every Nth snapshot (10Hz)
 
@@ -45,7 +48,7 @@ world.spawnBots(cfg.bots.count);     // bots fill the world until/with players; 
 
 // ---- snapshots ----
 function shipSnap(s) {
-  return { id: s.id, c: s.classId, nm: s.name || '', x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
+  return { id: s.id, c: s.classId, nm: s.name || '', bt: s.isBot ? 1 : 0, x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
     vx: Math.round(s.vx || 0), vy: Math.round(s.vy || 0), ix: Math.round(s.impX || 0), iy: Math.round(s.impY || 0),
     hp: Math.round(s.hp), mh: Math.round(s.maxHp), scr: Math.round(s.scrap), xp: Math.round(s.xp || 0), lvl: s.level, k: s.kills || 0, team: s.team,
     al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, sp: s.spawnProtect > 0 ? 1 : 0, hf: s.hitFlash > 0 ? 1 : 0,
@@ -133,6 +136,13 @@ server.on('upgrade', (req, socket) => {
       if (msg.t === 'in') { const c = clients.get(socket); if (c) { world.setIntent(c.shipId, msg.i); if (msg.q != null) c.lastSeq = msg.q >>> 0; } }   // INPUT INTENT (+ prediction seq)
       else if (msg.t === 'evolve') { const c = clients.get(socket); if (c) world.chooseEvolution(world.getShip(c.shipId), msg.i | 0); }
       else if (msg.t === 'join') { const c = clients.get(socket); if (c) { const sh = world.getShip(c.shipId); if (sh) sh.name = String(msg.name || '').slice(0, 16); } }   // display name
+      else if (msg.t === 'admin' && ALLOW_ADMIN) {   // dev panel cheats, applied by the authority
+        const c = clients.get(socket); if (!c) continue;
+        const sh = world.getShip(c.shipId);
+        if (msg.a === 'levelUp' && sh && sh.alive)
+          world.earn(sh, Math.max(world.xpForLevel(sh.level + 1) - sh.xp + 1, cfg.economy.evolutionCosts.class));
+        else if (msg.a === 'bots') { if (world.countBots()) world.clearBots(); else world.spawnBots(cfg.bots.count); }
+      }
     }
   });
   function cleanup() { const c = clients.get(socket); if (c) { world.removeShip(c.shipId); clients.delete(socket); console.log(`- player ship ${c.shipId} (now ${clients.size})`); } }

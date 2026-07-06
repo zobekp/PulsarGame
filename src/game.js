@@ -75,6 +75,7 @@ window.PULSAR = window.PULSAR || {};
   function classNode(id) { return PULSAR.classes[id]; }
   function adminLevelUp() {
     if (!p.alive) return;
+    if (PULSAR.MP && PULSAR.MP.connected) { PULSAR.MP.sendAdmin('levelUp'); return; }   // authority applies it; LEVEL text comes back via fx
     world.earn(p, Math.max(world.xpForLevel(p.level + 1) - p.xp + 1, eco.evolutionCosts.class));
     Fx.spawnText(p.x, p.y - 52, 'ADMIN +LVL', '#ff9bf0', { size: 16 });
   }
@@ -122,6 +123,7 @@ window.PULSAR = window.PULSAR || {};
     const prevFire = p._firePrev;
     if (Input.firing && !prevFire) for (const b of uiButtons) { if (Input.mouseX >= b.x && Input.mouseX <= b.x + b.w && Input.mouseY >= b.y && Input.mouseY <= b.y + b.h) { b.onClick(); p._suppressFire = true; break; } }
     if (!Input.firing) p._suppressFire = false; p._firePrev = Input.firing;
+    const lDown = Input.key('KeyL'); if (lDown && !p._adminPrev) adminLevelUp(); p._adminPrev = lDown;   // [L] admin works online too
     const mdx = Input.mouseX - Render.viewW / 2, mdy = Input.mouseY - Render.viewH / 2;
     const dir = Input.moveDir(), isGrav = FAMILY[p.classId] === 'grav';
     const aDown = Input.key('Space'), aEdge = aDown && !p._abilityPrev; p._abilityPrev = aDown;
@@ -433,7 +435,7 @@ window.PULSAR = window.PULSAR || {};
     ranked.forEach((s, i) => { ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(220,230,245,0.7)'); ctx.fillText(`${i + 1}. ${s === p ? 'YOU' : nameOf(s)}`, x, y0 + 16 + i * 14); ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + 148, y0 + 16 + i * 14); ctx.textAlign = 'left'; });
   }
   function drawDevPanel() {
-    if (PULSAR.MP && PULSAR.MP.connected) return;   // no local admin/bots in the authoritative world
+    const mp = PULSAR.MP && PULSAR.MP.connected;   // in MP the buttons send admin messages to the authority
     const ctx = Render.ctx, w = 150, h = 26, x = Render.viewW - w - 14;
     ctx.font = '700 10px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,140,230,0.55)';
     ctx.fillText('DEV', x + w, 10); ctx.textAlign = 'left';
@@ -445,11 +447,12 @@ window.PULSAR = window.PULSAR || {};
       uiButtons.push({ x, y, w, h, onClick });
     };
     btn(16, 'ADMIN ▸ +1 LVL  [L]', '#ffb4ee', 'rgba(58,18,58,0.75)', 'rgba(255,140,230,0.7)', adminLevelUp);
-    const on = world.countBots() > 0;
+    const on = mp ? PULSAR.MP.remotes.some(r => r.isBot) : world.countBots() > 0;
     btn(48, on ? 'BOTS: ON' : 'BOTS: OFF',
       on ? '#9fe8ff' : 'rgba(170,185,205,0.8)',
       on ? 'rgba(18,40,58,0.78)' : 'rgba(28,30,38,0.78)',
-      on ? 'rgba(120,200,255,0.65)' : 'rgba(140,150,170,0.5)', toggleBots);
+      on ? 'rgba(120,200,255,0.65)' : 'rgba(140,150,170,0.5)',
+      mp ? () => PULSAR.MP.sendAdmin('bots') : toggleBots);
   }
   function drawEvolveOverlay() {
     const e = world.evolveOptions(p);

@@ -51,7 +51,7 @@ window.PULSAR.MP = (function () {
   // Copy the discrete (boolean/step) fields from a snapshot ship `s` onto a view-ship `v`.
   function applyDiscrete(v, s) {
     v.classId = s.c; v.radius = s.r; v.hp = s.hp; v.maxHp = s.mh; v.scrap = s.scr; v.xp = s.xp || 0;
-    v.level = s.lvl; v.kills = s.k || 0; v.team = s.team; v.alive = s.al !== 0; v.isLeader = !!s.ld;
+    v.level = s.lvl; v.kills = s.k || 0; v.team = s.team; v.alive = s.al !== 0; v.isLeader = !!s.ld; v.isBot = !!s.bt;
     v.spawnProtect = s.sp ? 1 : 0; v.hitFlash = s.hf ? 0.16 : 0;
     v.charging = !!s.cg; v.beamTimer = s.bt ? 0.1 : 0;
     v.orbState = s.os || 'trail';
@@ -341,5 +341,6 @@ window.PULSAR.MP = (function () {
     },
     sendEvolve(i) { send({ t: 'evolve', i: i | 0 }); },
     sendName(name) { myName = name || ''; send({ t: 'join', name: myName }); },
+    sendAdmin(action) { send({ t: 'admin', a: action }); },   // dev cheats — server honors unless PULSAR_ADMIN=0
   };
 })();

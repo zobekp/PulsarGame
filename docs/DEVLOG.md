@@ -50,6 +50,14 @@ finals haven't run yet (fold into the next balance session; rail family was alre
 overtuned). Bots don't lead the rift (they never aim where an enemy WILL be). Hammer branch B
 is now the only structural gap in the tree.
 
+**Follow-up (same session) — dev panel works ONLINE:** the admin panel now shows in MP and its
+buttons send `{t:'admin', a:'levelUp'|'bots'}` to the authority, which applies them server-side
+(`world.earn` for +1 LVL — [L] key wired in mpControls too; bots toggle spawns/clears the
+server's bots for everyone). Snapshot ships carry `bt` (isBot) so the BOTS label reflects server
+state. Cheats are honored by default (dev/LAN server); set `PULSAR_ADMIN=0` on the server to
+refuse them before hosting anything serious. Verified via wsprobe: 3× levelUp over the wire →
+lvl 5 in the next snapshots.
+
 ---
 
 ## 2026-07-02 — Phase 5 Step 3: ONE CODE PATH — SP runs sim.js, relay retired, killfeed in MP

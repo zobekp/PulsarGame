@@ -21,7 +21,7 @@ const sock = net.connect(PORT, '127.0.0.1', () => {
 });
 
 let handshook = false, buf = Buffer.alloc(0), snaps = 0, myId = null, firstX = null, moved = false;
-let sentSeq = 0, lastAck = null;
+let sentSeq = 0, lastAck = null, lastLvl = 1;
 sock.on('data', (chunk) => {
   buf = Buffer.concat([buf, chunk]);
   if (!handshook) {
@@ -49,7 +49,9 @@ sock.on('data', (chunk) => {
       if (me) {
         if (firstX == null) { firstX = me.x; console.log('first snapshot: ships=', m.sh.length, 'proj=', m.pr.length, 'motes=', m.mo.length, 'hasObjects=', !!m.ob); }
         if (me.x - firstX > 5) moved = true;
+        lastLvl = me.lvl;
       }
+      if (snaps === 5) for (let i = 0; i < 3; i++) sock.write(encode(JSON.stringify({ t: 'admin', a: 'levelUp' })));
       if (snaps === 1 && me) {
         const keys = Object.keys(me).sort().join(',');
         console.log('my ship keys:', keys);
@@ -60,9 +62,11 @@ sock.on('data', (chunk) => {
       }
       if (snaps >= 30) {
         const ackOk = lastAck != null && lastAck > 0 && lastAck <= sentSeq;
+        const adminOk = lastLvl >= 4;
         console.log(`ack check: lastAck=${lastAck} sentSeq=${sentSeq} → ${ackOk ? 'OK' : 'FAIL'}`);
+        console.log(`admin check: lvl after 3x levelUp = ${lastLvl} → ${adminOk ? 'OK' : 'FAIL'}`);
         console.log(`RESULT: received ${snaps} snapshots; my ship moved under intent = ${moved}`);
-        sock.end(); process.exit(ackOk && moved ? 0 : 1);
+        sock.end(); process.exit(ackOk && moved && adminOk ? 0 : 1);
       }
     }
   }
