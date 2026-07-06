@@ -385,6 +385,56 @@ window.PULSAR.Ships = (function () {
       }
     },
     starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 2.4, back: 0.9, barrel: 0.2, rings: 3, prong: 0.34, mawOpen: 1.6, noLance: true }); },
+    // Supernova: the furnace gone critical — oversized lens, and a CORONA ring around the
+    // whole hull that burns brighter as HEAT builds (the nova you're owed). Prominence arcs
+    // grow agitated as the bar fills.
+    supernova(ctx, r, s, P, t) {
+      railBody(ctx, r, s, P, t, { len: 1.6, back: 0.85, barrel: 0.20, rings: 3, noLance: true });
+      const ramp = s.beamRamp || 0, lx = 1.6 * r + 0.32 * r;
+      const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
+      const hf = Math.min(1, (s.heat || 0) / heatMax);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.beginPath(); ctx.arc(lx, 0, r * 0.52, 0, TAU);
+      ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.5 + 0.5 * ramp})`;
+      ctx.lineWidth = 2.5 + 3 * ramp; ctx.stroke();
+      if (ramp > 0.02) {
+        ctx.beginPath(); ctx.arc(lx, 0, r * (0.12 + 0.24 * ramp), 0, TAU);
+        ctx.fillStyle = `rgba(255,255,255,${0.35 + 0.6 * ramp})`; ctx.fill();
+      }
+      ctx.beginPath(); ctx.arc(0, 0, r * (1.55 + 0.10 * Math.sin(t * 3)), 0, TAU);
+      ctx.strokeStyle = `rgba(255,${Math.round(200 - 130 * hf)},90,${0.10 + 0.55 * hf})`;
+      ctx.lineWidth = 1.5 + 3.5 * hf; ctx.stroke();
+      for (let i = 0; i < 3; i++) {
+        const a = t * (0.7 + 1.6 * hf) + (i / 3) * TAU;
+        ctx.beginPath(); ctx.arc(0, 0, r * (1.7 + 0.22 * Math.sin(t * 5 + i * 2)), a, a + 0.5 + 0.5 * hf);
+        ctx.strokeStyle = `rgba(255,${Math.round(190 - 120 * hf)},110,${0.15 + 0.45 * hf})`;
+        ctx.lineWidth = 1.4; ctx.stroke();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+    },
+    // Starbreak: heavier siege chassis — dorsal rift-blades with shimmering edges (space is
+    // thin around this ship), and faint rift dashes flicker ahead of the maw as it charges.
+    starbreak(ctx, r, s, P, t) {
+      railBody(ctx, r, s, P, t, { len: 2.6, back: 1.0, barrel: 0.22, rings: 4, prong: 0.42, mawOpen: 1.8, noLance: true });
+      const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+      for (const sgn of [1, -1]) {
+        poly(ctx, [[0.15 * r, 0.42 * r * sgn], [-0.25 * r, 1.05 * r * sgn], [-0.65 * r, 0.95 * r * sgn], [-0.55 * r, 0.38 * r * sgn]]);
+        fillStroke(ctx, plateFill, 1.2);
+        ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.4 + 0.3 * Math.sin(t * 9 + sgn)})`;
+        ctx.lineWidth = 1.2;
+        ctx.beginPath(); ctx.moveTo(-0.25 * r, 1.05 * r * sgn); ctx.lineTo(-0.65 * r, 0.95 * r * sgn); ctx.stroke();
+      }
+      const c = s.charging ? Math.min(1, s.charge || 0) : 0;
+      if (c > 0.15) {
+        ctx.globalCompositeOperation = 'lighter';
+        ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.25 * c})`; ctx.lineWidth = 1.3;
+        for (let i = 0; i < 4; i++) {
+          const x0 = (3.6 + i * 0.55 + 0.2 * Math.sin(t * 11 + i)) * r;
+          ctx.beginPath(); ctx.moveTo(x0, -0.3 * r * c); ctx.lineTo(x0, 0.3 * r * c); ctx.stroke();
+        }
+        ctx.globalCompositeOperation = 'source-over';
+      }
+    },
 
     hammerhead(ctx, r, s, P, t)    { hammerBody(ctx, r, s, P, t, { front: 1.3, span: 1.05, teeth: 0, engines: 2 }); },
     maulbreaker(ctx, r, s, P, t)   { hammerBody(ctx, r, s, P, t, { front: 1.42, span: 1.4, teeth: 4, engines: 2 }); },
@@ -442,6 +492,23 @@ window.PULSAR.Ships = (function () {
         }
         ctx.fillStyle = 'rgba(255,255,255,0.85)';
         ctx.beginPath(); ctx.arc(0, dy, dr * 0.2, 0, TAU); ctx.fill();
+      }
+    },
+    // Binary Star: Twinmaul's drums bridged by an energized tether manifold — the hull
+    // advertises that the space BETWEEN the heads is the weapon.
+    binaryStar(ctx, r, s, P, t) {
+      MODELS.twinmaul(ctx, r, s, P, t);
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(255,240,170,0.8)'; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(0, -0.38 * r); ctx.lineTo(0, 0.38 * r); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1;
+      const w = 0.10 * r * Math.sin(t * 23);
+      ctx.beginPath(); ctx.moveTo(0, -0.38 * r); ctx.quadraticCurveTo(w, 0, 0, 0.38 * r); ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+      const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+      for (const sgn of [1, -1]) {
+        poly(ctx, [[0.14 * r, 0.38 * r * sgn], [0, 0.52 * r * sgn], [-0.14 * r, 0.38 * r * sgn], [0, 0.24 * r * sgn]]);
+        fillStroke(ctx, plateFill, 1.1);
       }
     },
   };

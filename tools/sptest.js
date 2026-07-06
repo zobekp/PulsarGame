@@ -43,12 +43,18 @@ world.api.damage(bot, 99999, { source: p });
 check('onKill hook fired with killer attribution', kills.length === nKills + 1 && kills[kills.length - 1].killer === p.classId,
   JSON.stringify(kills[kills.length - 1] || null));
 
-// player death → respawn resets to a fresh level-1 Scout in the edge band
+// player death → respawn resets to a fresh level-1 Scout in the edge band.
+// (Idle the intent first — the drive phase's thrust would otherwise carry the respawned ship
+// out of the band before we measure. And if bots killed us mid-drive, wait out that respawn
+// and clear spawn protection so the force-kill actually lands.)
+world.setIntent(p.id, { moveX: 0, moveY: 0, aim: 0, aimDist: 1, firing: false, ability: false, special: false });
+for (let i = 0; i < 1200 && !p.alive; i++) world.step(DT);
+p.spawnProtect = 0;
 world.earn(p, 500);   // give a level so the reset is observable
 const lvlBefore = p.level;
 world.api.damage(p, 99999, { source: bot });
 check('player died', !p.alive && lvlBefore > 1, `lvl was ${lvlBefore}`);
-for (let i = 0; i < Math.ceil((cfg.player.respawnDelaySec + 0.1) / DT); i++) world.step(DT);
+for (let i = 0; i < 1200 && !p.alive; i++) world.step(DT);   // assert the instant it respawns
 check('player respawned as fresh Scout in edge band', p.alive && p.level === 1 && p.classId === 'starter'
   && wallDist(p) >= A.spawnEdgeInset - 1 && wallDist(p) <= A.edgeSafeMargin + 1, `wallDist=${wallDist(p).toFixed(0)}`);
 

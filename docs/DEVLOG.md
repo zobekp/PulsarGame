@@ -6,6 +6,52 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-02 — TIER-3 FINALS: Supernova, Starbreak, Binary Star (the tree is complete)
+**What changed:** The three empty lvl-15 slots are filled — every family now branches to a real
+final. Design bar (set when Lancer was retired): a final adds a NEW VERB on the tier-2 identity,
+never stat mods. Each one weaponizes its class's core tension. First feature built entirely on
+the unified sim: one implementation, SP + MP identical.
+
+- **SUPERNOVA (Helion final):** same ramping beam; the heat bar becomes ammunition. [E] **Flare
+  Nova** (`flareNova` special, `config.helion.supernova`): dumps ALL current heat as an expanding
+  blast — damage `base + perHeat×heat` with rim falloff, big knockback, and it CLEARS a vent
+  lockout (the fuse becomes the panic button). <minHeat refuses with a short retry cd. Spent heat
+  is spent beam uptime; enemies can pressure the bar to force a weak nova. Hull: oversized lens +
+  a CORONA ring that burns brighter with heat + prominence arcs (ships.js `supernova`).
+- **STARBREAK (Star Piercer final):** blasts fired at ≥`rift.minCharge` tear a RIFT along the
+  whole shot line (`mawRail` fire → `ship.rifts`, ticked in `tickRifts` — even during vent):
+  simmering beam pulses that quicken, then the corridor DETONATES (`rift.damage` to everything
+  in it, no pierce cap — it's a zone; perpendicular knockback shoves victims OFF the line).
+  A miss is area denial now. `rift.maxActive` caps stacking; rifts fizzle on death
+  (resetClassState). Visuals ride existing fx beams → MP-relayed for free. Keeps Broken Core.
+- **BINARY STAR (Twinmaul final):** `wreckingOrb` twin check now includes it (two heads, same
+  volley/sync controls, Static Lash kept). NEW: a live TETHER between the heads
+  (`config.flailship.binaryStar.tether`) — enemies crossing the segment (8-92% of it; the ends
+  belong to the maces) take gated ticking damage and are DRAGGED onto the wire; both amplify
+  while heads are in flight (`thrownDmgMult`/`thrownPullMult`) — the synced RMB throw is the
+  garrote. Per-attacker touch map (same postmortem lesson as the orb gates). Render: crackling
+  segmented tether in drawClassExtras, local AND remote (orbX/orbX2 already in the snapshot —
+  zero protocol changes needed). Hull: twinmaul + energized bridge manifold.
+- **Plumbing:** classes.js nodes (+ TODOs removed), visuals.js rows, IMPLEMENTED/FAMILY/
+  EVOLVE_BLURB in sim.js + game.js mirrors, mpclient RAILS set (afterburner prediction for the
+  rail finals), bots (REACH_CLASS + SUSTAIN/SIEGE/TWIN groupings so finals inherit their
+  parent's brain; supernova bots nova when hot + dived).
+
+**Verified headlessly:** `tools/finaltest.js` (new) 12/12 — all three evolutions reachable at
+lvl 15, nova damage exactly matches the formula (70.9 predicted/dealt) + clears heat/vent +
+refuses below minHeat, starbreak blast 120 then rift detonation 63 after the delay, binaryStar
+spins two heads + tether burns a crosser, and a 30s all-finals bot lobby stays finite.
+Full regression: sptest/edgetest/predtest green (sptest hardened against two flaky assertions —
+bot-kill during the drive phase + leftover thrust intent drifting the respawned ship out of the
+edge band before measurement; both were test bugs, not sim bugs). Headless Chrome boots SP clean.
+
+**Known limits / TODO:** numbers are first-pass — duel-ladder + farm-rate passes for the three
+finals haven't run yet (fold into the next balance session; rail family was already flagged
+overtuned). Bots don't lead the rift (they never aim where an enemy WILL be). Hammer branch B
+is now the only structural gap in the tree.
+
+---
+
 ## 2026-07-02 — Phase 5 Step 3: ONE CODE PATH — SP runs sim.js, relay retired, killfeed in MP
 **What changed:** The unification the roadmap has demanded since Phase 5 began. `game.js` no longer
 contains a simulation: single-player creates a local `PULSAR.createWorld` (the EXACT sim the

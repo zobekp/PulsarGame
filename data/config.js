@@ -238,6 +238,10 @@ window.PULSAR.config = {
       recycleSec: 1.4,                // lockout after firing — the "slower firerate"
       recoil: 260,
       crackAtCharge: 0.85,            // blasts fired at/above this charge apply Armor Crack
+      // STARBREAK (tier-3 final) only: a strong-enough blast tears a RIFT along the shot line —
+      // a glowing scar that lingers delaySec, then collapses and detonates the corridor. A miss
+      // is no longer nothing: it's area denial. Same width feel as the blast, honest hitbox.
+      rift: { minCharge: 0.6, delaySec: 0.6, damage: 55, halfWidth: 26, knockback: 130, maxActive: 2 },
     },
   },
 
@@ -289,6 +293,13 @@ window.PULSAR.config = {
       overheatVentSec: 1.4,            // forced vent lockout when the beam maxes heat
       crackAtRamp: 0.85,               // fully-ramped beam applies Armor Crack
     },
+    // SUPERNOVA (tier-3 final) [E] FLARE NOVA: dump the ENTIRE heat bar as an expanding
+    // blast — damage scales with heat spent, and it CLEARS a vent lockout (the fuse becomes
+    // the weapon). Spent heat is spent beam uptime, so it's a real decision — and enemies
+    // can force an early, weak nova by pressuring the bar.
+    supernova: { minHeat: 25, baseDamage: 20, damagePerHeat: 0.9, radius: 240,
+                 edgeFalloff: 0.55,     // damage fades to (1 - this) at the rim
+                 knockback: 300, cooldownSec: 9 },
   },
 
   // ---- CLASS 3: Gravitor (asteroid control / indirect / zone) ----------------
@@ -376,6 +387,12 @@ window.PULSAR.config = {
     // ram windup, beam ramp, spin momentum), locks ability/special for a beat, brief hard stun.
     // Radius is around the MACES, not the ship: placement is the skill.
     staticLash: { radius: 150, stunSec: 0.7, damage: 10, abilityLockSec: 2.0, cooldownSec: 9 },
+    // BINARY STAR (tier-3 final): the two maces are linked by a LIVE ENERGY TETHER. Anything
+    // crossing the line between the heads takes ticking damage and is dragged toward it —
+    // and a synced (RMB) throw turns the tether into a GARROTE: both effects amplified while
+    // the heads are in flight. You fence space and CATCH people, not just swing.
+    binaryStar: { tether: { halfWidth: 12, damage: 9, rehitSec: 0.4, pull: 220,
+                            thrownPullMult: 2.4, thrownDmgMult: 1.7 } },
     // Orb Parry — if the orb is positioned between you and a charging attacker, it softens the ram
     // and bleeds the attacker's momentum. Position-based: the orb must be near the incoming hull.
     orbParry: { ramDamageReduction: 0.55, attackerVelocityReduction: 0.6, attackerSlow: 0.4, attackerSlowSec: 0.45, reach: 18 },

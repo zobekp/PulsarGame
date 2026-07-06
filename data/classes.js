@@ -48,7 +48,26 @@ window.PULSAR.classes = {
     weapon: "mawRail", ability: "ventDash", passive: "armorCrack",
     special: "brokenCore",       // full-charge vs leader exposes a weak point for allies
   },
-  // TODO(tier-3): lvl-15 finals for both rail branches — childrenOf() returns none until added.
+  // FINAL A (lvl 15): SUPERNOVA — the furnace goes critical. Same ramping beam; the heat bar
+  // itself becomes a weapon: [E] FLARE NOVA dumps ALL current heat as an expanding blast
+  // (damage scales with heat spent, clears a vent lockout). Ride the redline, then detonate it.
+  supernova: {
+    id: "supernova", displayName: "Supernova", tier: 3, parentId: "helion",
+    configKey: "helion", branchOf: "railship", branch: "A",
+    weapon: "helionBeam", ability: "ventDash", passive: "armorCrack",
+    special: "flareNova",
+    note: "Heat is ammunition now. Spent heat is spent beam uptime — the nova is always a trade.",
+  },
+  // FINAL B (lvl 15): STARBREAK — the siege blast tears space. A strong-enough maw shot leaves
+  // a glowing RIFT along the whole line that collapses moments later and detonates the corridor.
+  // A miss is area denial now, not nothing.
+  starbreak: {
+    id: "starbreak", displayName: "Starbreak", tier: 3, parentId: "starPiercer",
+    configKey: "railship", branchOf: "railship", branch: "B",
+    weapon: "mawRail", ability: "ventDash", passive: "armorCrack",
+    special: "brokenCore",
+    note: "Fired, not steered — but now the shot's SCAR fights for you after it lands.",
+  },
 
   // ===== HAMMERHEAD (rammer) ==============================================
   hammerhead: {
@@ -127,7 +146,16 @@ window.PULSAR.classes = {
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
   },
-  // TODO(tier-3): lvl-15 final for the flail line — childrenOf() returns none until added.
+  // FINAL (lvl 15): BINARY STAR — the two maces are linked by a live energy tether. Anything
+  // crossing the line between the heads takes ticking damage and is dragged onto it; a synced
+  // (RMB) throw turns the tether into a GARROTE mid-flight. Fence space. Catch people.
+  binaryStar: {
+    id: "binaryStar", displayName: "Binary Star", tier: 3, parentId: "twinmaul",
+    configKey: "flailship", branchOf: "flailship",
+    weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
+    special: "staticLash",
+    note: "The space BETWEEN the heads is the weapon now.",
+  },
 };
 
 // Cross-class balance triangle (the combat ecosystem — no class universally good):

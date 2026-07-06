@@ -26,10 +26,10 @@ window.PULSAR = window.PULSAR || {};
   };
   const FAMILY = {
     starter: 'dart',
-    railship: 'rail', helion: 'rail', starPiercer: 'rail',
+    railship: 'rail', helion: 'rail', starPiercer: 'rail', supernova: 'rail', starbreak: 'rail',
     hammerhead: 'hammer', maulbreaker: 'hammer', worldsplitter: 'hammer',
     gravitor: 'grav', meteorist: 'grav', starfall: 'grav', singularity: 'grav', eventHorizon: 'grav',
-    flailship: 'flail', twinmaul: 'flail',
+    flailship: 'flail', twinmaul: 'flail', binaryStar: 'flail',
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
@@ -39,6 +39,9 @@ window.PULSAR = window.PULSAR || {};
     meteorist: 'holds 3 rocks · harder throws', starfall: 'hold 9, hurl 3, no cooldown · BARRAGE [E]',
     singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [E]',
     twinmaul: 'TWO maces — LMB volley · RMB both at once · STATIC LASH [E]',
+    supernova: 'FLARE NOVA [E] — dump ALL heat as a blast · clears vent lockout',
+    starbreak: 'blasts tear a RIFT that detonates the line moments later',
+    binaryStar: 'live TETHER between the maces — crossing it burns · garrote throws',
   };
 
   // ---- world (ONE code path: sim.js) ------------------------------------------
@@ -326,6 +329,26 @@ window.PULSAR = window.PULSAR || {};
         ctx.strokeStyle = 'rgba(120,90,30,0.8)'; ctx.lineWidth = 1.5;
         ctx.beginPath(); ctx.arc(0, 0, O.tipRadius * 0.55, 0, TAU); ctx.stroke();   // forged core seam
         ctx.restore();
+      }
+      // BINARY STAR: the live tether between the heads — crackling segmented line,
+      // hotter during a throw (the garrote). Works local (maces) AND remote (orbX/orbX2).
+      if (s.classId === 'binaryStar' && heads.length > 1 && heads[1] && heads[1].x != null) {
+        const x0 = R.sx(heads[0].x), y0 = R.sy(heads[0].y), x1 = R.sx(heads[1].x), y1 = R.sy(heads[1].y);
+        const thrown = heads.some(h => h.state === 'out' || h.state === 'back');
+        const hot = thrown ? 1 : 0.55;
+        R.setComposite('lighter');
+        ctx.strokeStyle = `rgba(255,240,170,${0.16 + 0.16 * hot})`; ctx.lineWidth = 8;
+        ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
+        const segs = 8, tdx = x1 - x0, tdy = y1 - y0, tlen = Math.hypot(tdx, tdy) || 1;
+        const nx = -tdy / tlen, ny = tdx / tlen;
+        ctx.strokeStyle = `rgba(255,255,255,${0.5 + 0.4 * hot})`; ctx.lineWidth = 1.6;
+        ctx.beginPath(); ctx.moveTo(x0, y0);
+        for (let i = 1; i < segs; i++) {
+          const u = i / segs, off = Math.sin(u * Math.PI * 3 + state.time * 21) * 3.5 * hot;
+          ctx.lineTo(x0 + tdx * u + nx * off, y0 + tdy * u + ny * off);
+        }
+        ctx.lineTo(x1, y1); ctx.stroke();
+        R.setComposite('source-over');
       }
     }
   }

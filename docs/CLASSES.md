@@ -44,8 +44,17 @@ heat-sustainable, full fury forces a vent in seconds. Fully-ramped beam applies 
 *Star Piercer* (siege): long-charge railgun whose maw visibly OPENS with charge — jaw gape IS
 beam width. Release fires ONE instantaneous, far heavier blast — all damage lands the frame you let go,
 along the aim you committed to (fired, not steered; a miss wastes the recycle). No charge-line telegraph: the tells are the essence intake and the open
-maw. Keeps *Broken Core* (full-charge vs leader exposes a weak point). Tier-3 finals for both
-branches: TODO.
+maw. Keeps *Broken Core* (full-charge vs leader exposes a weak point).
+
+**Finals (lvl 15).**
+*Supernova* (Helion final): the furnace goes critical. Same ramping beam; the heat bar becomes
+a weapon — **[E] Flare Nova** dumps ALL current heat as an expanding blast (damage scales with
+heat spent, falls off toward the rim, big knockback) and CLEARS a vent lockout. Spent heat is
+spent beam uptime, so the nova is always a trade — and enemies can pressure the bar to force a
+weak early nova. Hull: oversized lens + a corona ring that burns brighter with heat.
+*Starbreak* (Star Piercer final): the blast tears space. A shot fired at ≥60% charge leaves a
+glowing RIFT along the whole line that simmers ~0.6s, then collapses and detonates the corridor
+(no pierce cap — it's a zone). A miss is area denial now, not nothing. Keeps Broken Core.
 
 **Counterplay:** fragile; punished by fast rushers and close-range chaos; slowed while charging.
 
@@ -141,7 +150,14 @@ volley at the cursor. RMB: a forced synchronized windup hurls BOTH at once. Spec
 whatever they were winding up (rail charge, ram windup, beam ramp, spin momentum), and locks
 their ability/special for a beat. The radius is around the maces, not the ship: where your
 heads are IS the ability. Per-head damage is trimmed so the pair lands ~1.6x a single mace.
-Tier-3 final: TODO.
+
+**Final (lvl 15) — Binary Star.** The two maces are linked by a **live energy tether**: anything
+crossing the line between the heads takes ticking damage and is dragged onto the wire. While the
+heads are in flight the tether amplifies (damage AND drag) — a synced RMB throw becomes a
+**garrote** that catches enemies between the twin flight paths and crushes them toward the line.
+The verb changes from "swing at people" to "fence space and catch people." Honest VFX: the
+crackling tether IS the hitbox. Keeps Static Lash. Hull: the twin drums bridged by an energized
+manifold.
 
 **Counterplay:** must close distance; loses to long-range kiting and precise rail shots.
 

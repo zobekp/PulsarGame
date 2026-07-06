@@ -32,6 +32,16 @@ window.PULSAR.classVisuals = {
                        "beam width. No charge-line; the tell is the intake + the open maw.",
                  cues: ["maw opens with charge", "essence intake while charging",
                         "ONE instant devastating blast", "weak-point marker on cracked leaders"] },
+  supernova:   { inherits: "railship", silhouette: "supernova",
+                 note: "The furnace gone critical: oversized lens + a CORONA ring around the " +
+                       "whole hull that burns brighter as heat builds — the bomb it's carrying.",
+                 cues: ["corona brightens with HEAT (the nova you're owed)", "prominence arcs lick off the ring",
+                        "FLARE NOVA blast ring on [E]"] },
+  starbreak:   { inherits: "railship", silhouette: "starbreak",
+                 note: "Heavier siege chassis with dorsal rift-blades — space is thin around " +
+                       "this ship. Its blast scar lingers and detonates.",
+                 cues: ["huge maw gape at full charge", "lingering RIFT scar on the shot line",
+                        "scar pulses faster, then collapses"] },
 
   // Hammerhead — all mass forward: bolted ram slab, stubby tug body, oversized engines.
   hammerhead: { hue: "#ff7a3c", silhouette: "hammerhead",
@@ -71,6 +81,12 @@ window.PULSAR.classVisuals = {
                        "winch drums, one per chain.",
                  cues: ["two chained maces, opposite phase", "LMB volley staggers, RMB both at once",
                         "STATIC LASH stun flash around the heads"] },
+  binaryStar:  { inherits: "flailship", silhouette: "binaryStar",
+                 note: "Twinmaul's drums bridged by an energized tether manifold — the space " +
+                       "BETWEEN the heads is the weapon.",
+                 cues: ["live crackling TETHER between the two mace heads",
+                        "tether burns hotter during a synced throw (the garrote)",
+                        "enemies dragged onto the wire"] },
 };
 
 // Leader/crowned overlay (David-vs-Goliath legibility): bigger body, crown glyph,

@@ -15,19 +15,24 @@ window.PULSAR.Bots = (function () {
   // (helion's beam is short; without this the bot parks out of range and farms NOTHING)
   // (starPiercer could blast from 900 — but broken rocks pay in MOTES, and motes only vacuum
   //  to nearby ships. Farm close enough to collect what you shatter.)
-  const REACH_CLASS = { helion: 620, starPiercer: 520 };
+  const REACH_CLASS = { helion: 620, supernova: 620, starPiercer: 520, starbreak: 520 };
+  // tier-3 finals play like their tier-2 parents (same weapon) — group them for the checks below
+  const SUSTAIN = (id) => id === 'helion' || id === 'supernova';
+  const SIEGE = (id) => id === 'starPiercer' || id === 'starbreak';
+  const TWIN = (id) => id === 'twinmaul' || id === 'binaryStar';
   const reachOf = (bot, fam) => REACH_CLASS[bot.classId] || REACH[fam];
 
   // fight-time firing/ability/special decision per family (reads the bot's own weapon state)
   function fightFire(bot, fam, ed, world) {
     const o = { firing: false, ability: false, special: false };
     if (fam === 'rail') {
-      if (bot.classId === 'helion')                                // hold the beam, respect the heat bar + its shorter range
+      if (SUSTAIN(bot.classId))                                    // hold the beam, respect the heat bar + its shorter range
         o.firing = (bot.heat || 0) < 78 && ed < world.config.helion.beam.range * 0.95;
-      else if (bot.classId === 'starPiercer')                      // charge the maw, release near full; hands off while lit
+      else if (SIEGE(bot.classId))                                 // charge the maw, release near full; hands off while lit
         o.firing = (bot.beamTimer || 0) <= 0 && (bot.charge || 0) < 0.95;
       else o.firing = (bot.charge || 0) < 0.9;                     // base rail: charge, then release
       o.ability = bot.heat > 70;                                   // vent dash to cool
+      o.special = bot.classId === 'supernova' && (bot.heat || 0) > 65 && ed < world.config.helion.supernova.radius * 0.9;   // nova when hot + dived
     } else if (fam === 'hammer') {
       o.firing = ed > 110 && (bot.ramCharge || 0) < 0.98;          // wind while closing; release near
       o.ability = ed < 170 && rnd() < 0.04;                        // brace occasionally
@@ -41,7 +46,7 @@ window.PULSAR.Bots = (function () {
       o.firing = bot.orbState === 'spin' ? !((bot.spinFrac || 0) > 0.85 && ed < reach * 0.95)
                                          : ed < 700;
       o.ability = ed < 210 && rnd() < 0.05;
-      o.special = (bot.classId === 'twinmaul') && ed < 200;         // static lash when they dive the maces
+      o.special = TWIN(bot.classId) && ed < 200;                    // static lash when they dive the maces
     } else {
       o.firing = ed < REACH.dart;                                   // starter popgun
     }
@@ -51,8 +56,8 @@ window.PULSAR.Bots = (function () {
   function farmFire(bot, fam, rd) {
     const o = { firing: false, ability: false, special: false };
     if (fam === 'rail') {
-      if (bot.classId === 'helion') o.firing = (bot.heat || 0) < 60 && rd < 600;
-      else if (bot.classId === 'starPiercer') o.firing = (bot.beamTimer || 0) <= 0 && (bot.charge || 0) < 0.6;
+      if (SUSTAIN(bot.classId)) o.firing = (bot.heat || 0) < 60 && rd < 600;
+      else if (SIEGE(bot.classId)) o.firing = (bot.beamTimer || 0) <= 0 && (bot.charge || 0) < 0.6;
       else o.firing = (bot.charge || 0) < 0.7;
     }
     else if (fam === 'hammer') o.firing = rd > 90 && (bot.ramCharge || 0) < 0.9;
@@ -149,7 +154,7 @@ window.PULSAR.Bots = (function () {
     }
     return { moveX: mvx, moveY: mvy, aim: aimAng, aimDist, firing: fire.firing, ability: fire.ability, special: fire.special,
       afterburner: ai.state === 'flee' && fam === 'rail',     // rail bots burn to disengage, like a player would
-      altFire: bot.classId === 'twinmaul' && bot.orbState === 'spin' && (bot.spinFrac || 0) > 0.85 && ai.state === 'fight' && ed < 300 };  // twin bots dump both up close
+      altFire: TWIN(bot.classId) && bot.orbState === 'spin' && (bot.spinFrac || 0) > 0.85 && ai.state === 'fight' && ed < 300 };  // twin bots dump both up close
   }
 
   return { intent };

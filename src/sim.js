@@ -38,15 +38,15 @@
       default: return { x: A.width - depth, y: inset + Math.random() * (A.height - inset * 2) };
     }
   }
-  const IMPLEMENTED = new Set(['starter', 'railship', 'helion', 'starPiercer',
+  const IMPLEMENTED = new Set(['starter', 'railship', 'helion', 'starPiercer', 'supernova', 'starbreak',
     'hammerhead', 'maulbreaker', 'worldsplitter', 'gravitor', 'meteorist', 'starfall',
-    'singularity', 'eventHorizon', 'flailship', 'twinmaul']);
+    'singularity', 'eventHorizon', 'flailship', 'twinmaul', 'binaryStar']);
   const FAMILY = {
     starter: 'dart',
-    railship: 'rail', helion: 'rail', starPiercer: 'rail',
+    railship: 'rail', helion: 'rail', starPiercer: 'rail', supernova: 'rail', starbreak: 'rail',
     hammerhead: 'hammer', maulbreaker: 'hammer', worldsplitter: 'hammer',
     gravitor: 'grav', meteorist: 'grav', starfall: 'grav', singularity: 'grav', eventHorizon: 'grav',
-    flailship: 'flail', twinmaul: 'flail',
+    flailship: 'flail', twinmaul: 'flail', binaryStar: 'flail',
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
@@ -56,6 +56,9 @@
     meteorist: 'holds 3 rocks · harder throws', starfall: 'hold 9, hurl 3, no cooldown · BARRAGE [E]',
     singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [E]',
     twinmaul: 'TWO maces — LMB volley · RMB both at once · STATIC LASH [E]',
+    supernova: 'FLARE NOVA [E] — dump ALL heat as a blast · clears vent lockout',
+    starbreak: 'blasts tear a RIFT that detonates the line moments later',
+    binaryStar: 'live TETHER between the maces — crossing it burns · garrote throws',
   };
 
   function classNode(id) { return PULSAR.classes[id]; }
@@ -117,6 +120,7 @@
       s.captured = []; s.orbSpin = 0; s.orbAngle = 0; s.orbRadius = null; s.orbX = s.x; s.orbY = s.y; s.maces = null; s.spinFrac = 0;
       s.orbState = 'trail'; s.spinFrac = 0; s.flingPower = 0; s.orbCd = 0;
       s.orbBurstTimer = 0; s.braceTimer = 0; s.fireTimer = 0;
+      s.rifts = null; s.tetherTouch = null;   // tier-3 state (Starbreak scars / Binary Star tether)
     }
     function switchClass(s, id) {
       s.classId = id; resetClassState(s); applyClassStats(s, true);

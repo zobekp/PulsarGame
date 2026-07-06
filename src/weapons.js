@@ -180,6 +180,7 @@ window.PULSAR = window.PULSAR || {};
         const R = api.config.railship, M = R.mawRail, ch = R.charge;
         if (ship.fireTimer > 0) ship.fireTimer -= dt;
         if ((ship.beamTimer || 0) > 0) ship.beamTimer -= dt;   // render-only: jaws stay open through the flash
+        this.tickRifts(api, ship, dt);                          // Starbreak scars detonate even mid-vent
         if (ship.ventTimer > 0) { ship.charging = false; ship.charge = 0; ship.chargeFullTimer = 0; return; }
 
         if (ctx.firing && ship.fireTimer <= 0) {               // ---- charging: the maw opens
@@ -225,6 +226,43 @@ window.PULSAR = window.PULSAR || {};
         ship.heat = Math.min(R.heat.max, ship.heat + M.heatCost * c);
         if (ship.heat >= R.heat.max && R.heat.ventStateAtMax) ship.ventTimer = R.heat.ventStateSec;
         if (!ship.isBot) api.fx.addShake(Math.min(api.config.fx.screenShakeMax, 5 + c * 9));
+        // STARBREAK: a strong-enough blast tears a RIFT along the whole shot line — it simmers,
+        // then collapses and detonates the corridor (see tickRifts). A miss becomes area denial.
+        const RF = M.rift;
+        if (RF && ship.classId === 'starbreak' && c >= RF.minCharge) {
+          const rifts = ship.rifts || (ship.rifts = []);
+          if (rifts.length >= RF.maxActive) rifts.shift();
+          rifts.push({ ox, oy, dx, dy, len: M.range, t: RF.delaySec, vt: 0 });
+        }
+      },
+      tickRifts(api, ship, dt) {
+        if (!ship.rifts || !ship.rifts.length) return;
+        const M = api.config.railship.mawRail, RF = M.rift, hue = hueFor(ship.classId);
+        for (let i = ship.rifts.length - 1; i >= 0; i--) {
+          const rf = ship.rifts[i];
+          rf.t -= dt;
+          // simmering scar: rapid short-lived beam pulses that brighten toward the collapse
+          if ((rf.vt += dt) >= 0.07) {
+            rf.vt = 0;
+            const near = 1 - Math.max(0, rf.t) / RF.delaySec;
+            api.fx.spawnBeam(rf.ox, rf.oy, rf.ox + rf.dx * rf.len, rf.oy + rf.dy * rf.len,
+              hue, RF.halfWidth * (0.3 + 0.4 * near), 0.09, 0.15 + 0.35 * near);
+          }
+          if (rf.t > 0) continue;
+          // collapse: everything in the corridor takes the detonation (no pierce cap — it's a zone)
+          const hits = beamHits(api, ship, rf.ox, rf.oy, rf.dx, rf.dy, rf.len, RF.halfWidth);
+          for (const h of hits) {
+            const perpSign = ((h.t.x - rf.ox) * -rf.dy + (h.t.y - rf.oy) * rf.dx) >= 0 ? 1 : -1;
+            api.damage(h.t, RF.damage, { dx: -rf.dy * perpSign, dy: rf.dx * perpSign, knockback: RF.knockback, source: ship });
+          }
+          api.fx.spawnBeam(rf.ox, rf.oy, rf.ox + rf.dx * rf.len, rf.oy + rf.dy * rf.len, hue, RF.halfWidth, 0.28, 0.95);
+          for (let k = 0; k < 8; k++) {
+            const along = (k + 0.5) / 8 * rf.len;
+            api.fx.spawnParticles(rf.ox + rf.dx * along, rf.oy + rf.dy * along, 5, hue, { speed: 200, life: 0.4 });
+          }
+          if (!ship.isBot) api.fx.addShake(6);
+          ship.rifts.splice(i, 1);
+        }
       },
     },
 
@@ -387,7 +425,7 @@ window.PULSAR = window.PULSAR || {};
     wreckingOrb: {
       update(api, ship, dt, ctx) {
         const F = api.config.flailship, O = F.orb;
-        const twin = ship.classId === 'twinmaul';
+        const twin = ship.classId === 'twinmaul' || ship.classId === 'binaryStar';
         const nHeads = twin ? 2 : 1;
         const dmgMult = twin ? F.twin.dmgMult : 1;
         if (!ship.maces || ship.maces.length !== nHeads) {
@@ -516,6 +554,35 @@ window.PULSAR = window.PULSAR || {};
             const d = Math.hypot(m.x - t.x, m.y - t.y) || 1;
             api.damage(t, dmg, { dx: (t.x - m.x) / d, dy: (t.y - m.y) / d,
               knockback: 40 + 90 * (m.flingPower || ship.spinFrac || 0), source: ship });
+          }
+        }
+        // BINARY STAR: a live energy tether links the two heads. Anything crossing the line
+        // between them takes ticking damage and is DRAGGED onto it; while the heads are in
+        // flight (a synced RMB throw especially) both effects amplify — the garrote.
+        const BS = F.binaryStar;
+        if (BS && ship.classId === 'binaryStar' && nHeads > 1) {
+          const T = BS.tether, m0 = M[0], m1 = M[1];
+          const sx = m1.x - m0.x, sy = m1.y - m0.y, segLen2 = sx * sx + sy * sy;
+          if (segLen2 > 400) {                                  // heads apart — the tether is live
+            const anyThrown = M.some(m => m.state === 'out' || m.state === 'back');
+            const dmgT = T.damage * (anyThrown ? T.thrownDmgMult : 1) * dmgMult;
+            const pull = T.pull * (anyThrown ? T.thrownPullMult : 1);
+            const touch = ship.tetherTouch || (ship.tetherTouch = new Map());
+            for (const e of api.enemiesOf(ship)) {
+              const u = ((e.x - m0.x) * sx + (e.y - m0.y) * sy) / segLen2;
+              if (u < 0.08 || u > 0.92) continue;               // head ends belong to the maces themselves
+              const px = m0.x + sx * u, py = m0.y + sy * u;
+              const d = Math.hypot(e.x - px, e.y - py);
+              if (d > T.halfWidth + e.radius) continue;
+              e.vx += ((px - e.x) / (d || 1)) * pull * dt;      // garrote drag onto the wire
+              e.vy += ((py - e.y) / (d || 1)) * pull * dt;
+              if (api.state.time - (touch.get(e) || -9) >= T.rehitSec) {
+                touch.set(e, api.state.time);
+                api.damage(e, dmgT, { dx: (e.x - px) / (d || 1), dy: (e.y - py) / (d || 1), knockback: 0, source: ship });
+                api.fx.spawnParticles(px, py, 6, '#fff3a0', { speed: 160, life: 0.3 });
+              }
+            }
+            if (touch.size > 32) { const cut = api.state.time - T.rehitSec * 3; for (const [k, v] of touch) if (v < cut) touch.delete(k); }
           }
         }
         // ship-level mirrors: head 0 feeds the net snapshot, bots, and single-orb consumers
@@ -681,6 +748,30 @@ window.PULSAR = window.PULSAR || {};
         for (const h of heads) api.fx.spawnParticles(h.x, h.y, 16, '#fff3a0', { speed: 260, life: 0.35 });
         if (!ship.isBot && hit) api.fx.addShake(api.config.fx.screenShakeMax * 0.5);
         return S.cooldownSec;
+      },
+    },
+    // Supernova: FLARE NOVA — dump the ENTIRE heat bar as an expanding blast. Damage scales
+    // with heat spent; falls off toward the rim; clears a vent lockout (the fuse becomes the
+    // weapon). Spent heat is spent beam uptime — always a trade, and enemies can pressure the
+    // bar to force a weak, early nova.
+    flareNova: {
+      activate(api, ship) {
+        const N = api.config.helion.supernova;
+        const heat = ship.heat || 0;
+        if (heat < N.minHeat) { api.fx.spawnText(ship.x, ship.y - 30, 'NEED HEAT', '#ffb27a', { size: 12 }); return 0.6; }
+        const dmg = N.baseDamage + N.damagePerHeat * heat;
+        for (const t of api.hittables(ship)) {
+          const d = Math.hypot(t.x - ship.x, t.y - ship.y);
+          if (d > N.radius) continue;
+          const fall = 1 - (d / N.radius) * N.edgeFalloff;
+          api.damage(t, dmg * fall, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: N.knockback, source: ship });
+        }
+        ship.heat = 0; ship.ventTimer = 0;                     // the nova IS the vent
+        api.fx.spawnParticles(ship.x, ship.y, 42, '#ffd27a', { speed: N.radius * 1.8, life: 0.55 });
+        api.fx.spawnParticles(ship.x, ship.y, 22, '#ffffff', { speed: N.radius * 1.2, life: 0.4 });
+        api.fx.spawnText(ship.x, ship.y - 40, 'FLARE NOVA', '#ffd27a', { size: 15 });
+        if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
+        return N.cooldownSec;
       },
     },
   };

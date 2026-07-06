@@ -81,7 +81,7 @@ window.PULSAR.MP = (function () {
 
   // ---- client-side prediction (own ship, movement only) -----------------------
   const cfg = () => PULSAR.config;
-  const RAILS = new Set(['railship', 'helion', 'starPiercer']);   // afterburner-capable (mirrors game.js FAMILY)
+  const RAILS = new Set(['railship', 'helion', 'starPiercer', 'supernova', 'starbreak']);   // afterburner-capable (mirrors game.js FAMILY)
   const SNAP_DIST = 200;              // reconcile error beyond this = teleport (respawn/lash) → snap
   const VIEW_DECAY = 9;               // /s — how fast a correction's view offset melts away
   const pred = { ready: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, impX: 0, impY: 0, aim: 0,
