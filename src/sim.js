@@ -26,7 +26,18 @@
   };
   const EVO_GATES = [eco.levelChooseClass, eco.levelChoosePath, eco.levelFinalEvolution];
   const EVO_COSTS = [eco.evolutionCosts.class, eco.evolutionCosts.path, eco.evolutionCosts.final];
-  const SPAWN = { x: cfg.arena.width / 2, y: cfg.arena.height * 0.80 };
+  // Every fresh life starts in the calm outer asteroid band (dense farming, rare PvP) —
+  // random side, random position along it, between spawnEdgeInset and edgeSafeMargin deep.
+  function edgeSpawn() {
+    const A = cfg.arena, inset = A.spawnEdgeInset;
+    const depth = inset + Math.random() * (A.edgeSafeMargin - inset);
+    switch (Math.floor(Math.random() * 4)) {
+      case 0: return { x: inset + Math.random() * (A.width - inset * 2), y: depth };
+      case 1: return { x: inset + Math.random() * (A.width - inset * 2), y: A.height - depth };
+      case 2: return { x: depth, y: inset + Math.random() * (A.height - inset * 2) };
+      default: return { x: A.width - depth, y: inset + Math.random() * (A.height - inset * 2) };
+    }
+  }
   const IMPLEMENTED = new Set(['starter', 'railship', 'helion', 'starPiercer',
     'hammerhead', 'maulbreaker', 'worldsplitter', 'gravitor', 'meteorist', 'starfall',
     'singularity', 'eventHorizon', 'flailship', 'twinmaul']);
@@ -56,15 +67,13 @@
   PULSAR.createWorld = function (opts) {
     opts = opts || {};
     const fx = opts.fx || NULL_FX;
-    const onRemoteHit = opts.onRemoteHit || null;   // (ship, dmg, opts) — relay bridge; null on the server
+    const onKill = opts.onKill || null;   // (victim, killer) — fired at kill time, scrap/leader still intact
     let nextId = 1;
 
     const state = {
       time: 0, pulsarTimer: cfg.arena.pulsarPulseIntervalSec,
       ships: [], projectiles: [], objects: [], motes: [], respawns: [],
     };
-
-    function randomSpawn() { return { x: 200 + Math.random() * (cfg.arena.width - 400), y: 200 + Math.random() * (cfg.arena.height - 400) }; }
 
     function makeShip(o) {
       return {
@@ -196,7 +205,6 @@
     function damageShip(t, dmg, opts) {
       opts = opts || {};
       if (!t.alive || t.spawnProtect > 0) return;
-      if (t.isRemote) { if (onRemoteHit) onRemoteHit(t, dmg, opts); t.hitFlash = 0.16; fx.spawnParticles(t.x, t.y, 6, '#ff8a8a', { speed: 150 }); return; }
       if (t.braceTimer > 0) dmg *= (1 - cfg.hammerhead.brace.damageReduction);
       if (t.cracked) dmg *= (1 + cfg.railship.armorCrack.damageAmp);
       if (FAMILY[t.classId] === 'grav' && t.captured && t.captured.length > 0) {   // Gravitor Orbital Shield
@@ -220,6 +228,7 @@
       if (t.hp <= 0) killShip(t, opts.source);
     }
     function killShip(v, killer) {
+      if (onKill) onKill(v, killer);   // before the drop: v.scrap/xp/isLeader still reflect the run
       const carried = v.scrap;
       v.alive = false; resetClassState(v);
       const drop = Math.floor(carried * eco.dropFractionOnDeath);
@@ -238,7 +247,7 @@
     }
     function respawnShip(v) {
       v.alive = true;
-      const s = v.isBot ? randomSpawn() : SPAWN;
+      const s = edgeSpawn();
       v.x = s.x; v.y = s.y; v.px = v.x; v.py = v.y; v.vx = v.vy = v.impX = v.impY = 0;
       v.spawnProtect = cfg.player.spawnProtectionSec;
       if (!v.isBot) {
@@ -281,7 +290,6 @@
     }
 
     function tickTimers(s, dt) {
-      if (s.isRemote) return;
       if (s.spawnProtect > 0) s.spawnProtect -= dt; if (s.hitFlash > 0) s.hitFlash -= dt;
       if (s.ventTimer > 0) s.ventTimer -= dt; if (s.abilityCd > 0) s.abilityCd -= dt;
       if (s.specialCd > 0) s.specialCd -= dt; if (s.contactCd > 0) s.contactCd -= dt;
@@ -447,7 +455,6 @@
       pulsarPulse(dt);
       for (const s of state.ships) tickTimers(s, dt);
       for (const s of state.ships) {
-        if (s.isRemote) continue;
         if (!s.alive) { s.respawnTimer -= dt; if (s.respawnTimer <= 0) respawnShip(s); continue; }
         if (s.isBot) botStep(s, dt);
         else {
@@ -462,11 +469,11 @@
 
     // ---- public API ----
     function getShip(id) { for (const s of state.ships) if (s.id === id) return s; return null; }
-    function addShip(o) { o = o || {}; const sp = o.x == null ? (o.isBot ? randomSpawn() : SPAWN) : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim }); applyClassStats(s, true); state.ships.push(s); return s; }
+    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn() : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim }); applyClassStats(s, true); state.ships.push(s); return s; }
     function removeShip(id) { for (let i = 0; i < state.ships.length; i++) if (state.ships[i].id === id) { state.ships.splice(i, 1); return; } }
     function spawnBots(n) {
       n = n != null ? n : cfg.bots.count;
-      for (let i = 0; i < n; i++) { const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)]; const sp = randomSpawn(); addShip({ classId: cls, isBot: true, aim: Math.random() * TAU, x: sp.x, y: sp.y }); }
+      for (let i = 0; i < n; i++) { const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)]; addShip({ classId: cls, isBot: true, aim: Math.random() * TAU }); }
     }
     function clearBots() { for (let i = state.ships.length - 1; i >= 0; i--) if (state.ships[i].isBot) state.ships.splice(i, 1); }
     function populateField() { for (let i = 0; i < af.count; i++) spawnArenaObject(); for (let i = 0; i < cfg.farming.titans.count; i++) spawnTitan(); }
@@ -491,7 +498,7 @@
 
     return {
       state, api, config: cfg,
-      FAMILY, EVOLVE_BLURB, SPAWN, classNode, hueFor,
+      FAMILY, EVOLVE_BLURB, classNode, hueFor,
       addShip, removeShip, getShip, spawnBots, clearBots,
       setIntent(id, intent) {
         const s = getShip(id); if (!s) return;

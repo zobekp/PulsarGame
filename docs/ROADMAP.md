@@ -59,17 +59,16 @@ passes** — if it isn't fun here, multiplayer won't save it.
 a human playtest call. Bots currently lean farm-heavy (1 kill / 25s in test) — `config.bots.aggression`
 and ranges are the dials.*
 
-## Phase 5 — Real multiplayer  ◐ Step 2 in progress (2026-07-02)
+## Phase 5 — Real multiplayer  ◐ code-complete (2026-07-02), two-browser sign-off pending
 - ☑ Authoritative Node + WebSocket server (`mpserver.js`) runs the headless sim (`sim.js`), owns the world
 - ☑ Client becomes a thin renderer of server state (`src/mpclient.js` — send intent, render snapshots)
-- ☑ Reuse the deterministic sim; snapshot INTERPOLATION (remotes, ~100ms in the past) + client-side
-      PREDICTION with seq-ack reconciliation (own ship — movement simulated locally, instant input;
-      corrections hidden behind a decaying view offset). Movement-only by design; ability impulses
-      land via impulse-adoption a snapshot late.
-- ◐ Modularize (the client/server split point): thin client is a clean separate module and mutually
-      exclusive with the relay. Still pending: run SP on `sim.js` too (one code path) + retire the relay
-      (`server.js`/`net.js`).
-**Done when:** two browsers fight on one shared server instance. *(Thin client built + server verified
+- ☑ Reuse the deterministic sim; snapshot INTERPOLATION (remotes) + client-side PREDICTION with
+      seq-ack reconciliation (own ship — movement simulated locally, instant input; corrections hidden
+      behind a decaying view offset). Movement-only by design; ability impulses land a snapshot late.
+- ☑ Modularize — ONE code path: single-player now steps the same `PULSAR.createWorld` (sim.js) the
+      server runs; game.js is input+render only; the relay (`server.js`/`net.js`) is retired.
+      Kill events flow through a world `onKill` hook → killfeed in SP and MP alike.
+**Done when:** two browsers fight on one shared server instance. *(Everything built + verified
 headlessly; the two-tab in-browser sign-off is the remaining gate.)*
 
 ## Phase 6 — Meta & persistence  ▢

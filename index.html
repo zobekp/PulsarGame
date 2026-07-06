@@ -99,9 +99,11 @@
 <script src="src/profile.js"></script>
 <script src="src/weapons.js"></script>
 <script src="src/ships.js"></script>
-<script src="src/net.js"></script>
 <script src="src/mpclient.js"></script>
 <script src="src/bots.js"></script>
+<!-- sim.js IS the game logic (PULSAR.createWorld) — the same file runs headless on the
+     authoritative server. Loads after weapons/bots (reads weaponHue at load). -->
+<script src="src/sim.js"></script>
 <script src="src/game.js"></script>
 
 <!-- Title screen wiring (runs after game.js so PULSAR.startGame exists). -->

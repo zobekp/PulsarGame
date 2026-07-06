@@ -14,13 +14,14 @@
 window.PULSAR = window.PULSAR || {};
 
 window.PULSAR.MP = (function () {
-  const AUTH = typeof window !== 'undefined' && !!window.__PULSAR_AUTH__;
+  const AUTH = typeof window !== 'undefined' && !!window.__PULSAR_AUTH__
+    && !/\bsolo\b/.test((typeof location !== 'undefined' && location.search) || '');   // ?solo = force local SP even when served by mpserver
   const TAU = Math.PI * 2;
   const SEND_HZ = 60;                 // intent send rate (a click reaches the server within ~16ms)
   const INTERP_MS = 40;              // render this far in the past (≈2.5 snapshots @60Hz) for smooth interp
 
   let ws = null, connected = false, myId = 0, arena = null;
-  let getIntent = null, myName = '';
+  let getIntent = null, myName = '', onKillCb = null;
   let sendAcc = 0;
   const buffer = [];                  // [{ recv, snap }] oldest→newest; snap = server 't' message
   let lastObjects = null;             // most recent snapshot's object field (ob) — sent every 10th
@@ -170,6 +171,7 @@ window.PULSAR.MP = (function () {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.t === 'welcome') { myId = m.id; arena = m.arena; }
       else if (m.t === 't') ingest(m);
+      else if (m.t === 'kill') { if (onKillCb) onKillCb(m.kn || null, m.vn || 'Ship', !!m.ld); }
     };
   }
 
@@ -318,7 +320,7 @@ window.PULSAR.MP = (function () {
     get myId() { return myId; },
     get arena() { return arena; },
     remotes,
-    init(opts) { getIntent = opts.getIntent; myName = opts.name || ''; connect(); },
+    init(opts) { getIntent = opts.getIntent; myName = opts.name || ''; onKillCb = opts.onKill || null; connect(); },
     // per sim tick: advance our own ship's predicted movement with the CURRENT tick's input
     predict,
     // per render frame: pull interpolated server state into the render buffers

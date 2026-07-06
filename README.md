@@ -6,8 +6,11 @@ asteroid edges for farming. Greed economy: spend scrap to bank progress, carry i
 dropping it. Built to be developed incrementally by coding agents against a versioned spec.
 
 ## Run
-No build step. Open `index.html` in a browser. (A static server like `python3 -m http.server`
-avoids any local-file restrictions.)
+No build step.
+- **Single-player:** open `index.html` in a browser.
+- **Multiplayer:** `node mpserver.js` → `http://localhost:8080` (friends: `http://<LAN-ip>:8080`).
+  The server runs the authoritative sim; browsers send input and render snapshots.
+  Append `?solo` to force local single-player even when served by mpserver.
 
 ## Structure
 ```
@@ -39,5 +42,7 @@ over complexity · David-vs-Goliath (leaders are strong but bigger targets) · o
 everything data-driven · never leave the game broken.
 
 ## Status
-Scaffold + reconciled design complete. No game logic yet — **Phase 0** is next. See
-`docs/ROADMAP.md`.
+Phases 0–4 done (playable engine, world/economy, four class families + branches, bots).
+Phase 5 code-complete: authoritative multiplayer with client prediction, ONE sim code path
+(`src/sim.js` runs identically in the browser and on `mpserver.js`). Phase 6 Step 1 done
+(cores + cosmetics). See `docs/ROADMAP.md` and `docs/DEVLOG.md` for exact state.

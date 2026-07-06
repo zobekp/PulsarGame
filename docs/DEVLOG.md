@@ -6,6 +6,47 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-02 — Phase 5 Step 3: ONE CODE PATH — SP runs sim.js, relay retired, killfeed in MP
+**What changed:** The unification the roadmap has demanded since Phase 5 began. `game.js` no longer
+contains a simulation: single-player creates a local `PULSAR.createWorld` (the EXACT sim the
+authoritative server runs) and steps it; game.js is now input→intent + render/HUD only (~380 lines of
+duplicated sim deleted). Every future gameplay change lands in sim.js ONCE and applies to SP and MP
+identically — the "changed in BOTH game.js and sim.js" era is over.
+
+- **`src/sim.js`:** gained `edgeSpawn()` (the outer-band spawn rule game.js had; now applies to
+  players AND bots, spawns AND respawns, SP and MP — the old fixed/random spawns are gone), an
+  `opts.onKill(victim, killer)` hook (fired at kill time, before the scrap drop, so scrap/xp/leader
+  are still intact), and lost the relay bridge (`onRemoteHit`, all `isRemote` guards).
+- **`src/game.js`:** world glue at boot (createWorld + addShip player + spawnBots unless MP-auth);
+  `spControls` reads input and calls `world.setIntent` (the edge-latch from the race fix applies to
+  SP identically); `simulate` = controls + `world.step` + Fx aging; killfeed + Profile core-banking
+  moved into the world's onKill hook; admin/evolve/HUD go through world.* helpers. All rendering
+  unchanged. Relay code paths (ghosts, Net HUD, onHit bridge, bots-in-relay) deleted.
+- **Relay RETIRED:** `server.js` + `src/net.js` deleted; index.html loads `src/sim.js` (after
+  weapons/bots — it reads `weaponHue` at load) and drops net.js. `?solo` still works: mpclient's
+  AUTH check respects it, forcing local SP even when served by mpserver.
+- **Killfeed in MP (the missing Step-2 piece):** mpserver passes `onKill` → broadcasts
+  `{t:'kill', kn, vn, ld}` (names: player name or class displayName); mpclient routes it to game.js
+  `addKill` → the same killfeed UI. SP gets identical feeds from the local world's hook — INCLUDING
+  bot-vs-bot kills, which the old game.js feed already had, and remote-vs-remote kills in MP, which
+  the relay never delivered.
+
+**Verified headlessly:** `tools/sptest.js` (new) exercises the unified SP path 6/6 — edge-band
+spawns (all ships), intent-driven movement, all-finite state after 10 sim-seconds with bots,
+onKill attribution, death→fresh-Scout respawn in the edge band. edgetest 3/3 + predtest 8/8 still
+green. Headless Chrome (--dump-dom, 6s virtual time) boots the SP page with ZERO runtime errors.
+Live mpserver probe: ack tracking OK, movement OK, no net.js served, sim.js served. Ships now
+edge-spawn in MP too (was fixed/random — free consistency win from unification).
+
+**Files:** `src/sim.js`, `src/game.js`, `src/mpclient.js`, `mpserver.js`, `index.html`,
+`tools/sptest.js` (new); DELETED `server.js`, `src/net.js`.
+**Known limits / TODO:** killfeed names in MP are class names for bots (fine) and player-set names
+for humans; no kill-assist logic. The two-browser sign-off remains the Phase 5 gate. Muzzle
+prediction (own shots appear ~70-90ms late) and delta/binary snapshot encoding for internet play
+are the remaining netcode niceties.
+
+---
+
 ## 2026-07-02 — Phase 5 Step 2c: render-rate visuals in MP ("looks like 30hz" fix)
 **What changed:** Movement felt right after prediction, but the WORLD still looked snapshot-stepped.
 Root causes (none of them the server rate): `state.time` was taken raw from snapshots, so every

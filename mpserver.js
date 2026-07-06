@@ -33,7 +33,14 @@ const fx = {
   update() {},
 };
 
-const world = global.PULSAR.createWorld({ fx });
+const world = global.PULSAR.createWorld({
+  fx,
+  // Kill events → killfeed on every client. Names: player-set name, else the class name.
+  onKill(v, killer) {
+    const nm = (s) => s ? (s.name || (global.PULSAR.classes[s.classId] || {}).displayName || 'Ship') : null;
+    broadcast({ t: 'kill', kn: killer && killer !== v ? nm(killer) : null, vn: nm(v), ld: v.isLeader ? 1 : 0 });
+  },
+});
 world.spawnBots(cfg.bots.count);     // bots fill the world until/with players; tune as desired
 
 // ---- snapshots ----
