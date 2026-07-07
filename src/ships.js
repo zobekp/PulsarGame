@@ -68,13 +68,30 @@ window.PULSAR.Ships = (function () {
   function railBody(ctx, r, s, P, t, o) {
     const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-    // reveal driver: charge (held past full = overcharge) or beam ramp
+    // ENERGY level: charge (held past full = overcharge) or beam ramp. Drives the GLOW —
+    // capacitor rings, energy sleeve, muzzle bloom, essence core — and drops to 0 the instant
+    // the shot leaves (the energy is spent).
     const chRaw = o.useRamp ? (s.beamRamp || 0)
                 : Math.max(s.charging ? (s.charge || 0) : 0,
                            (s.beamTimer || 0) > 0 ? (s.beamPower || 0) : 0);
     const ch = Math.min(1, chRaw);
-    const open = Math.min(1, ch * 1.5);           // shell snaps open early...
-    const bl = (o.len + (o.ext || 0) * ch) * r;   // ...then the barrel keeps growing
+    // MECHANICAL deployment (0 = folded shut, 1 = fully extended). Snaps OPEN to track the
+    // charge, but after firing it FOLDS SHUT smoothly over foldSec instead of snapping — the
+    // clamshell closes and the barrel retracts together, finishing EXACTLY as the gun's fire
+    // cooldown expires (a closed shell == ready to fire again). Render-only, eased off the sim
+    // clock `t` (persists on the ship object). foldSec is the class's real post-fire lockout:
+    // the maw classes have an explicit recycle cooldown; the base/beam rails have no discrete
+    // cooldown, so we use their recharge-to-ready time instead.
+    const RC = (PULSAR.config && PULSAR.config.railship) || {};
+    const foldSec = o.prong ? ((RC.mawRail && RC.mawRail.recycleSec) || 1.4)
+                            : ((RC.charge && RC.charge.timeToFullSec) || 1.05);
+    let dep = s._railDeploy;
+    if (dep == null) dep = ch;
+    else if (ch >= dep) dep = ch;                 // opening tracks the charge with no lag
+    else dep = Math.max(ch, dep - Math.min(0.1, Math.max(0, t - (s._railT || t))) / foldSec);
+    s._railDeploy = dep; s._railT = t;
+    const open = Math.min(1, dep * 1.5);          // clamshell halves ride the deployment
+    const bl = (o.len + (o.ext || 0) * dep) * r;  // barrel telescopes out/in with deployment
     const bh = o.barrel * r;
 
     // --- tail craft: the small ship attached to the back of the gun
@@ -154,23 +171,17 @@ window.PULSAR.Ships = (function () {
       ctx.strokeStyle = 'rgba(255,210,120,0.9)'; ctx.lineWidth = 2;
       ctx.strokeRect(0.2 * r, -bh * 1.1, bl - 0.2 * r, bh * 2.2);
     }
-    // muzzle fork: twin jaws where the beam forms. With o.mawOpen the jaws HINGE OPEN as
-    // charge builds (or hold open while the beam is lit) — the maw's gape IS the beam width.
-    if (o.prong) {
-      const py = o.prong * r * (1 + ch * (o.mawOpen || 0));
-      poly(ctx, [[bl - 0.15 * r, -bh], [bl + 0.85 * r, -py], [bl + 0.85 * r, -py + 0.12 * r], [bl, 0]]);
-      fillStroke(ctx, plateFill, 1.2);
-      poly(ctx, [[bl - 0.15 * r, bh], [bl + 0.85 * r, py], [bl + 0.85 * r, py - 0.12 * r], [bl, 0]]);
-      fillStroke(ctx, plateFill, 1.2);
-      if (o.mawOpen && ch > 0.05) {
-        // essence core condensing in the open maw — the "shot about to exist"
-        ctx.globalCompositeOperation = 'lighter';
-        ctx.beginPath(); ctx.arc(bl + 0.45 * r, 0, r * (0.10 + 0.34 * ch), 0, TAU);
-        ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.45 * ch})`; ctx.fill();
-        ctx.beginPath(); ctx.arc(bl + 0.45 * r, 0, r * (0.05 + 0.16 * ch), 0, TAU);
-        ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.5 * ch})`; ctx.fill();
-        ctx.globalCompositeOperation = 'source-over';
-      }
+    // Siege muzzle (maw classes): the tip no longer HINGES OPEN — the whole clamshell already
+    // does that, so a separately-opening tip read as doubly-opening and looked wrong. Instead
+    // the charge condenses as an essence core that swells at the muzzle: the "shot about to
+    // exist", growing with charge (this IS the siege tell now).
+    if (o.prong && ch > 0.02) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.beginPath(); ctx.arc(bl + 0.10 * r, 0, r * (0.10 + 0.40 * ch), 0, TAU);
+      ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.45 * ch})`; ctx.fill();
+      ctx.beginPath(); ctx.arc(bl + 0.10 * r, 0, r * (0.05 + 0.18 * ch), 0, TAU);
+      ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.5 * ch})`; ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
     }
     // --- clamshell cowl, drawn LAST so it hides the gun when sealed. Both halves
     // lift laterally and flare outward on a rear hinge as the shell opens.
@@ -435,7 +446,8 @@ window.PULSAR.Ships = (function () {
     // LENS RING that glows with the ramp — a solar furnace, not a sniper rifle.
     helion(ctx, r, s, P, t) {
       railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.5, back: 0.68, barrel: 0.19, rings: 2, useRamp: true });
-      const ramp = Math.min(1, s.beamRamp || 0), lx = (1.05 + 0.5 * ramp) * r + 0.28 * r;
+      const ramp = Math.min(1, s.beamRamp || 0), dep = s._railDeploy != null ? s._railDeploy : ramp;
+      const lx = (1.05 + 0.5 * dep) * r + 0.28 * r;   // lens rides the retracting muzzle
       ctx.globalCompositeOperation = 'lighter';
       ctx.beginPath(); ctx.arc(lx, 0, r * 0.42, 0, TAU);
       ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.45 + 0.5 * ramp})`;
@@ -454,13 +466,14 @@ window.PULSAR.Ships = (function () {
     },
     // Star Piercer: siege pod — heavier shell, wider split, jaws hinge open at the
     // muzzle of the extending rail.
-    starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 1.55, ext: 0.95, back: 0.80, barrel: 0.21, rings: 3, prong: 0.34, mawOpen: 1.6, cowlGap: 0.62 }); },
+    starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 1.55, ext: 0.95, back: 0.80, barrel: 0.21, rings: 3, prong: true, cowlGap: 0.62 }); },
     // Supernova: the furnace gone critical — oversized lens, and a CORONA ring around the
     // whole hull that burns brighter as HEAT builds (the nova you're owed). Prominence arcs
     // grow agitated as the bar fills.
     supernova(ctx, r, s, P, t) {
       railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.55, back: 0.75, barrel: 0.21, rings: 3, useRamp: true, cowlGap: 0.62 });
-      const ramp = Math.min(1, s.beamRamp || 0), lx = (1.05 + 0.55 * ramp) * r + 0.32 * r;
+      const ramp = Math.min(1, s.beamRamp || 0), dep = s._railDeploy != null ? s._railDeploy : ramp;
+      const lx = (1.05 + 0.55 * dep) * r + 0.32 * r;   // lens rides the retracting muzzle
       const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
       const hf = Math.min(1, (s.heat || 0) / heatMax);
       ctx.globalCompositeOperation = 'lighter';
@@ -485,7 +498,7 @@ window.PULSAR.Ships = (function () {
     // Starbreak: heavier siege chassis — dorsal rift-blades with shimmering edges (space is
     // thin around this ship), and faint rift dashes flicker ahead of the maw as it charges.
     starbreak(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 1.75, ext: 1.30, back: 0.95, barrel: 0.23, rings: 4, prong: 0.42, mawOpen: 1.8, cowlGap: 0.68 });
+      railBody(ctx, r, s, P, t, { len: 1.75, ext: 1.30, back: 0.95, barrel: 0.23, rings: 4, prong: true, cowlGap: 0.68 });
       const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
       for (const sgn of [1, -1]) {
         poly(ctx, [[0.15 * r, 0.42 * r * sgn], [-0.25 * r, 1.05 * r * sgn], [-0.65 * r, 0.95 * r * sgn], [-0.55 * r, 0.38 * r * sgn]]);
@@ -498,9 +511,9 @@ window.PULSAR.Ships = (function () {
       if (c > 0.15) {
         ctx.globalCompositeOperation = 'lighter';
         ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.25 * c})`; ctx.lineWidth = 1.3;
-        const muzzle = 1.75 + 1.30 * c + 0.85;    // extended rail + jaws
+        const muzzle = 1.75 + 1.30 * c;           // extended rail tip (jaws removed)
         for (let i = 0; i < 4; i++) {
-          const x0 = (muzzle + 0.35 + i * 0.55 + 0.2 * Math.sin(t * 11 + i)) * r;
+          const x0 = (muzzle + 0.55 + i * 0.55 + 0.2 * Math.sin(t * 11 + i)) * r;
           ctx.beginPath(); ctx.moveTo(x0, -0.3 * r * c); ctx.lineTo(x0, 0.3 * r * c); ctx.stroke();
         }
         ctx.globalCompositeOperation = 'source-over';

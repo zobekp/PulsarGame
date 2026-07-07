@@ -35,8 +35,10 @@ window.PULSAR.Fx = (function () {
 
   // a hitscan beam streak that fades over `life` seconds (render only).
   // `power` (0..1) scales the bloom flair so big charges LOOK powerful (hitbox is unchanged).
-  function spawnBeam(x1, y1, x2, y2, color, halfWidth, life, power) {
-    beams.push({ x1, y1, x2, y2, color, halfWidth, life, maxLife: life, power: power || 0 });
+  // `fade` (optional): {fullFrac, minMult} tapers the beam's OPACITY from full over the first
+  // fullFrac of its length down to minMult at the tip — the honest tell for range damage falloff.
+  function spawnBeam(x1, y1, x2, y2, color, halfWidth, life, power, fade) {
+    beams.push({ x1, y1, x2, y2, color, halfWidth, life, maxLife: life, power: power || 0, fade: fade || null });
   }
 
   // floating combat text ("LINE BREAK", "+4")
@@ -90,18 +92,28 @@ window.PULSAR.Fx = (function () {
       const x1 = R.sx(b.x1), y1 = R.sy(b.y1), x2 = R.sx(b.x2), y2 = R.sy(b.y2);
       const pw = b.power || 0;
       ctx.lineCap = 'round';
+      // stroke style for a pass: solid rgba, OR (with b.fade) a length gradient that tapers
+      // opacity from full to minMult past fullFrac — the visible range-falloff tell.
+      const stroke = (cr, cg, cb, a) => {
+        if (!b.fade) return `rgba(${cr},${cg},${cb},${a})`;
+        const g = ctx.createLinearGradient(x1, y1, x2, y2);
+        g.addColorStop(0, `rgba(${cr},${cg},${cb},${a})`);
+        g.addColorStop(Math.min(0.98, b.fade.fullFrac), `rgba(${cr},${cg},${cb},${a})`);
+        g.addColorStop(1, `rgba(${cr},${cg},${cb},${a * b.fade.minMult})`);
+        return g;
+      };
       // powerful shots get a wide outer haze under the beam
       if (pw > 0) {
-        ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${0.18 * pw * t})`;
+        ctx.strokeStyle = stroke(rgb[0], rgb[1], rgb[2], 0.18 * pw * t);
         ctx.lineWidth = b.halfWidth * (3 + 5 * pw);
         ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       }
       // soft wide pass (the honest hitbox thickness)
-      ctx.strokeStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${(0.35 + 0.3 * pw) * t})`;
+      ctx.strokeStyle = stroke(rgb[0], rgb[1], rgb[2], (0.35 + 0.3 * pw) * t);
       ctx.lineWidth = b.halfWidth * 2;
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
       // bright thin core (thicker + fuller on big shots)
-      ctx.strokeStyle = `rgba(255,255,255,${(0.9 + 0.1 * pw) * t})`;
+      ctx.strokeStyle = stroke(255, 255, 255, (0.9 + 0.1 * pw) * t);
       ctx.lineWidth = Math.max(1.5, b.halfWidth * (0.5 + 0.5 * pw));
       ctx.beginPath(); ctx.moveTo(x1, y1); ctx.lineTo(x2, y2); ctx.stroke();
     }

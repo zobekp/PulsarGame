@@ -31,11 +31,10 @@ window.PULSAR.classVisuals = {
                  cues: ["shell opens + barrel extends with ramp", "lens ring brightens",
                         "continuous beam", "heavy vent glow"] },
   starPiercer: { inherits: "railship", silhouette: "starPiercer",
-                 note: "Siege pod: wider shell split, and twin jaws at the extending muzzle " +
-                       "that OPEN with charge — maw width IS the beam width.",
-                 cues: ["shell splits + rail extends with charge", "maw opens with charge",
-                        "essence intake while charging", "ONE instant devastating blast",
-                        "weak-point marker on cracked leaders"] },
+                 note: "Siege pod: wider, heavier shell split; the extending rail condenses a " +
+                       "swelling essence core at the muzzle — the siege charge about to fire.",
+                 cues: ["shell splits + rail extends with charge", "essence core swells at the muzzle",
+                        "ONE instant devastating blast", "weak-point marker on cracked leaders"] },
   supernova:   { inherits: "railship", silhouette: "supernova",
                  note: "The furnace gone critical: shell opens on ramp into an oversized lens, " +
                        "plus a CORONA ring around the hull that burns brighter as heat builds.",
@@ -44,7 +43,7 @@ window.PULSAR.classVisuals = {
   starbreak:   { inherits: "railship", silhouette: "starbreak",
                  note: "Heaviest shell, longest telescope, dorsal rift-blades — space is thin " +
                        "around this ship. Its blast scar lingers and detonates.",
-                 cues: ["huge maw gape + full rail extension at max charge",
+                 cues: ["full rail extension + big essence core at max charge",
                         "lingering RIFT scar on the shot line", "scar pulses faster, then collapses"] },
 
   // Hammerhead — all mass forward: bolted ram slab, stubby tug body, oversized engines.
@@ -86,9 +85,12 @@ window.PULSAR.classVisuals = {
                  cues: ["two chained maces, opposite phase", "LMB volley staggers, RMB both at once",
                         "STATIC LASH stun flash around the heads"] },
   binaryStar:  { inherits: "flailship", silhouette: "binaryStar",
-                 note: "Twinmaul's drums bridged by an energized tether manifold — the space " +
-                       "BETWEEN the heads is the weapon.",
-                 cues: ["live crackling TETHER between the two mace heads",
+                 note: "Twinmaul's drums bridged by an energized tether manifold; the maces are " +
+                       "now whirling BLADE rotors — faster, longer reach, heavier hits (still block " +
+                       "shots). The blades AND the space between them are the weapon.",
+                 cues: ["twin spinning BLADE rotors (was mace heads)",
+                        "blades whiten + edges glow as they swing faster",
+                        "live crackling TETHER between the two blades",
                         "tether burns hotter during a synced throw (the garrote)",
                         "enemies dragged onto the wire"] },
 };

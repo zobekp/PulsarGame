@@ -97,11 +97,17 @@ window.PULSAR = window.PULSAR || {};
           if (perp <= halfWidth + t.radius) hits.push({ t, along });
         }
         hits.sort((a, b) => a.along - b.along);
+        // Range damage falloff vs SHIPS (neutral farming/line-break is unaffected): full to
+        // fullRangeFrac of range, then linear down to minMult at the tip. Kills the cross-map 2-tap.
+        const rf = R.beam.rangeFalloff, rfFull = rf.fullRangeFrac * maxRange;
+        const rangeMult = (along) => along <= rfFull ? 1
+          : 1 - (1 - rf.minMult) * Math.min(1, (along - rfFull) / (maxRange - rfFull));
         let pierced = 0, neutrals = 0;
         for (const h of hits) {
           if (pierced >= pierce) break;
           const fall = (h.t.isShip ? R.pierceFalloff.players : R.pierceFalloff.neutral);
           let d = dmg * fall[Math.min(pierced, fall.length - 1)];
+          if (h.t.isShip) d *= rangeMult(h.along);
           if (mods.closeRange && h.along < mods.closeRange) d *= mods.closeDamageMult;
           if (mods.perfectLineRangeFrac && h.along > maxRange * mods.perfectLineRangeFrac) d *= (1 + mods.perfectLineBonus);
           api.damage(h.t, d, { dx, dy, knockback: R.beam.knockback, crack: big, source: ship });
@@ -119,7 +125,8 @@ window.PULSAR = window.PULSAR || {};
         }
         // Bigger charges throw a more powerful-looking beam (extra bloom layers, brighter core).
         const power = stage === 'overcharge' ? 1 : stage === 'lance' ? 0.7 : stage === 'focus' ? 0.35 : 0.1;
-        api.fx.spawnBeam(ox, oy, ox + dx * maxRange, oy + dy * maxRange, hue, halfWidth, R.beam.visualSec, power);
+        api.fx.spawnBeam(ox, oy, ox + dx * maxRange, oy + dy * maxRange, hue, halfWidth, R.beam.visualSec, power,
+                         { fullFrac: rf.fullRangeFrac, minMult: rf.minMult });   // opacity fades to show the damage falloff
         api.fx.spawnParticles(ox, oy, 6 + Math.round(power * 14), hue, { dir: ship.aim, spread: 0.6, speed: 260 + power * 220 });
         if (neutrals >= R.lineBreakThreshold) api.lineBreak(ship, neutrals, ox, oy);
         api.applyImpulse(ship, -dx * recoil, -dy * recoil);
@@ -424,7 +431,19 @@ window.PULSAR = window.PULSAR || {};
     // whip onto the line together and fling at once. Blocks enemy shots in every state.
     wreckingOrb: {
       update(api, ship, dt, ctx) {
-        const F = api.config.flailship, O = F.orb;
+        const F = api.config.flailship;
+        // Binary Star (final): maces are BLADES — swing faster, reach further, hit harder, and a
+        // bigger block radius. Derive an orb config with the blade multipliers over F.orb.
+        let O = F.orb;
+        const b = ship.classId === 'binaryStar' && F.binaryStar && F.binaryStar.blade;
+        if (b) O = Object.assign({}, F.orb, {
+          spinSpeedMin: F.orb.spinSpeedMin * b.spinMult, spinSpeedMax: F.orb.spinSpeedMax * b.spinMult,
+          releaseSweepRadPerSec: F.orb.releaseSweepRadPerSec * b.spinMult,
+          spinRadius: F.orb.spinRadius * b.reachMult, maxReach: F.orb.maxReach * b.reachMult,
+          spinDamageMin: F.orb.spinDamageMin * b.dmgMult, spinDamageMax: F.orb.spinDamageMax * b.dmgMult,
+          flingDamageMin: F.orb.flingDamageMin * b.dmgMult, flingDamageMax: F.orb.flingDamageMax * b.dmgMult,
+          trailDamage: F.orb.trailDamage * b.dmgMult, tipRadius: F.orb.tipRadius * b.sizeMult,
+        });
         const twin = ship.classId === 'twinmaul' || ship.classId === 'binaryStar';
         const nHeads = twin ? 2 : 1;
         const dmgMult = twin ? F.twin.dmgMult : 1;

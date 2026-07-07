@@ -25,7 +25,8 @@ window.PULSAR.classes = {
     id: "railship", displayName: "Railship", tier: 1, parentId: "starter",
     configKey: "railship",
     weapon: "chargeRail",       // hold-to-charge piercing rail; stages in config
-    ability: "ventDash",        // backward dash, sheds heat, cancels some charge
+    ability: null,              // (removed) rail keeps ONLY the Shift afterburner escape; heat
+                                // is now managed purely by passive decay — no active vent/dash
     passive: "armorCrack",      // full-charge marks target vulnerable
     farmingPassive: "lineBreak",// 3+ neutral objects in one shot = bonus
   },
@@ -34,7 +35,7 @@ window.PULSAR.classes = {
   helion: {
     id: "helion", displayName: "Helion", tier: 2, parentId: "railship",
     configKey: "helion", branchOf: "railship", branch: "A",
-    weapon: "helionBeam", ability: "ventDash", passive: "armorCrack",
+    weapon: "helionBeam", ability: null, passive: "armorCrack",
     note: "Hold the beam: damage ramps toward max, heat cost accelerates with it. " +
           "Maxing the heat bar forces a vent lockout — greed has a fuse.",
   },
@@ -45,7 +46,7 @@ window.PULSAR.classes = {
   starPiercer: {
     id: "starPiercer", displayName: "Star Piercer", tier: 2, parentId: "railship",
     configKey: "railship", branchOf: "railship", branch: "B",
-    weapon: "mawRail", ability: "ventDash", passive: "armorCrack",
+    weapon: "mawRail", ability: null, passive: "armorCrack",
     special: "brokenCore",       // full-charge vs leader exposes a weak point for allies
   },
   // FINAL A (lvl 15): SUPERNOVA — the furnace goes critical. Same ramping beam; the heat bar
@@ -54,7 +55,7 @@ window.PULSAR.classes = {
   supernova: {
     id: "supernova", displayName: "Supernova", tier: 3, parentId: "helion",
     configKey: "helion", branchOf: "railship", branch: "A",
-    weapon: "helionBeam", ability: "ventDash", passive: "armorCrack",
+    weapon: "helionBeam", ability: null, passive: "armorCrack",
     special: "flareNova",
     note: "Heat is ammunition now. Spent heat is spent beam uptime — the nova is always a trade.",
   },
@@ -64,7 +65,7 @@ window.PULSAR.classes = {
   starbreak: {
     id: "starbreak", displayName: "Starbreak", tier: 3, parentId: "starPiercer",
     configKey: "railship", branchOf: "railship", branch: "B",
-    weapon: "mawRail", ability: "ventDash", passive: "armorCrack",
+    weapon: "mawRail", ability: null, passive: "armorCrack",
     special: "brokenCore",
     note: "Fired, not steered — but now the shot's SCAR fights for you after it lands.",
   },
@@ -146,15 +147,16 @@ window.PULSAR.classes = {
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
   },
-  // FINAL (lvl 15): BINARY STAR — the two maces are linked by a live energy tether. Anything
-  // crossing the line between the heads takes ticking damage and is dragged onto it; a synced
-  // (RMB) throw turns the tether into a GARROTE mid-flight. Fence space. Catch people.
+  // FINAL (lvl 15): BINARY STAR — the two maces become whirling BLADES (faster, longer reach,
+  // heavier hits; still block shots) linked by a live energy tether. Anything crossing the line
+  // between the heads takes ticking damage and is dragged onto it; a synced (RMB) throw turns the
+  // tether into a GARROTE mid-flight. Fence space. Catch people. Cut them.
   binaryStar: {
     id: "binaryStar", displayName: "Binary Star", tier: 3, parentId: "twinmaul",
     configKey: "flailship", branchOf: "flailship",
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
-    note: "The space BETWEEN the heads is the weapon now.",
+    note: "Twin blades on live tethers — the blades AND the space between them are the weapon.",
   },
 };
 

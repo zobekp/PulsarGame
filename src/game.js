@@ -398,20 +398,44 @@ window.PULSAR = window.PULSAR || {};
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ox, oy); ctx.stroke();
         // momentum reads as light: the head burns brighter the faster it swings / flies
         R.setComposite('lighter'); R.glow(ox, oy, O.tipRadius * (2.2 + 1.6 * hot), [255, 210, 120], 0.55 + 0.45 * hot); R.setComposite('source-over');
-        // spiked mace head, tumbling with its own spin
+        // head art, tumbling with its own spin
         ctx.save(); ctx.translate(ox, oy); ctx.rotate(h.selfSpin || 0);
-        ctx.fillStyle = hot > 0.6 ? '#fff3cf' : '#ffe6a8';
-        for (let i = 0; i < O.spikes; i++) {
-          const a = (i / O.spikes) * TAU;
-          ctx.beginPath();
-          ctx.moveTo(Math.cos(a) * O.tipRadius * 1.6, Math.sin(a) * O.tipRadius * 1.6);
-          ctx.lineTo(Math.cos(a + 0.34) * O.tipRadius * 0.85, Math.sin(a + 0.34) * O.tipRadius * 0.85);
-          ctx.lineTo(Math.cos(a - 0.34) * O.tipRadius * 0.85, Math.sin(a - 0.34) * O.tipRadius * 0.85);
-          ctx.closePath(); ctx.fill();
+        if (s.classId === 'binaryStar') {
+          // BLADES (final): a tumbling rotor of swept blades — reads as a fast whirling edge.
+          const bs = cfg.flailship.binaryStar.blade, R0 = O.tipRadius * (bs ? bs.sizeMult : 1.3);
+          const nB = 3;
+          ctx.fillStyle = hot > 0.6 ? '#f2f7ff' : '#d6e0ea';       // steel, whitens when fast
+          for (let i = 0; i < nB; i++) {
+            const a = (i / nB) * TAU;
+            const P = (ang, rad) => [Math.cos(a + ang) * R0 * rad, Math.sin(a + ang) * R0 * rad];
+            ctx.beginPath();
+            ctx.moveTo(...P(-0.40, 0.50));   // root, leading edge
+            ctx.lineTo(...P(0.28, 1.90));    // swept sharp tip
+            ctx.quadraticCurveTo(...P(0.66, 1.35), ...P(0.62, 0.95));  // curved trailing (scythe) edge
+            ctx.lineTo(...P(0.16, 0.50));    // root, trailing
+            ctx.closePath(); ctx.fill();
+            ctx.strokeStyle = `rgba(255,210,120,${0.45 + 0.5 * hot})`; ctx.lineWidth = 1.4;
+            ctx.stroke();                                          // hot edge glows with speed
+          }
+          ctx.fillStyle = hot > 0.6 ? '#fff3cf' : '#ffe6a8';
+          ctx.beginPath(); ctx.arc(0, 0, R0 * 0.5, 0, TAU); ctx.fill();               // hub
+          ctx.strokeStyle = 'rgba(120,90,30,0.8)'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(0, 0, R0 * 0.28, 0, TAU); ctx.stroke();
+        } else {
+          // spiked mace head (ball)
+          ctx.fillStyle = hot > 0.6 ? '#fff3cf' : '#ffe6a8';
+          for (let i = 0; i < O.spikes; i++) {
+            const a = (i / O.spikes) * TAU;
+            ctx.beginPath();
+            ctx.moveTo(Math.cos(a) * O.tipRadius * 1.6, Math.sin(a) * O.tipRadius * 1.6);
+            ctx.lineTo(Math.cos(a + 0.34) * O.tipRadius * 0.85, Math.sin(a + 0.34) * O.tipRadius * 0.85);
+            ctx.lineTo(Math.cos(a - 0.34) * O.tipRadius * 0.85, Math.sin(a - 0.34) * O.tipRadius * 0.85);
+            ctx.closePath(); ctx.fill();
+          }
+          ctx.beginPath(); ctx.arc(0, 0, O.tipRadius, 0, TAU); ctx.fill();
+          ctx.strokeStyle = 'rgba(120,90,30,0.8)'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.arc(0, 0, O.tipRadius * 0.55, 0, TAU); ctx.stroke();   // forged core seam
         }
-        ctx.beginPath(); ctx.arc(0, 0, O.tipRadius, 0, TAU); ctx.fill();
-        ctx.strokeStyle = 'rgba(120,90,30,0.8)'; ctx.lineWidth = 1.5;
-        ctx.beginPath(); ctx.arc(0, 0, O.tipRadius * 0.55, 0, TAU); ctx.stroke();   // forged core seam
         ctx.restore();
       }
       // BINARY STAR: the live tether between the heads — crackling segmented line,
@@ -495,7 +519,7 @@ window.PULSAR = window.PULSAR || {};
     const abil = classNode(p.classId).ability, spec = classNode(p.classId).special;
     const abilKey = fam === 'grav' ? '[click]' : '[Space]';
     ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = p.abilityCd > 0 ? 'rgba(160,190,220,0.4)' : '#7be0ff';
-    ctx.fillText(abil ? (p.abilityCd > 0 ? `${abil} ${p.abilityCd.toFixed(1)}s` : `${abil} ready ${abilKey}`) : 'no ability (Scout)', x, 112);
+    ctx.fillText(abil ? (p.abilityCd > 0 ? `${abil} ${p.abilityCd.toFixed(1)}s` : `${abil} ready ${abilKey}`) : 'no active ability', x, 112);
     if (spec) { ctx.fillStyle = p.specialCd > 0 ? 'rgba(255,180,120,0.4)' : '#ffb27a'; ctx.fillText(p.specialCd > 0 ? `${spec} ${p.specialCd.toFixed(1)}s` : `${spec} ready [E]`, x, 128); }
     const fireHint = fam === 'grav' ? 'click=launch · auto-pulls rocks'
       : fam === 'flail' ? (p.classId === 'twinmaul' ? 'hold=SPIN · LMB=volley · RMB=BOTH · E=lash' : 'hold=SPIN UP · release=fling at cursor')

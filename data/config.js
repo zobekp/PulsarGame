@@ -198,6 +198,11 @@ window.PULSAR.config = {
       halfWidth: 14,             // hitbox half-thickness == drawn beam glow half-width (forgiving to aim)
       visualSec: 0.16,           // how long the beam streak lingers (render only)
       knockback: 90,             // push imparted to things the beam hits
+      // Range damage falloff — the anti cross-map 2-tap. Full damage out to fullRangeFrac of
+      // maxRange (~390px, the band where a flail/hammer can actually close), then linear down
+      // to minMult at the tip. Edge-of-screen shots become pokes, point-blank stays lethal so
+      // rail still feels great. The beam OPACITY fades along its length to match (honest tell).
+      rangeFalloff: { fullRangeFrac: 0.30, minMult: 0.35 },
     },
     movementWhileCharging: { // multipliers by charge fraction
       to50: 1.00, to90: 0.85, to100: 0.70, overcharge: 0.55,
@@ -391,8 +396,14 @@ window.PULSAR.config = {
     // crossing the line between the heads takes ticking damage and is dragged toward it —
     // and a synced (RMB) throw turns the tether into a GARROTE: both effects amplified while
     // the heads are in flight. You fence space and CATCH people, not just swing.
-    binaryStar: { tether: { halfWidth: 12, damage: 9, rehitSec: 0.4, pull: 220,
-                            thrownPullMult: 2.4, thrownDmgMult: 1.7 } },
+    binaryStar: {
+      tether: { halfWidth: 12, damage: 9, rehitSec: 0.4, pull: 220,
+                thrownPullMult: 2.4, thrownDmgMult: 1.7 },
+      // Tier-3 final: the two maces become BLADES — they swing FASTER, reach FURTHER, and hit
+      // HARDER than the Twinmaul heads. Applied as multipliers over F.orb. They still block
+      // projectiles (the block radius scales up with the blade size). Tune in playtest.
+      blade: { spinMult: 1.4, reachMult: 1.35, dmgMult: 1.4, sizeMult: 1.3 },
+    },
     // Orb Parry — if the orb is positioned between you and a charging attacker, it softens the ram
     // and bleeds the attacker's momentum. Position-based: the orb must be near the incoming hull.
     orbParry: { ramDamageReduction: 0.55, attackerVelocityReduction: 0.6, attackerSlow: 0.4, attackerSlowSec: 0.45, reach: 18 },

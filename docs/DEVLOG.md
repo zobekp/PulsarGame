@@ -6,6 +6,102 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-06 — Binary Star (flail final): maces become BLADES — faster, longer, harder
+**What changed:** the tier-3 flail final's two mace heads are now whirling BLADE rotors. New
+`flailship.binaryStar.blade` config {spinMult 1.4, reachMult 1.35, dmgMult 1.4, sizeMult 1.3}.
+In `wreckingOrb.update` (`src/weapons.js`), Binary Star derives its orb stats by multiplying
+`F.orb` — faster swing (spinSpeed + releaseSweep), longer reach (spinRadius + maxReach), more
+damage (spin/fling/trail), and a bigger head. **Still blocks projectiles** — `orbBlockRadius`
+scales with the enlarged `tipRadius`, so the block is preserved and slightly wider. Twinmaul and
+base Flailship are unchanged (multipliers gate on classId === 'binaryStar').
+
+**Visual:** `src/game.js` flail head-draw now branches — Binary Star draws a 3-blade swept scythe
+rotor (steel body, gold heat edge that brightens with swing speed) instead of the spiked ball;
+all other flail classes keep the mace. Works local and remote (drives off the same
+selfSpin/orbX fields). Tether render unchanged.
+
+**Files touched:** `data/config.js`, `data/classes.js`, `data/visuals.js`, `src/weapons.js`,
+`src/game.js`. Sim-affecting (damage/reach/speed) ⇒ MP authority needs this build. **Not yet
+playtested live** — the blade multipliers are a starting point; tune in `binaryStar.blade`.
+
+---
+
+## 2026-07-06 — Rail visual: removed the opening maw-jaw tip (Star Piercer / Starbreak)
+**What changed:** the siege classes' muzzle had twin jaws that HINGED OPEN with charge. Now that
+the whole clamshell shell opens, a separately-opening tip read as doubly-opening and looked wrong.
+Removed the jaw geometry from `railBody` (`src/ships.js`); the siege charge is now told purely by
+the extending rail + a swelling essence core that condenses at the muzzle (kept from the old maw
+block, enlarged slightly so it still reads as "siege"). Base railship/helion unchanged.
+
+**Cleanup:** the `mawOpen` model option and the numeric `prong` value are gone — `prong` is now
+just a truthy flag (siege muzzle + maw recycle fold time). Starbreak's rift-dash offset adjusted
+since the jaws no longer add length. Cues in `data/visuals.js` updated (no more "maw opens/jaws").
+
+**Files touched:** `src/ships.js`, `data/visuals.js`. Render-only, MP-safe.
+
+---
+
+## 2026-07-06 — Rail balance pass: range falloff (+ visible beam fade), Vent Dash removed
+**Why:** rail could 2-tap a flail from the edge of the screen — a range it couldn't answer — and
+had two escapes (Space Vent Dash + Shift Afterburner) making it slippery on top of that. Goal:
+tame the cross-map burst and thin the escape density WITHOUT dulling what makes rail fun (the
+point-blank snap still hits hard). Player-directed; afterburner stays, projectile idea parked.
+
+**What changed:**
+- **Range damage falloff (vs ships only).** New `railship.beam.rangeFalloff {fullRangeFrac:0.30,
+  minMult:0.35}`. Full damage out to ~390px (where a flail/hammer can actually close), then linear
+  down to 35% at the 1300px tip. Applied in `chargeRail.fire` (`src/weapons.js`); neutral farming /
+  line-break is untouched. Overcharge at the tip is now 24 (was 70), lance 15 (was 42) — a poke,
+  not a delete; point-blank is unchanged. Numbers are a starting point, tune in playtest.
+- **Beam opacity fade** matches the damage curve: `fx.spawnBeam` takes an optional `fade`
+  {fullFrac, minMult} that tapers the stroke opacity along the beam via a length gradient
+  (`src/fx.js`). Only the base rail passes it, so its shots visibly weaken toward the tip — an
+  honest tell. Other beams (helion/maw/rift) draw solid as before.
+- **Vent Dash removed** from all five rail classes (`ability: null` in `data/classes.js`). Rail
+  now keeps ONLY the Shift afterburner as an escape, and has NO active heat shed — heat is pure
+  passive decay (22/s), so sustained fire self-limits harder. HUD no-ability fallback reads
+  "no active ability" (`src/game.js`).
+
+**Not touched (deliberately):** maw (Star Piercer/Starbreak) and helion beams keep flat damage —
+falloff is base-rail-only for now (the reported 2-tap culprit). Projectile-vs-hitscan parked.
+Gravitor enjoyability pass is the next item.
+
+**Dead code left (harmless):** `ventDash` ability def + config block remain but nothing binds them;
+`chargeRail`'s `chargeBoostTimer` branch is now unreachable; rail bots still press ability when hot
+(`bots.js:34`) — a no-op that correctly gives them the same heat wall as the player.
+
+**Files touched:** `data/config.js`, `data/classes.js`, `src/weapons.js`, `src/fx.js`, `src/game.js`.
+Sim-affecting (damage numbers), so MP authority must run this build too. **Not yet playtested in a
+live match** — verify rail still feels good up close and can't cheese from range.
+
+---
+
+## 2026-07-06 — Rail family: shell folds shut smoothly after firing (reset by fold-end)
+**What changed:** `railBody` in `src/ships.js` now separates ENERGY from MECHANICAL deployment.
+Energy (`ch`, from charge/beam ramp) still drives the glow — capacitor rings, energy sleeve,
+muzzle bloom, essence core — and drops to 0 the instant the shot leaves. A new render-only
+deployment value (`dep`, persisted on the ship as `s._railDeploy`, eased off the sim clock)
+drives the mechanical geometry: the clamshell halves (`open`), barrel telescope length (`bl`),
+and maw jaws. `dep` snaps OPEN to track charge with no lag, but after firing it **eases shut over
+foldSec** rather than snapping — the shell closes and the barrel retracts together, finishing
+EXACTLY as the gun's fire cooldown expires (closed shell == ready again). `foldSec` is the class's
+real post-fire lockout, read from config: the maw classes (Star Piercer / Starbreak) use their
+explicit `mawRail.recycleSec` (1.4s); the base rail and beam classes have no discrete cooldown, so
+they use `charge.timeToFullSec` (1.05s, the recharge-to-ready). Re-charging mid-fold just re-opens
+it (charge overrides the fold). Helion/Supernova lens position now rides `dep` too, so it stays
+glued to the retracting muzzle instead of jumping back. (Per-frame close rate is clamped so a
+tab-out pause can't skip the animation; at any normal framerate it lands on foldSec exactly.)
+
+**Files touched:** `src/ships.js` only. Render-only; persists `_railDeploy`/`_railT` on the ship
+object (local, bots, and MP `byId` view-ships all persist across frames — verified). MP-safe.
+
+**How to test:** open `index.html`, Railship, hold+release LMB — the shell should fold shut and
+the barrel retract slowly over the full ~1.05s recharge window into the sealed pod, landing closed
+right as the gun is ready again. Verified with a headless 60fps-stepped fire sequence: dep eases
+1.00 → 0 linearly, hitting ~0.5 at the halfway mark and exactly 0 at +1.05s.
+
+---
+
 ## 2026-07-06 — Hammer family: boost pods deploy straight, exhaust points astern
 **What changed:** The hammer windup telegraph (`hammerBody` in `src/ships.js`) had its fold-out
 booster pods **hinging** outward with charge — which rotated the whole pod so the exhaust flames
@@ -51,6 +147,7 @@ the beam ramps. Star Piercer/Starbreak: jaws gape at the end of the extended rai
 
 **Known limits:** shell open/close snaps with the charge value (no eased shut animation after
 firing — charge drop closes it in one frame; looks like recoil-slam, acceptable for now).
+*(Resolved 2026-07-06 — see the fold-up entry above.)*
 
 ---
 
