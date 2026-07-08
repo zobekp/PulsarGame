@@ -25,10 +25,13 @@ window.PULSAR.MP = (function () {
   let getIntent = null, myName = '', onKillCb = null;
   let sendAcc = 0;
   const buffer = [];                  // [{ recv, snap }] oldest→newest; snap = server 't' message
-  // ADAPTIVE interp buffer: base on the server's snapshot rate, widened by measured arrival
-  // jitter (EMA) — a tunnel/internet path with irregular delivery gets a deeper buffer instead
-  // of rubber-banding; a clean LAN stays snappy at the base.
-  let serverHz = 60, jitterMs = 0, lastArrive = 0;
+  // SERVER-CLOCK interpolation: proxies (tunnels) deliver packets in CLUMPS — timing playback
+  // off arrival times makes motion run fast-slow-fast (the "unplayable jitter"). Instead we
+  // estimate the clock offset (arrival − server tm; min-tracked = fastest path, with a slow
+  // upward creep so a genuinely slower route re-converges) and interpolate on the SERVER
+  // timeline, where snapshots are perfectly evenly spaced. Lateness above the floor is the
+  // real jitter measure and sizes the interp buffer.
+  let serverHz = 60, jitterMs = 0, clockOff = null;
   // Session token: rides every join so a reconnect within the server's grace window reattaches
   // the SAME ship (a tunnel blip no longer costs your run). Fresh per page load.
   const TOKEN = Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
@@ -157,10 +160,13 @@ window.PULSAR.MP = (function () {
     const h = ack != null ? history.get(ack) : null;
     const ex = s.x - (h ? h.x : pred.x), ey = s.y - (h ? h.y : pred.y);
     const d = Math.hypot(ex, ey);
+    // dead zone scales with speed: phantom error ≈ v·Δlatency, so a fast ship needs a wider
+    // tolerance for the same path jitter (fixed 26px was getting punched through at speed)
+    const dz = DEAD_ZONE + 0.12 * Math.hypot(pred.vx, pred.vy);
     if (d > SNAP_DIST) {                       // teleport-grade: adopt server state outright
       pred.x = pred.px = s.x; pred.y = pred.py = s.y; pred.impX = s.ix || 0; pred.impY = s.iy || 0;
       pred.viewX = 0; pred.viewY = 0;
-    } else if (d > DEAD_ZONE) {                // real desync: correct (sim snaps, view melts)
+    } else if (d > dz) {                       // real desync: correct (sim snaps, view melts)
       pred.x += ex; pred.y += ey;
       pred.px += ex; pred.py += ey;            // (shift the lerp pair together — no sub-tick smear)
       pred.viewX += ex; pred.viewY += ey;
@@ -183,7 +189,7 @@ window.PULSAR.MP = (function () {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws`);
     ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '', tk: TOKEN }); };
-    ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); objView.clear(); lastSyncAt = 0; lastArrive = 0; jitterMs = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
+    ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); objView.clear(); lastSyncAt = 0; clockOff = null; jitterMs = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
       if (m.t === 'welcome') { myId = m.id; arena = m.arena; serverHz = m.hz || 60; interpMs = Math.max(40, Math.round(2500 / serverHz)); }
@@ -196,11 +202,15 @@ window.PULSAR.MP = (function () {
   function ingest(snap) {
     const t0 = now();
     buffer.push({ recv: t0, snap });
-    while (buffer.length > 40) buffer.shift();
-    // arrival-jitter EMA → widen the interp buffer on rough paths (capped; LAN stays at base)
-    if (lastArrive) jitterMs = jitterMs * 0.92 + Math.abs((t0 - lastArrive) - 1000 / serverHz) * 0.08;
-    lastArrive = t0;
-    interpMs = Math.min(160, Math.round(Math.max(40, 2500 / serverHz) + 3 * jitterMs));
+    while (buffer.length > 60) buffer.shift();
+    // clock offset: min-track (fastest observed path) with a slow creep upward; this frame's
+    // LATENESS above that floor is genuine delivery jitter and sizes the buffer depth.
+    const off = t0 - snap.tm * 1000;
+    if (clockOff == null || off < clockOff) clockOff = off;
+    else clockOff += 0.005 * (off - clockOff);
+    const late = Math.max(0, off - clockOff);
+    jitterMs = jitterMs * 0.95 + late * 0.05;
+    interpMs = Math.min(200, Math.round(Math.max(40, 2500 / serverHz) + 2.5 * jitterMs + 8));
     if (snap.ob) applyObjFrame(snap);
     // reconcile our own prediction against this (newest) authoritative state
     for (const s of snap.sh) {
@@ -225,16 +235,18 @@ window.PULSAR.MP = (function () {
   }
 
   // ---- interpolation + state reconstruction ----------------------------------
-  // Find the two buffered snapshots bracketing `renderTime`; return { a, b, t }.
-  function bracket(renderTime) {
-    if (!buffer.length) return null;
+  // Find the two snapshots bracketing the wanted SERVER time; return { a, b, t }.
+  // Server timestamps are evenly spaced regardless of how the network clumped delivery.
+  function bracket() {
+    if (!buffer.length || clockOff == null) return null;
+    const wantTm = (now() - clockOff - interpMs) / 1000;
     let a = buffer[0], b = buffer[0];
     for (let i = 0; i < buffer.length; i++) {
-      if (buffer[i].recv <= renderTime) { a = buffer[i]; b = buffer[i + 1] || buffer[i]; }
+      if (buffer[i].snap.tm <= wantTm) { a = buffer[i]; b = buffer[i + 1] || buffer[i]; }
     }
-    const span = b.recv - a.recv;
-    const t = span > 0 ? Math.max(0, Math.min(1, (renderTime - a.recv) / span)) : 0;
-    return { a: a.snap, b: b.snap, t, dt: span / 1000 };
+    const span = b.snap.tm - a.snap.tm;
+    const t = span > 0 ? Math.max(0, Math.min(1, (wantTm - a.snap.tm) / span)) : 0;
+    return { a: a.snap, b: b.snap, t, dt: span };
   }
 
   // Rebuild game.js's render `state` + the player object `p` from interpolated server state.
@@ -244,7 +256,7 @@ window.PULSAR.MP = (function () {
   let lastSyncAt = 0;
   const objView = new Map();   // id → persistent render object, spun locally between object frames
   function syncState(state, p) {
-    const br = bracket(now() - interpMs);
+    const br = bracket();
     if (!br) return;
     const { a, b, t, dt } = br;
     const tNow = now();

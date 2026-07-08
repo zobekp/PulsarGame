@@ -6,6 +6,27 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-06 — SERVER-CLOCK interpolation ("the jitteriness is unplayable")
+The remaining tunnel jitter was a real interp defect: the client timed playback off packet
+ARRIVAL times, and proxies (HTTP/2/QUIC edges) deliver our 60Hz frames in CLUMPS — two frames
+1ms apart that represent 16.7ms of sim time. Interpolating against arrival spacing plays motion
+back fast-slow-fast: textbook jitter, invisible on LAN where delivery is even.
+- Client now estimates the CLOCK OFFSET (arrival − snapshot `tm`; min-tracked = fastest observed
+  path, slow upward creep so a genuinely slower route re-converges) and interpolates on the
+  SERVER timeline, where snapshots are perfectly evenly spaced — delivery clumping stops
+  mattering entirely. `bracket()` walks `snap.tm`, not recv times.
+- Jitter is now measured as LATENESS above the clock-offset floor (semantically right) and sizes
+  the interp buffer: interpMs = base + 2.5×latenessEMA + 8, cap 200ms.
+- Own-ship DEAD ZONE now scales with speed (26 + 0.12·|v|): phantom error ≈ v·Δlatency, so a
+  392px/s cruise needs ~73px of tolerance for the same path jitter that 26px covers at rest —
+  the fixed zone was getting punched through at speed, re-introducing corrections mid-flight.
+predtest 9/9 (desync case updated to clear the scaled zone); live-browser check clean vs the
+server. HONEST LIMIT: quick tunnels are web proxies, not game transport — with these fixes they
+should be genuinely playable, but a direct connection (LAN / port-forward / VPS) will always
+beat them; that's transport physics, not code.
+
+---
+
 ## 2026-07-06 — Prediction dead zone + reconnect grace ("bounces" / "I randomly disappeared")
 Two tunnel-playtest reports, two root causes:
 - *"Ship moves side to side"* — reconciliation was correcting toward PATH-LATENCY PHANTOMS: over

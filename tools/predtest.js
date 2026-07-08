@@ -21,10 +21,11 @@ const p = { alive: true, classId: 'starter', charging: false, charge: 0, ramWind
 for (let i = 0; i < 180; i++) MP.predict(p, { moveX: 1, moveY: 0, aim: 0, afterburner: false }, DT);
 check('cruise top speed ≈ 392 px/s after 3s', Math.abs(pred.vx - 392) < 6, 'vx=' + pred.vx.toFixed(1));
 
-// 2) small reconcile — sim adopts the error, rendered position doesn't move at the instant of correction
+// 2) real-desync reconcile — sim adopts the error, rendered position doesn't move at the instant
+// of correction (error must clear the SPEED-SCALED dead zone: ship is at ~392px/s here → dz≈73)
 const simBefore = pred.x, renderedBefore = pred.x - pred.viewX;
-MP._reconcile({ x: pred.x + 50, y: pred.y, ix: 0, iy: 0 }, null);
-check('sim adopts server error', Math.abs(pred.x - (simBefore + 50)) < 0.01);
+MP._reconcile({ x: pred.x + 120, y: pred.y, ix: 0, iy: 0 }, null);
+check('sim adopts server error', Math.abs(pred.x - (simBefore + 120)) < 0.01);
 check('rendered pos unchanged at correction instant', Math.abs((pred.x - pred.viewX) - renderedBefore) < 0.01);
 for (let i = 0; i < 60; i++) MP.predict(p, { moveX: 0, moveY: 0, aim: 0, afterburner: false }, DT);
 check('view offset melts to ~0 within 1s', Math.abs(pred.viewX) < 2, 'viewX=' + pred.viewX.toFixed(2));
