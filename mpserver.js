@@ -147,16 +147,19 @@ const server = http.createServer((req, res) => {
   });
 });
 
+// RECONNECT GRACE: a dropped socket (tunnels blip!) parks its ship for 30s keyed by the client's
+// session token; rejoining with the same token reattaches the SAME ship — no progress loss
+// ("I randomly disappeared" = a WS blip silently handing the player a fresh Scout).
+const pendingReattach = new Map();   // token -> { shipId, timer }
+const REATTACH_GRACE_MS = 30000;
 server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key']; if (!key) { socket.destroy(); return; }
   socket.setNoDelay(true);   // game traffic: never let Nagle buffer small frames (adds 40-200ms off-LAN)
   const accept = crypto.createHash('sha1').update(key + GUID).digest('base64');
   socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
 
-  const ship = world.addShip({ isBot: false, classId: 'starter' });
-  clients.set(socket, { shipId: ship.id });
-  wsSend(socket, { t: 'welcome', id: ship.id, hz: SNAP_HZ, arena: { w: cfg.arena.width, h: cfg.arena.height } });
-  console.log(`+ player ship ${ship.id} (now ${clients.size})`);
+  // ship is created (or reattached) when the client's `join` arrives, carrying the session token
+  clients.set(socket, { shipId: null, lastSeq: 0, token: null });
 
   let buf = Buffer.alloc(0);
   socket.on('data', (chunk) => {
@@ -174,8 +177,25 @@ server.on('upgrade', (req, socket) => {
       if (opcode !== 0x1) continue;
       let msg; try { msg = JSON.parse(payload.toString('utf8')); } catch (e) { continue; }
       if (msg.t === 'in') { const c = clients.get(socket); if (c) { world.setIntent(c.shipId, msg.i); if (msg.q != null) c.lastSeq = msg.q >>> 0; } }   // INPUT INTENT (+ prediction seq)
-      else if (msg.t === 'evolve') { const c = clients.get(socket); if (c) world.chooseEvolution(world.getShip(c.shipId), msg.i | 0); }
-      else if (msg.t === 'join') { const c = clients.get(socket); if (c) { const sh = world.getShip(c.shipId); if (sh) sh.name = String(msg.name || '').slice(0, 16); } }   // display name
+      else if (msg.t === 'evolve') { const c = clients.get(socket); if (c && c.shipId != null) world.chooseEvolution(world.getShip(c.shipId), msg.i | 0); }
+      else if (msg.t === 'join') {
+        const c = clients.get(socket); if (!c) continue;
+        if (c.shipId == null) {                                    // first join on this socket: create or reattach
+          const tk = typeof msg.tk === 'string' ? msg.tk.slice(0, 32) : null;
+          const pend = tk && pendingReattach.get(tk);
+          if (pend && world.getShip(pend.shipId)) {                // same session back within the grace window
+            clearTimeout(pend.timer); pendingReattach.delete(tk);
+            c.shipId = pend.shipId;
+            console.log(`~ player ship ${c.shipId} reattached (now ${clients.size})`);
+          } else {
+            c.shipId = world.addShip({ isBot: false, classId: 'starter' }).id;
+            console.log(`+ player ship ${c.shipId} (now ${clients.size})`);
+          }
+          c.token = tk;
+          wsSend(socket, { t: 'welcome', id: c.shipId, hz: SNAP_HZ, arena: { w: cfg.arena.width, h: cfg.arena.height } });
+        }
+        const sh = world.getShip(c.shipId); if (sh) sh.name = String(msg.name || '').slice(0, 16);
+      }
       else if (msg.t === 'admin' && ALLOW_ADMIN) {   // dev panel cheats, applied by the authority
         const c = clients.get(socket); if (!c) continue;
         const sh = world.getShip(c.shipId);
@@ -185,7 +205,21 @@ server.on('upgrade', (req, socket) => {
       }
     }
   });
-  function cleanup() { const c = clients.get(socket); if (c) { world.removeShip(c.shipId); clients.delete(socket); console.log(`- player ship ${c.shipId} (now ${clients.size})`); } }
+  function cleanup() {
+    const c = clients.get(socket); if (!c) return;
+    clients.delete(socket);
+    if (c.shipId == null) return;
+    if (c.token) {                                   // park the ship for the reattach grace window
+      const old = pendingReattach.get(c.token); if (old) clearTimeout(old.timer);
+      const shipId = c.shipId, token = c.token;
+      const timer = setTimeout(() => { pendingReattach.delete(token); world.removeShip(shipId); console.log(`- player ship ${shipId} expired (grace over)`); }, REATTACH_GRACE_MS);
+      pendingReattach.set(token, { shipId, timer });
+      console.log(`- player ship ${shipId} detached (${REATTACH_GRACE_MS / 1000}s grace, now ${clients.size})`);
+    } else {
+      world.removeShip(c.shipId);
+      console.log(`- player ship ${c.shipId} (now ${clients.size})`);
+    }
+  }
   socket.on('close', cleanup); socket.on('error', cleanup);
 });
 
@@ -198,7 +232,7 @@ setInterval(() => {
   snapAcc += frame;
   if (snapAcc >= 1 / SNAP_HZ) {
     snapAcc = 0;
-    for (const [sock, c] of clients) wsSend(sock, snapshotFor(c));   // personal culled snapshots
+    for (const [sock, c] of clients) if (c.shipId != null) wsSend(sock, snapshotFor(c));   // personal culled snapshots
     snapN++;
     fxEvents = [];   // always drain — with zero clients these used to accumulate forever
   }

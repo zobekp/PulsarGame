@@ -6,6 +6,28 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-06 — Prediction dead zone + reconnect grace ("bounces" / "I randomly disappeared")
+Two tunnel-playtest reports, two root causes:
+- *"Ship moves side to side"* — reconciliation was correcting toward PATH-LATENCY PHANTOMS: over
+  a jittery route the server's acked position wobbles ±v·Δlatency around the truth, and we
+  corrected toward every one, 60×/s. New DEAD ZONE (26px): sub-threshold errors are latency
+  lead, not desync — 2% bleed only (drift-proof, invisible). Real desyncs (knockback/stun/
+  collision) blow past it and correct as before; impulse adoption now rides only real
+  corrections. predtest 9/9 incl. new jitter-immunity case (render moved 0.00px under 30
+  phantom ±14px corrections).
+- *"I randomly disappeared"* — quick-tunnel WebSockets BLIP. On a drop the client fell back to
+  stepping the LOCAL SP world (whole universe silently swapped), then reconnected as a brand-new
+  Scout (run lost). Fixes: (1) game.js mode-branches on MP.AUTH, not connected — a blip now
+  FREEZES the last server view with a "◌ RECONNECTING — world paused" HUD line and never touches
+  the local world; (2) RECONNECT GRACE server-side: each client sends a per-page-load session
+  token in `join`; on disconnect the ship parks for 30s keyed by that token, and a rejoin
+  reattaches the SAME ship — level/class/scrap intact. Untokened probes still clean up instantly.
+  Ship creation moved from socket-open to join-time (welcome now follows join).
+  Verified: tools/reattachtest.js — level-5 ship survives a drop+rejoin with the same id; a
+  fresh token gets a new ship. wsprobe unchanged-green.
+
+---
+
 ## 2026-07-06 — Tunnel latency pass ("still so laggy"): Nagle, bursts, adaptive buffer
 Three real latency sources beyond the tunnel's inherent RTT, all fixed (this PC session):
 - *NAGLE (the big one):* the WS upgrade socket never called `setNoDelay(true)` — the OS buffered

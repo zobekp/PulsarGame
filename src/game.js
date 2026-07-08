@@ -147,6 +147,7 @@ window.PULSAR = window.PULSAR || {};
     return out;
   }
   function mpSimulate(dt) {
+    if (!PULSAR.MP.connected) { Fx.update(dt); return; }   // connection blip: freeze in place, HUD shows reconnecting
     if (gameStarted && p.alive) {
       const ti = mpControls(dt);
       PULSAR.MP.predict(p, ti, dt);            // own-ship movement, instant
@@ -164,7 +165,10 @@ window.PULSAR = window.PULSAR || {};
     const tDown = Input.key('KeyT');                        // [T] class tree — works in every mode, even dead
     if (tDown && !_treePrev) showTree = !showTree;
     _treePrev = tDown;
-    if (PULSAR.MP && PULSAR.MP.connected) return mpSimulate(dt);
+    // MODE, not connection state: in authoritative mode a WS blip must FREEZE the server view
+    // and reconnect — never silently fall back to stepping the local SP world (that swapped the
+    // whole universe mid-game, then reconnected you as a fresh ship: "I randomly disappeared").
+    if (PULSAR.MP && PULSAR.MP.AUTH) return mpSimulate(dt);
     if (!gameStarted) p.spawnProtect = Math.max(p.spawnProtect, 0.5);        // idle + safe behind the title
     if (gameStarted && p.alive) spControls(dt);
     else world.setIntent(p.id, { moveX: 0, moveY: 0, aim: p.aim, aimDist: 1, firing: false, ability: false, special: false, afterburner: false, altFire: false });
@@ -529,7 +533,7 @@ window.PULSAR = window.PULSAR || {};
     if (PULSAR.MP && PULSAR.MP.AUTH) {
       const on = PULSAR.MP.connected;
       ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';
-      ctx.fillText(on ? `◉ MULTIPLAYER · ${PULSAR.MP.count + 1} players` : '◌ connecting…', x, spec ? 160 : 144);
+      ctx.fillText(on ? `◉ MULTIPLAYER · ${PULSAR.MP.count + 1} players` : (gameStarted ? '◌ RECONNECTING — world paused' : '◌ connecting…'), x, spec ? 160 : 144);
     }
     if (!p.alive) { ctx.textAlign = 'center'; ctx.font = '700 16px system-ui, sans-serif'; ctx.fillStyle = '#ff8a8a'; ctx.fillText('WRECKED — respawning…', Render.viewW / 2, Render.viewH / 2 + 90); ctx.textAlign = 'left'; }
   }

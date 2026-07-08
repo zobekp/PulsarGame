@@ -29,6 +29,9 @@ window.PULSAR.MP = (function () {
   // jitter (EMA) — a tunnel/internet path with irregular delivery gets a deeper buffer instead
   // of rubber-banding; a clean LAN stays snappy at the base.
   let serverHz = 60, jitterMs = 0, lastArrive = 0;
+  // Session token: rides every join so a reconnect within the server's grace window reattaches
+  // the SAME ship (a tunnel blip no longer costs your run). Fresh per page load.
+  const TOKEN = Math.random().toString(36).slice(2, 12) + Math.random().toString(36).slice(2, 12);
   const remotes = [];                 // view-ships for OTHER players (game.js appends after `p`)
   const byId = new Map();             // id → view-ship (persists across frames for interpolation)
 
@@ -179,7 +182,7 @@ window.PULSAR.MP = (function () {
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws`);
-    ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '' }); };
+    ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '', tk: TOKEN }); };
     ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); objView.clear(); lastSyncAt = 0; lastArrive = 0; jitterMs = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -368,7 +371,7 @@ window.PULSAR.MP = (function () {
       }
     },
     sendEvolve(i) { send({ t: 'evolve', i: i | 0 }); },
-    sendName(name) { myName = name || ''; send({ t: 'join', name: myName }); },
+    sendName(name) { myName = name || ''; send({ t: 'join', name: myName, tk: TOKEN }); },
     sendAdmin(action) { send({ t: 'admin', a: action }); },   // dev cheats — server honors unless PULSAR_ADMIN=0
   };
 })();
