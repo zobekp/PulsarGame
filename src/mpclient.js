@@ -87,6 +87,11 @@ window.PULSAR.MP = (function () {
   const cfg = () => PULSAR.config;
   const RAILS = new Set(['railship', 'helion', 'starPiercer', 'supernova', 'starbreak']);   // afterburner-capable (mirrors game.js FAMILY)
   const SNAP_DIST = 200;              // reconcile error beyond this = teleport (respawn/lash) → snap
+  const DEAD_ZONE = 26;               // px — errors below this are PATH-LATENCY noise, not desync:
+                                      // over a jittery route the server's answer wobbles ±v·Δlatency
+                                      // around the truth; correcting toward each phantom made the
+                                      // ship visibly bounce ("moves side to side"). Real desyncs
+                                      // (knockback/collision/stun) blow well past this and correct.
   const VIEW_DECAY = 9;               // /s — how fast a correction's view offset melts away
   const pred = { ready: false, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, impX: 0, impY: 0, aim: 0,
     cruise: 0, cruiseDX: 0, cruiseDY: 0, burnTimer: 0, burnCd: 0, viewX: 0, viewY: 0 };
@@ -152,14 +157,19 @@ window.PULSAR.MP = (function () {
     if (d > SNAP_DIST) {                       // teleport-grade: adopt server state outright
       pred.x = pred.px = s.x; pred.y = pred.py = s.y; pred.impX = s.ix || 0; pred.impY = s.iy || 0;
       pred.viewX = 0; pred.viewY = 0;
-    } else if (d > 0.01) {
-      pred.x += ex; pred.y += ey;              // sim snaps to server truth...
+    } else if (d > DEAD_ZONE) {                // real desync: correct (sim snaps, view melts)
+      pred.x += ex; pred.y += ey;
       pred.px += ex; pred.py += ey;            // (shift the lerp pair together — no sub-tick smear)
-      pred.viewX += ex; pred.viewY += ey;      // ...view stays put and melts toward it
+      pred.viewX += ex; pred.viewY += ey;
+      // adopt server impulses that exceed ours — the knockback we couldn't predict
+      const si = Math.hypot(s.ix || 0, s.iy || 0), pi = Math.hypot(pred.impX, pred.impY);
+      if (si > pi + 20) { pred.impX = s.ix || 0; pred.impY = s.iy || 0; }
+    } else if (d > 0.01) {
+      // sub-threshold: latency lead, not desync. Bleed 2% toward server truth so slow drift
+      // can never accumulate — ≤0.5px/snapshot, invisible — and keep the view offset out of it.
+      pred.x += ex * 0.02; pred.y += ey * 0.02;
+      pred.px += ex * 0.02; pred.py += ey * 0.02;
     }
-    // adopt server impulses that exceed ours — knockback we couldn't predict
-    const si = Math.hypot(s.ix || 0, s.iy || 0), pi = Math.hypot(pred.impX, pred.impY);
-    if (si > pi + 20) { pred.impX = s.ix || 0; pred.impY = s.iy || 0; }
     if (ack != null) for (const k of history.keys()) if (k <= ack) history.delete(k);
     while (history.size > 128) history.delete(history.keys().next().value);   // stray-seq safety cap
   }

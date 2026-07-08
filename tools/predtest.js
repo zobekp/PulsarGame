@@ -40,9 +40,16 @@ MP.predict(rail, { moveX: 1, moveY: 0, aim: 0, afterburner: true }, DT);
 check('afterburner kick applied', Math.abs(pred.impX) > 100, 'impX=' + pred.impX.toFixed(0));
 check('afterburner cooldown running', pred.burnCd > 4, 'cd=' + pred.burnCd.toFixed(1));
 
-// 5) server knockback (impulse we couldn't predict) is adopted when it exceeds ours
-MP._reconcile({ x: pred.x, y: pred.y, ix: 400, iy: 0 }, null);
+// 5) server knockback (impulse we couldn't predict) is adopted alongside a real correction
+MP._reconcile({ x: pred.x + 60, y: pred.y, ix: 400, iy: 0 }, null);   // 60px error = real desync
 check('server knockback adopted', Math.abs(pred.impX - 400) < 0.01, 'impX=' + pred.impX.toFixed(0));
+
+// 6) DEAD ZONE: sub-threshold errors are path-latency jitter, not desync — the rendered
+// position must hold still while phantom ±14px corrections hammer it (the tunnel "bounce" bug)
+const r0 = pred.x - pred.viewX;
+for (let i = 0; i < 30; i++) MP._reconcile({ x: pred.x + (i % 2 ? 14 : -14), y: pred.y, ix: 0, iy: 0 }, null);
+check('dead zone: ±14px jitter leaves the render still', Math.abs((pred.x - pred.viewX) - r0) < 3,
+  `moved ${Math.abs((pred.x - pred.viewX) - r0).toFixed(2)}px over 30 phantom corrections`);
 
 console.log(fails ? `\n${fails} FAILURE(S)` : '\nALL PASS');
 process.exit(fails ? 1 : 0);
