@@ -25,7 +25,10 @@ window.PULSAR.MP = (function () {
   let getIntent = null, myName = '', onKillCb = null;
   let sendAcc = 0;
   const buffer = [];                  // [{ recv, snap }] oldest→newest; snap = server 't' message
-  let lastObjects = null;             // most recent snapshot's object field (ob) — sent every 10th
+  // ADAPTIVE interp buffer: base on the server's snapshot rate, widened by measured arrival
+  // jitter (EMA) — a tunnel/internet path with irregular delivery gets a deeper buffer instead
+  // of rubber-banding; a clean LAN stays snappy at the base.
+  let serverHz = 60, jitterMs = 0, lastArrive = 0;
   const remotes = [];                 // view-ships for OTHER players (game.js appends after `p`)
   const byId = new Map();             // id → view-ship (persists across frames for interpolation)
 
@@ -167,10 +170,10 @@ window.PULSAR.MP = (function () {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws`);
     ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '' }); };
-    ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); lastObjects = null; objView.clear(); lastSyncAt = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
+    ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); objView.clear(); lastSyncAt = 0; lastArrive = 0; jitterMs = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
-      if (m.t === 'welcome') { myId = m.id; arena = m.arena; interpMs = Math.max(40, Math.round(2500 / (m.hz || 60))); }
+      if (m.t === 'welcome') { myId = m.id; arena = m.arena; serverHz = m.hz || 60; interpMs = Math.max(40, Math.round(2500 / serverHz)); }
       else if (m.t === 't') ingest(m);
       else if (m.t === 'kill') { if (onKillCb) onKillCb(m.kn || null, m.vn || 'Ship', !!m.ld); }
     };
@@ -178,9 +181,14 @@ window.PULSAR.MP = (function () {
 
   // Ingest a snapshot: buffer it for interpolation, retain the object field, replay its FX ONCE.
   function ingest(snap) {
-    buffer.push({ recv: now(), snap });
+    const t0 = now();
+    buffer.push({ recv: t0, snap });
     while (buffer.length > 40) buffer.shift();
-    if (snap.ob) lastObjects = snap.ob;
+    // arrival-jitter EMA → widen the interp buffer on rough paths (capped; LAN stays at base)
+    if (lastArrive) jitterMs = jitterMs * 0.92 + Math.abs((t0 - lastArrive) - 1000 / serverHz) * 0.08;
+    lastArrive = t0;
+    interpMs = Math.min(160, Math.round(Math.max(40, 2500 / serverHz) + 3 * jitterMs));
+    if (snap.ob) applyObjFrame(snap);
     // reconcile our own prediction against this (newest) authoritative state
     for (const s of snap.sh) {
       if (s.id !== myId) continue;
@@ -289,28 +297,37 @@ window.PULSAR.MP = (function () {
       const x = lerp(m0.x, mo.x, t), y = lerp(m0.y, mo.y, t);
       state.motes.push({ x, y, px: x, py: y, value: 0, pulsar: mo.p ? 1 : 0, life: 9 });
     }
-    // objects: authoritative frames arrive slowly (every OBJ_EVERYth snapshot) — persistent views
-    // spin LOCALLY at their server spin rate and ease toward the latest authoritative position.
-    if (lastObjects) {
-      const seenO = new Set();
-      for (const o of lastObjects) {
-        seenO.add(o.id);
-        let v = objView.get(o.id);
-        if (!v) { v = { type: o.t, x: o.x, y: o.y, px: o.x, py: o.y, radius: o.r, hp: 1, maxHp: 1, spin: o.sp || 0, spinRate: o.sr || 0, flash: 0, cracked: false, crackTimer: 0 }; objView.set(o.id, v); }
-        v.tx = o.x; v.ty = o.y; v.spinRate = o.sr || 0; v.radius = o.r; v.cracked = !!o.cr;
-        v.hp = o.h != null ? o.h : 1;                    // damage arc: hp as a fraction of maxHp==1
-        if (o.fl) v.flash = 0.12;                        // hit flash latches on, decays locally below
-      }
-      for (const id of [...objView.keys()]) if (!seenO.has(id)) objView.delete(id);
-      state.objects.length = 0;
-      const ek = Math.min(1, 10 * frameDt);
-      for (const v of objView.values()) {
-        v.spin += v.spinRate * frameDt;
-        if (v.flash > 0) v.flash = Math.max(0, v.flash - frameDt);
-        v.x += (v.tx - v.x) * ek; v.y += (v.ty - v.y) * ek;
-        v.px = v.x; v.py = v.y;
-        state.objects.push(v);
-      }
+    // objects: authoritative SLICES were merged into objView at ingest — here we just spin
+    // them locally at their server spin rate and ease toward the latest authoritative position.
+    state.objects.length = 0;
+    const ek = Math.min(1, 10 * frameDt);
+    for (const v of objView.values()) {
+      v.spin += v.spinRate * frameDt;
+      if (v.flash > 0) v.flash = Math.max(0, v.flash - frameDt);
+      v.x += (v.tx - v.x) * ek; v.y += (v.ty - v.y) * ek;
+      v.px = v.x; v.py = v.y;
+      state.objects.push(v);
+    }
+  }
+
+  // Merge one object frame into the persistent views. Frames are SLICES (ids where
+  // id % obn === obi) so the bytes spread across snapshots instead of bursting; stale ids are
+  // pruned per-slice, so destroyed/out-of-range rocks still disappear within one slice cycle.
+  function applyObjFrame(snap) {
+    const seen = new Set();
+    for (const o of snap.ob) {
+      seen.add(o.id);
+      let v = objView.get(o.id);
+      if (!v) { v = { type: o.t, x: o.x, y: o.y, px: o.x, py: o.y, radius: o.r, hp: 1, maxHp: 1, spin: o.sp || 0, spinRate: o.sr || 0, flash: 0, cracked: false, crackTimer: 0 }; objView.set(o.id, v); }
+      v.type = o.t; v.tx = o.x; v.ty = o.y; v.spinRate = o.sr || 0; v.radius = o.r; v.cracked = !!o.cr;
+      v.hp = o.h != null ? o.h : 1;                    // damage arc: hp as a fraction of maxHp==1
+      if (o.fl) v.flash = 0.12;                        // hit flash latches on, decays locally in syncState
+    }
+    if (snap.obi != null) {
+      const n = snap.obn || 6;
+      for (const id of [...objView.keys()]) if (id % n === snap.obi && !seen.has(id)) objView.delete(id);
+    } else {
+      for (const id of [...objView.keys()]) if (!seen.has(id)) objView.delete(id);   // legacy full frame
     }
   }
 

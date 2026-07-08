@@ -21,7 +21,7 @@ const sock = net.connect(PORT, '127.0.0.1', () => {
 });
 
 let handshook = false, buf = Buffer.alloc(0), snaps = 0, myId = null, firstX = null, moved = false;
-let sentSeq = 0, lastAck = null, lastLvl = 1, snapBytes = 0, snapHz = 60;
+let sentSeq = 0, lastAck = null, lastLvl = 1, snapBytes = 0, snapHz = 60, maxSnap = 0;
 sock.on('data', (chunk) => {
   buf = Buffer.concat([buf, chunk]);
   if (!handshook) {
@@ -43,6 +43,7 @@ sock.on('data', (chunk) => {
     else if (m.t === 't') {
       snaps++;
       snapBytes += payload.length;
+      if (payload.length > maxSnap) maxSnap = payload.length;
       if (m.ack != null) lastAck = m.ack;
       else if (m.aq && m.aq[myId] != null) lastAck = m.aq[myId];
       // keep sending intent so the ship keeps moving
@@ -68,7 +69,7 @@ sock.on('data', (chunk) => {
         console.log(`ack check: lastAck=${lastAck} sentSeq=${sentSeq} → ${ackOk ? 'OK' : 'FAIL'}`);
         console.log(`admin check: lvl after 3x levelUp = ${lastLvl} → ${adminOk ? 'OK' : 'FAIL'}`);
         const kbps = (snapBytes / snaps) * snapHz / 1024;   // avg snapshot size × actual rate
-        console.log(`bandwidth: avg snapshot ${(snapBytes / snaps / 1024).toFixed(2)}KB → ~${kbps.toFixed(0)}KB/s (~${(kbps * 8 / 1024).toFixed(1)}Mbps) per client`);
+        console.log(`bandwidth: avg snapshot ${(snapBytes / snaps / 1024).toFixed(2)}KB (max ${(maxSnap / 1024).toFixed(2)}KB) → ~${kbps.toFixed(0)}KB/s (~${(kbps * 8 / 1024).toFixed(1)}Mbps) per client`);
         console.log(`RESULT: received ${snaps} snapshots; my ship moved under intent = ${moved}`);
         sock.end(); process.exit(ackOk && moved && adminOk ? 0 : 1);
       }

@@ -6,6 +6,28 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-06 — Tunnel latency pass ("still so laggy"): Nagle, bursts, adaptive buffer
+Three real latency sources beyond the tunnel's inherent RTT, all fixed (this PC session):
+- *NAGLE (the big one):* the WS upgrade socket never called `setNoDelay(true)` — the OS buffered
+  our small 60Hz frames up to ~40-200ms waiting to coalesce. Invisible on loopback/LAN, brutal on
+  any real path. Classic game-server bug; also benefits port-forward hosting.
+- *Object-frame BURSTS:* the every-6th-snapshot full object frame (5-10KB) head-of-line-blocked
+  the frames behind it. Objects now ship as per-snapshot SLICES (id % OBJ_SLICES === snapN %
+  OBJ_SLICES) — same per-object refresh rate, bytes spread evenly. The client merges slices by id
+  into objView at INGEST and prunes stale ids per-slice (destroyed rocks still vanish within one
+  cycle). Measured: max snapshot 2.99KB vs ~10KB bursts before; avg 2.2KB @60Hz ≈ 1.0Mbps.
+- *ADAPTIVE interp buffer:* interpMs = base (2.5 snapshot intervals) + 3× jitter-EMA of arrival
+  gaps, capped 160ms — rough paths get a deeper buffer instead of rubber-banding; LAN stays at
+  the 40ms base. Also reverted public mode 30Hz→60Hz (that "bandwidth saving" added ~60ms of real
+  input-feedback latency — a bad trade post-culling; `PULSAR_SNAP_HZ` overrides if ever needed).
+What remains on a tunnel is genuine route RTT (~20-60ms) — felt as fire-feedback delay only;
+own movement stays instant via prediction. Direct hosting (LAN URL / router port-forward to
+`http://<public-ip>:8080`) skips even that. Next lever if needed: binary/delta encoding.
+Verified: wsprobe (now prints max snapshot size) + headless Chrome running the live MP client
+against the server with the slice/jitter code — zero errors.
+
+---
+
 ## 2026-07-06 — Binary Star (flail final): maces become BLADES — faster, longer, harder
 **What changed:** the tier-3 flail final's two mace heads are now whirling BLADE rotors. New
 `flailship.binaryStar.blade` config {spinMult 1.4, reachMult 1.35, dmgMult 1.4, sizeMult 1.3}.

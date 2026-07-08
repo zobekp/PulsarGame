@@ -30,7 +30,9 @@ const ALLOW_ADMIN = !PUBLIC && process.env.PULSAR_ADMIN !== '0';
 // (playtested: "so laggy"). Clients read the rate from the welcome message either way;
 // PULSAR_SNAP_HZ overrides if a constrained host ever needs it.
 const SNAP_HZ = +process.env.PULSAR_SNAP_HZ || 60;
-const OBJ_EVERY = 6;                 // send the (mostly static) asteroid field every Nth snapshot (10Hz)
+const OBJ_SLICES = 6;                // object field is split by id into N slices, one slice per snapshot —
+                                     // every object still refreshes at SNAP_HZ/N, but the bytes spread
+                                     // evenly instead of bursting a fat frame every Nth snapshot
 
 // FX recorder — the sim emits cosmetic events; we forward them to clients to replay.
 let fxEvents = [];
@@ -94,10 +96,14 @@ function snapshotFor(c) {
     if (e[0] === 's') { if (e[2] === c.shipId) snap.ev.push(e); }                    // your shake only
     else if (near(e[1], e[2], me, CULL_FX) || (e[0] === 'b' && near(e[3], e[4], me, CULL_FX))) snap.ev.push(e);
   }
-  if (snapN % OBJ_EVERY === 0) {
-    snap.ob = [];
-    for (const o of st.objects) if (o.type === 'titan' || near(o.x, o.y, me, CULL_OBJ))
-      snap.ob.push({ id: nid(o), t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, h: +(o.hp / o.maxHp).toFixed(2), cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2), sr: +o.spinRate.toFixed(3) });
+  // one object SLICE per snapshot (ids where id % OBJ_SLICES === obi) — client merges by id
+  // and prunes stale ids per-slice, so destroyed/out-of-range objects still disappear
+  snap.obi = snapN % OBJ_SLICES; snap.obn = OBJ_SLICES; snap.ob = [];
+  for (const o of st.objects) {
+    const id = nid(o);
+    if (id % OBJ_SLICES !== snap.obi) continue;
+    if (o.type === 'titan' || near(o.x, o.y, me, CULL_OBJ))
+      snap.ob.push({ id, t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, h: +(o.hp / o.maxHp).toFixed(2), cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2), sr: +o.spinRate.toFixed(3) });
   }
   return snap;
 }
@@ -143,6 +149,7 @@ const server = http.createServer((req, res) => {
 
 server.on('upgrade', (req, socket) => {
   const key = req.headers['sec-websocket-key']; if (!key) { socket.destroy(); return; }
+  socket.setNoDelay(true);   // game traffic: never let Nagle buffer small frames (adds 40-200ms off-LAN)
   const accept = crypto.createHash('sha1').update(key + GUID).digest('base64');
   socket.write('HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: ' + accept + '\r\n\r\n');
 
