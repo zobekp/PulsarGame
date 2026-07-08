@@ -12,14 +12,15 @@ const check = (n, c, i) => { console.log((c ? 'PASS' : 'FAIL') + '  ' + n + (i ?
 const world = global.PULSAR.createWorld({});
 const idle = () => ({ moveX: 0, moveY: 0, aim: 0, aimDist: 1, firing: false, ability: false, special: false, afterburner: false, altFire: false });
 
-// rail ventDash via ability edge that a second packet overwrites before the tick (the race)
-const rail = world.addShip({ classId: 'railship' });
+// hammer brace via ability edge that a second packet overwrites before the tick (the race)
+// (was rail ventDash — the rail family's ability slot was removed in the fold/balance pass)
+const ham = world.addShip({ classId: 'hammerhead' });
 world.step(DT);                                    // settle
-world.setIntent(rail.id, Object.assign(idle(), { ability: true }));
-world.setIntent(rail.id, idle());                  // next packet lands before any tick ran
+world.setIntent(ham.id, Object.assign(idle(), { ability: true }));
+world.setIntent(ham.id, idle());                   // next packet lands before any tick ran
 world.step(DT);
-check('rail ventDash fired despite overwrite', Math.hypot(rail.impX, rail.impY) > 40 || rail.abilityCd > 0,
-  `imp=${Math.hypot(rail.impX, rail.impY).toFixed(0)} cd=${(rail.abilityCd || 0).toFixed(2)}`);
+check('hammer brace fired despite overwrite', ham.braceTimer > 0 && ham.abilityCd > 0,
+  `brace=${(ham.braceTimer || 0).toFixed(2)} cd=${(ham.abilityCd || 0).toFixed(2)}`);
 
 // twinmaul Static Lash via special edge, same race
 const twin = world.addShip({ classId: 'twinmaul' });
