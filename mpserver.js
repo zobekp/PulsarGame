@@ -25,9 +25,11 @@ const TICK = 1 / 60;                 // authoritative sim step (matches SP's 60H
 // cheats on. PULSAR_ADMIN=0 disables cheats independently.
 const PUBLIC = process.env.PULSAR_PUBLIC === '1';
 const ALLOW_ADMIN = !PUBLIC && process.env.PULSAR_ADMIN !== '0';
-// Snapshot rate: 60Hz on LAN; 30Hz for public/internet hosting (halves bandwidth — the client
-// reads the rate from the welcome message and widens its interp delay to match).
-const SNAP_HZ = PUBLIC ? 30 : 60;
+// Snapshot rate: 60Hz everywhere by default — after interest-management culling the bandwidth
+// is fine (~1.7Mbps/client worst case), and 30Hz measurably added input-feedback latency
+// (playtested: "so laggy"). Clients read the rate from the welcome message either way;
+// PULSAR_SNAP_HZ overrides if a constrained host ever needs it.
+const SNAP_HZ = +process.env.PULSAR_SNAP_HZ || 60;
 const OBJ_EVERY = 6;                 // send the (mostly static) asteroid field every Nth snapshot (10Hz)
 
 // FX recorder — the sim emits cosmetic events; we forward them to clients to replay.
