@@ -92,6 +92,38 @@ window.PULSAR.Ships = (function () {
     engine(ctx, s, throatX, y, w * 0.85, P, t);
   }
 
+  // Sleek fighter hull (concept-art style): white/plate body, swept accent-edged wings, rear
+  // thrusters, cockpit canopy, a couple of running lights. The family mounts its signature on top
+  // (rail barrel / gravity core / chain yoke). o = { len, beam, wings, thrusters, tier }
+  function fighterHull(ctx, r, s, P, t, o) {
+    const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body, plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+    const darkFill = `rgba(${Math.round(P.rgb[0] * 0.18 + 6)},${Math.round(P.rgb[1] * 0.18 + 7)},${Math.round(P.rgb[2] * 0.18 + 11)},0.97)`;
+    const len = o.len || 1.32, beam = o.beam || 0.27, tier = o.tier || 1;
+    // swept wings (+ a forward canard pair on higher tiers)
+    for (let w = 0; w < (o.wings || 1); w++) for (const sgn of [1, -1]) {
+      if (w === 0) {
+        plate(ctx, [[-0.05 * r, sgn * beam * 0.8], [-0.35 * r, sgn * 0.82 * r], [-1.05 * r, sgn * 0.76 * r], [-0.85 * r, sgn * beam * 0.7]], plateFill, 1.2);
+        line(ctx, -0.08 * r, sgn * beam * 0.82, -0.3 * r, sgn * 0.8 * r, P.accent, 1.6);
+        light(ctx, -0.95 * r, sgn * 0.74 * r, P.rgb, Math.max(1.1, 0.055 * r));
+      } else {
+        plate(ctx, [[0.4 * r, sgn * 0.16 * r], [0.12 * r, sgn * 0.58 * r], [-0.26 * r, sgn * 0.54 * r], [-0.12 * r, sgn * 0.16 * r]], plateFill, 1.1);
+        line(ctx, 0.38 * r, sgn * 0.18 * r, 0.14 * r, sgn * 0.56 * r, P.accent, 1.3);
+      }
+    }
+    // rear thrusters
+    const nth = o.thrusters || 2;
+    for (let i = 0; i < nth; i++) { const ey = (i - (nth - 1) / 2) * 0.24 * r; nacelle(ctx, s, -len * r, ey, 0.16 * r, 0.34 * r, P, t, plateFill); }
+    // fuselage
+    const fus = [[0.55 * r, 0], [0.34 * r, beam * 0.55], [-0.25 * r, beam * r], [-0.95 * r, beam * 0.82 * r], [-len * r, beam * 0.42 * r],
+                 [-len * r, -beam * 0.42 * r], [-0.95 * r, -beam * 0.82 * r], [-0.25 * r, -beam * r], [0.34 * r, -beam * 0.55]];
+    ctx.save(); ctx.scale(1.04, 1.12); plate(ctx, fus, darkFill, 1.3); ctx.restore();
+    plate(ctx, fus, bodyFill, 1.5);
+    plate(ctx, [[0.4 * r, 0.075 * r], [-len * 0.9 * r, 0.065 * r], [-len * 0.9 * r, -0.065 * r], [0.4 * r, -0.075 * r]], plateFill, 1.0);   // spine
+    for (const px of [0.1 * r, -0.5 * r, -0.95 * r]) line(ctx, px, beam * 0.72 * r, px, -beam * 0.72 * r, P.dim, 1);
+    canopy(ctx, -0.02 * r, 0, 0.16 * r, 0.1 * r, P);
+    for (let i = 0; i < 1 + tier; i++) { const x = -0.9 * r + i * 0.32 * r; light(ctx, x, beam * 0.55 * r, [255, 236, 178], Math.max(0.9, 0.05 * r)); light(ctx, x, -beam * 0.55 * r, [255, 236, 178], Math.max(0.9, 0.05 * r)); }
+  }
+
   // Long capital-ship hull shared by the families: armor under-plate, plated spindle hull, keel +
   // transverse plating, rows of lit crew windows ("thousands aboard"), dorsal spine, bridge +
   // canopy, stern engine cluster, port/starboard nav lights, optional sensor mast. Grows LONGER
@@ -166,123 +198,80 @@ window.PULSAR.Ships = (function () {
     s._railDeploy = dep; s._railT = t;
     const open = Math.min(1, dep * 1.5);          // clamshell halves ride the deployment
     const bl = (o.len + (o.ext || 0) * dep) * r;  // barrel telescopes out/in with deployment
-    const bh = o.barrel * r;
+    const bh = o.barrel * r * 0.62;               // thin forward rail barrel (fighter, per concept art)
 
-    // --- rear hull: a proper warship crew section behind the gun (grows with tier via o.rings)
     const darkFill = `rgba(${Math.round(P.rgb[0] * 0.18 + 6)},${Math.round(P.rgb[1] * 0.18 + 7)},${Math.round(P.rgb[2] * 0.18 + 11)},0.97)`;
-    const stern = -1.8 * r, back = o.back * r;
-    for (const ey of [-0.16 * r, 0.16 * r]) nacelle(ctx, s, stern, ey, 0.18 * r, 0.32 * r, P, t, plateFill);
-    const rear = [[-0.15 * r, 0.34 * r], [-0.95 * r, back * 0.92], [stern, 0.17 * r], [stern, -0.17 * r], [-0.95 * r, -back * 0.92], [-0.15 * r, -0.34 * r]];
-    ctx.save(); ctx.scale(1.04, 1.12); plate(ctx, rear, darkFill, 1.3); ctx.restore();
-    plate(ctx, rear, bodyFill, 1.5);
-    const nW = 3 + o.rings;
-    for (const sgn of [1, -1]) for (let i = 0; i < nW; i++) { const x = stern * 0.82 + (-0.25 * r - stern * 0.82) * (i / (nW - 1)); light(ctx, x, 0.17 * r * sgn, [255, 236, 178], Math.max(0.9, 0.05 * r)); }
-    plate(ctx, [[-0.2 * r, 0.08 * r], [-1.55 * r, 0.07 * r], [-1.55 * r, -0.07 * r], [-0.2 * r, -0.07 * r]], plateFill, 1.0);   // spine
-    canopy(ctx, -0.46 * r, 0, 0.13 * r, 0.09 * r, P);
-    light(ctx, -0.92 * r, back * 0.86, [255, 80, 80], Math.max(1.1, 0.06 * r));
-    light(ctx, -0.92 * r, -back * 0.86, [90, 255, 130], Math.max(1.1, 0.06 * r));
-    // heat vents: tail slats, cold-dim -> molten as heat rises; venting = red pulse
+    const twinB = !!o.prong, barrels = twinB ? [-0.13 * r, 0.13 * r] : [0];   // maw classes carry twin rails
     const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
-    const hf = Math.min(1, (s.heat || 0) / heatMax);
-    const venting = (s.ventTimer || 0) > 0;
-    for (let i = 0; i < 3; i++) {
-      const vx = -0.62 * r - i * 0.17 * r;
-      const a = venting ? 0.55 + 0.4 * Math.sin(t * 22) : 0.15 + 0.75 * hf;
-      ctx.strokeStyle = `rgba(255,${Math.round(190 - 130 * Math.max(hf, venting ? 1 : 0))},90,${a})`;
-      ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(vx, 0.22 * r); ctx.lineTo(vx, -0.22 * r); ctx.stroke();
+    const hf = Math.min(1, (s.heat || 0) / heatMax), venting = (s.ventTimer || 0) > 0;
+
+    // === CENTRAL RAIL ASSEMBLY (breech + barrel(s)) — hidden under the closed hull, revealed as it opens ===
+    ctx.fillStyle = plateFill; ctx.fillRect(-0.5 * r, -bh * 1.7, 0.85 * r, bh * 3.4);   // breech
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.2; ctx.strokeRect(-0.5 * r, -bh * 1.7, 0.85 * r, bh * 3.4);
+    for (const by of barrels) {
+      ctx.fillStyle = plateFill; ctx.fillRect(0.3 * r, by - bh, bl - 0.3 * r, bh * 2);
+      ctx.strokeStyle = RIM; ctx.lineWidth = 1.1; ctx.strokeRect(0.3 * r, by - bh, bl - 0.3 * r, bh * 2);
+      ctx.fillStyle = plateFill; ctx.fillRect(bl - 0.06 * r, by - bh * 1.5, 0.1 * r, bh * 3);   // muzzle
+      ctx.strokeStyle = RIM; ctx.strokeRect(bl - 0.06 * r, by - bh * 1.5, 0.1 * r, bh * 3);
+      ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.6 * ch})`; ctx.lineWidth = 1 + 1.6 * ch;
+      ctx.beginPath(); ctx.moveTo(0.4 * r, by); ctx.lineTo(bl - 0.06 * r, by); ctx.stroke();   // energy channel
+    }
+    if (hf > 0.35 || venting) { ctx.globalCompositeOperation = 'lighter'; ctx.beginPath(); ctx.arc(-0.15 * r, 0, 0.16 * r * (1.5 + 0.5 * Math.sin(t * (venting ? 22 : 4))), 0, TAU); ctx.fillStyle = `rgba(255,${Math.round(150 - 90 * hf)},70,${0.15 + 0.5 * Math.max(hf, venting ? 1 : 0)})`; ctx.fill(); ctx.globalCompositeOperation = 'source-over'; }
+
+    // === TWO FIGHTER HULL-HALVES that OPEN UP (part laterally) as it charges — wings + fuselage
+    // split apart to reveal the charging rail, then fold shut on the fire cooldown ===
+    const partY = open * 0.34 * r;
+    for (const sgn of [1, -1]) {
+      ctx.save(); ctx.translate(0, sgn * partY);
+      // swept wing on this half (+ forward canard on higher tiers)
+      plate(ctx, [[-0.05 * r, sgn * 0.24 * r], [-0.35 * r, sgn * 0.82 * r], [-1.05 * r, sgn * 0.76 * r], [-0.85 * r, sgn * 0.22 * r]], plateFill, 1.2);
+      line(ctx, -0.08 * r, sgn * 0.26 * r, -0.3 * r, sgn * 0.8 * r, P.accent, 1.6);
+      light(ctx, -0.95 * r, sgn * 0.74 * r, P.rgb, Math.max(1.1, 0.055 * r));
+      if (o.wings > 1) { plate(ctx, [[0.45 * r, sgn * 0.18 * r], [0.15 * r, sgn * 0.6 * r], [-0.25 * r, sgn * 0.56 * r], [-0.1 * r, sgn * 0.18 * r]], plateFill, 1.1); line(ctx, 0.42 * r, sgn * 0.2 * r, 0.16 * r, sgn * 0.58 * r, P.accent, 1.3); }
+      nacelle(ctx, s, -1.35 * r, sgn * 0.12 * r, 0.16 * r, 0.34 * r, P, t, plateFill);
+      // fuselage HALF (centreline → outer): inner edge sits near y≈0 so the closed hull covers the rail
+      const half = [[0.55 * r, sgn * 0.03 * r], [0.34 * r, sgn * 0.17 * r], [-0.25 * r, sgn * 0.29 * r], [-0.95 * r, sgn * 0.24 * r],
+                    [-1.32 * r, sgn * 0.12 * r], [-1.32 * r, sgn * 0.05 * r], [-0.2 * r, sgn * 0.055 * r], [0.5 * r, sgn * 0.04 * r]];
+      ctx.save(); ctx.scale(1.03, 1.0); plate(ctx, half, darkFill, 1.2); ctx.restore();
+      plate(ctx, half, bodyFill, 1.4);
+      line(ctx, 0.35 * r, sgn * 0.1 * r, -1.15 * r, sgn * 0.09 * r, P.dim, 1);
+      for (let i = 0; i < 2 + o.rings; i++) light(ctx, -1.05 * r + i * 0.34 * r, sgn * 0.16 * r, [255, 236, 178], Math.max(0.9, 0.05 * r));
+      canopy(ctx, -0.02 * r, sgn * 0.13 * r, 0.12 * r, 0.07 * r, P);
+      ctx.restore();
     }
 
-    // --- the gun itself (hidden under the cowl until the shell opens)
-    // breech block
-    ctx.fillStyle = plateFill;
-    ctx.fillRect(-0.30 * r, -bh * 1.6, 0.55 * r, bh * 3.2);
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.2;
-    ctx.strokeRect(-0.30 * r, -bh * 1.6, 0.55 * r, bh * 3.2);
-    // main barrel + thinner telescoping forward section (the "gun gets longer" read)
-    const seg = o.len * r * 0.7;
-    ctx.fillStyle = plateFill;
-    ctx.fillRect(0.25 * r, -bh, seg - 0.25 * r, bh * 2);
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.2;
-    ctx.strokeRect(0.25 * r, -bh, seg - 0.25 * r, bh * 2);
-    ctx.fillStyle = bodyFill;
-    ctx.fillRect(seg, -bh * 0.72, bl - seg, bh * 1.44);
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.1;
-    ctx.strokeRect(seg, -bh * 0.72, bl - seg, bh * 1.44);
-    // muzzle collar
-    ctx.fillStyle = plateFill;
-    ctx.fillRect(bl - 0.10 * r, -bh * 1.25, 0.14 * r, bh * 2.5);
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.1;
-    ctx.strokeRect(bl - 0.10 * r, -bh * 1.25, 0.14 * r, bh * 2.5);
-    // twin accelerator rails: brighten and thicken as the charge builds
-    ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.65 * ch})`;
-    ctx.lineWidth = 1.1 + 1.6 * ch;
-    ctx.beginPath();
-    ctx.moveTo(0.25 * r, -bh * 0.5); ctx.lineTo(bl, -bh * 0.4);
-    ctx.moveTo(0.25 * r, bh * 0.5); ctx.lineTo(bl, bh * 0.4);
-    ctx.stroke();
-    // capacitor rings ride the growing barrel, lighting front-to-back with charge
-    for (let i = 0; i < o.rings; i++) {
-      const rx = 0.35 * r + (i + 1) * (bl - 0.55 * r) / (o.rings + 1);
-      const lit = ch > (i + 0.5) / o.rings;
-      ctx.strokeStyle = lit ? 'rgba(255,255,255,0.95)' : P.dim;
-      ctx.lineWidth = lit ? 2.2 : 1.4;
-      ctx.beginPath(); ctx.moveTo(rx, -bh * 1.55); ctx.lineTo(rx, bh * 1.55); ctx.stroke();
-      if (lit) { ctx.strokeStyle = P.accent; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(rx, 0, bh * 1.9, 0, TAU); ctx.stroke(); }
-    }
-    // energy sleeve + muzzle bloom: the whole gun brightens as the shot condenses
-    if (ch > 0.02) {
+    // --- WARM-UP HELIX wrapping the rail(s): a double helix that energizes + shifts COLOUR by charge
+    // (cold blue → cyan → white → gold overcharge), spinning as it charges.
+    const helixColor = (w) => {
+      w = Math.max(0, Math.min(1.2, w));
+      if (w < 0.4) { const k = w / 0.4; return [55, 100 + 90 * k, 190 + 60 * k]; }
+      if (w < 0.8) { const k = (w - 0.4) / 0.4; return [55 + 150 * k, 190 + 55 * k, 250 + 5 * k]; }
+      const k = Math.min(1, (w - 0.8) / 0.4); return [205 + 50 * k, 245 - 15 * k, 255 - 110 * k];
+    };
+    if (ch > 0.015) {
+      const hc = helixColor(chRaw), hAmp = (twinB ? 0.26 : 0.15) * r, coils = o.rings + 2, hx0 = 0.35 * r, N = 46;
       ctx.globalCompositeOperation = 'lighter';
-      ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.10 + 0.25 * ch})`;
-      ctx.fillRect(0.2 * r, -bh * 1.8, bl - 0.2 * r, bh * 3.6);
-      if (!o.prong) {
-        ctx.beginPath(); ctx.arc(bl + 0.06 * r, 0, r * (0.06 + 0.26 * ch), 0, TAU);
-        ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.30 + 0.45 * ch})`; ctx.fill();
-        ctx.beginPath(); ctx.arc(bl + 0.06 * r, 0, r * (0.03 + 0.12 * ch), 0, TAU);
-        ctx.fillStyle = `rgba(255,255,255,${0.35 + 0.55 * ch})`; ctx.fill();
+      for (const ph of [0, Math.PI]) {
+        ctx.strokeStyle = `rgba(${Math.round(hc[0])},${Math.round(hc[1])},${Math.round(hc[2])},${0.25 + 0.65 * ch})`;
+        ctx.lineWidth = 1.2 + 2 * ch;
+        ctx.beginPath();
+        for (let i = 0; i <= N; i++) { const u = i / N, x = hx0 + (bl - hx0) * u, y = Math.sin(u * coils * TAU + ph + t * 2.6) * hAmp * (0.4 + 0.6 * ch); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); }
+        ctx.stroke();
+      }
+      // muzzle bloom at the tip(s)
+      for (const by of barrels) {
+        const mx = bl + (twinB ? 0.1 : 0.06) * r, sz = (twinB ? 0.09 : 0.07) + (twinB ? 0.34 : 0.26) * ch;
+        ctx.beginPath(); ctx.arc(mx, by, r * sz, 0, TAU); ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.3 + 0.45 * ch})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(mx, by, r * sz * 0.48, 0, TAU); ctx.fillStyle = `rgba(255,255,255,${0.35 + 0.55 * ch})`; ctx.fill();
       }
       ctx.globalCompositeOperation = 'source-over';
     }
-    // overcharge (held past full): golden shimmer along the extended rail
-    if (!o.useRamp && chRaw > 1.0) {
-      ctx.strokeStyle = 'rgba(255,210,120,0.9)'; ctx.lineWidth = 2;
-      ctx.strokeRect(0.2 * r, -bh * 1.1, bl - 0.2 * r, bh * 2.2);
-    }
-    // Siege muzzle (maw classes): the tip no longer HINGES OPEN — the whole clamshell already
-    // does that, so a separately-opening tip read as doubly-opening and looked wrong. Instead
-    // the charge condenses as an essence core that swells at the muzzle: the "shot about to
-    // exist", growing with charge (this IS the siege tell now).
-    if (o.prong && ch > 0.02) {
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.beginPath(); ctx.arc(bl + 0.10 * r, 0, r * (0.10 + 0.40 * ch), 0, TAU);
-      ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.35 + 0.45 * ch})`; ctx.fill();
-      ctx.beginPath(); ctx.arc(bl + 0.10 * r, 0, r * (0.05 + 0.18 * ch), 0, TAU);
-      ctx.fillStyle = `rgba(255,255,255,${0.4 + 0.5 * ch})`; ctx.fill();
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    // --- clamshell cowl, drawn LAST so it hides the gun when sealed. Both halves
-    // lift laterally and flare outward on a rear hinge as the shell opens.
-    const hingeX = -0.35 * r;
-    const lift = open * (o.cowlGap || 0.55) * r;
-    const cLen = (o.len * 0.95 + 0.35) * r;       // hinge -> cowl tip
-    for (const sgn of [1, -1]) {
-      ctx.save();
-      ctx.translate(hingeX, sgn * lift);
-      ctx.rotate(sgn * open * 0.15);
-      poly(ctx, [[cLen, sgn * 0.02 * r], [cLen * 0.60, sgn * 0.28 * r], [0.15 * r, sgn * 0.42 * r],
-                 [0, sgn * 0.30 * r], [0, sgn * 0.035 * r]]);
-      fillStroke(ctx, bodyFill, 1.3);
-      // accent rake along the shell — the closed pod still reads as a weapon
-      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(cLen * 0.88, sgn * 0.07 * r); ctx.lineTo(0.22 * r, sgn * 0.34 * r); ctx.stroke();
-      ctx.restore();
-    }
-    // seam flash: light knifing out of the crack as the shell first splits
+    // seam flash: light knifing down the split as the hull first opens
     if (open > 0.02 && open < 0.95) {
       ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${open * (1 - open) * 2.2})`;
+      ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${open * (1 - open) * 2.0})`;
       ctx.lineWidth = 1.5 + 3 * open;
-      ctx.beginPath(); ctx.moveTo(hingeX, 0); ctx.lineTo(hingeX + cLen, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-0.5 * r, 0); ctx.lineTo(bl, 0); ctx.stroke();
       ctx.globalCompositeOperation = 'source-over';
     }
   }
@@ -365,6 +354,13 @@ window.PULSAR.Ships = (function () {
     light(ctx, 0.55 * r, 0.6 * sp, [255, 80, 80], Math.max(1.1, 0.06 * r));
     light(ctx, 0.55 * r, -0.6 * sp, [90, 255, 130], Math.max(1.1, 0.06 * r));
 
+    // --- twin forward CANNONS on the upper/lower flanks (per concept art), aimed dead ahead
+    for (const sgn of [1, -1]) {
+      const cy = 0.62 * sp * sgn, cx0 = 0.2 * r, cx1 = f * 0.92;
+      plate(ctx, [[cx0, cy - 0.1 * r], [cx1, cy - 0.08 * r], [cx1, cy + 0.08 * r], [cx0, cy + 0.1 * r]], plateFill, 1.2);
+      plate(ctx, [[cx1, cy - 0.11 * r], [cx1 + 0.14 * r, cy - 0.11 * r], [cx1 + 0.14 * r, cy + 0.11 * r], [cx1, cy + 0.11 * r]], darkFill, 1);   // muzzle block
+      line(ctx, cx0 + 0.05 * r, cy, cx1, cy, P.accent, 1.2);
+    }
     // --- (5) ram prow: reinforcement struts + heavy armor face (the weapon)
     for (const sgn of [1, -1]) line(ctx, 0.55 * r, 0.42 * sp * sgn, f * 0.86, 0.7 * sp * sgn, plateFill, 3);
     if (o.teeth) {
@@ -442,19 +438,19 @@ window.PULSAR.Ships = (function () {
   // Gravitor as a long warship that CRADLES its gravity core out ahead of the bow in a pair of
   // containment prongs. Artillery branch grows a launch rail through the cradle; control branch
   // wraps the (void) core in counter-rotating containment rings + field vanes.
+  // Gravitor: a sleek fighter with a big glowing gravity core RING at the FRONT (per the concept
+  // art) — bigger + ringed on higher tiers; control branch adds counter-rotating containment rings
+  // and field vanes; artillery branch adds a launch rail.
   function gravShip(ctx, r, s, P, t, o) {
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-    if (o.vanes) fieldVanes(ctx, r, P, t, o.vanes, 1.35);
-    capitalHull(ctx, r, s, P, t, { nose: 0.95, stern: -1.6, beam: 0.36, beamX: -0.3, nacelles: o.nacelles, windows: o.windows, bridgeX: -0.3, tier: o.tier });
+    if (o.vanes) fieldVanes(ctx, r, P, t, o.vanes, 1.2);
+    fighterHull(ctx, r, s, P, t, { len: 1.3, beam: 0.26, wings: o.tier >= 2 ? 2 : 1, thrusters: o.nacelles, tier: o.tier });
     const cx = o.coreX * r;
-    // forward containment cradle: two prongs from the bow reaching around the core
-    for (const sgn of [1, -1]) {
-      plate(ctx, [[0.82 * r, 0.16 * r * sgn], [cx + 0.34 * r, 0.4 * r * sgn], [cx + 0.02 * r, 0.14 * r * sgn], [0.82 * r, 0.02 * r * sgn]], plateFill, 1.2);
-      line(ctx, cx + 0.34 * r, 0.4 * r * sgn, cx + 0.52 * r, 0.32 * r * sgn, P.accent, 1.5);   // emitter tip
-      if (o.horn) light(ctx, cx + 0.52 * r, 0.32 * r * sgn, P.rgb, Math.max(1.2, 0.07 * r));
-    }
-    if (o.launchRail) plate(ctx, [[0.7 * r, 0.09 * r], [cx + 0.75 * r, 0], [0.7 * r, -0.09 * r]], plateFill, 1.2);  // volley rail
-    if (o.ringN) { ctx.strokeStyle = P.dim; ctx.lineWidth = 1.7; for (let i = 0; i < o.ringN; i++) { const a0 = -t * 0.5 + (i / o.ringN) * TAU; ctx.beginPath(); ctx.arc(cx, 0, (o.coreR + 0.28 + i * 0.14) * r, a0, a0 + 1.6); ctx.stroke(); } }
+    // containment ring housing that cradles the core at the bow
+    ctx.strokeStyle = P.plate; ctx.lineWidth = 2.5; ctx.beginPath(); ctx.arc(cx, 0, (o.coreR + 0.08) * r, 0, TAU); ctx.stroke();
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.1; ctx.beginPath(); ctx.arc(cx, 0, (o.coreR + 0.13) * r, 0, TAU); ctx.stroke();
+    if (o.launchRail) plate(ctx, [[0.6 * r, 0.08 * r], [cx + o.coreR * r + 0.4 * r, 0], [0.6 * r, -0.08 * r]], plateFill, 1.2);  // volley rail through the core
+    if (o.ringN) { ctx.strokeStyle = P.dim; ctx.lineWidth = 1.7; for (let i = 0; i < o.ringN; i++) { const a0 = -t * 0.5 + (i / o.ringN) * TAU; ctx.beginPath(); ctx.arc(cx, 0, (o.coreR + 0.24 + i * 0.14) * r, a0, a0 + 1.6); ctx.stroke(); } }
     gravCore(ctx, r, s, P, t, { coreX: o.coreX, coreR: o.coreR, voidCore: o.voidCore });
   }
 
@@ -463,34 +459,26 @@ window.PULSAR.Ships = (function () {
   // spokes spin with the orb — the machine that swings the wrecking ball.
   // spokes spin with the orb — the machine that swings the wrecking ball. Now a long salvage
   // WARSHIP with the winch drivetrain mounted forward; the heads/swords are drawn in game.js.
+  // Flailship: a sleek gold-accented fighter with chain hardpoints at the stern where the mace/
+  // blade heads feed out (the heads themselves are drawn in game.js). Twin classes get two.
   function flailBody(ctx, r, s, P, t, o) {
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-    capitalHull(ctx, r, s, P, t, { nose: 0.95, stern: -1.7, beam: 0.42, beamX: -0.25, nacelles: o.nacelles || 2, windows: o.windows || 8, bridgeX: -0.45, tier: o.tier });
-    // chain-guide yoke at the bow (twin prongs the chain feeds through)
-    for (const sgn of [1, -1]) plate(ctx, [[0.85 * r, 0.15 * r * sgn], [1.4 * r, 0.3 * r * sgn], [0.95 * r, 0.44 * r * sgn]], plateFill, 1.1);
-    if (o.shoulders) for (const sgn of [1, -1]) {   // armored winch cheeks
-      plate(ctx, [[0.72 * r, 0.4 * r * sgn], [0.36 * r, 0.72 * r * sgn], [-0.05 * r, 0.7 * r * sgn], [0.1 * r, 0.36 * r * sgn]], plateFill, 1.2);
-      ctx.fillStyle = 'rgba(235,245,255,0.7)'; ctx.beginPath(); ctx.arc(0.28 * r, 0.55 * r * sgn, 0.05 * r, 0, TAU); ctx.fill();
+    fighterHull(ctx, r, s, P, t, { len: 1.3, beam: 0.28, wings: o.tier >= 2 ? 2 : 1, thrusters: o.tier >= 2 ? 3 : 2, tier: o.tier });
+    // chain hardpoint(s) at the stern — where the chains run out to the heads
+    const yokes = o.twin ? [0.4, -0.4] : [0];
+    for (const yy of yokes) {
+      plate(ctx, [[-0.85 * r, yy * r + 0.09 * r], [-1.3 * r, yy * r + 0.12 * r], [-1.4 * r, yy * r], [-1.3 * r, yy * r - 0.12 * r], [-0.85 * r, yy * r - 0.09 * r]], plateFill, 1.1);
+      ctx.fillStyle = 'rgba(60,50,35,0.95)'; ctx.beginPath(); ctx.arc(-1.32 * r, yy * r, 0.07 * r, 0, TAU); ctx.fill();   // chain reel hub
+      light(ctx, -1.15 * r, yy * r, P.rgb, Math.max(1, 0.05 * r));
     }
-    // winch drum(s) — the drivetrain, spinning with the orb (twin drums counter-rotate)
-    const dr = (o.drum || 0.4) * r, dx = 0.42 * r;
-    const drums = o.twin ? [0.42 * r, -0.42 * r] : [0];
-    drums.forEach((dy, idx) => {
-      ctx.beginPath(); ctx.arc(dx, dy, dr, 0, TAU); ctx.fillStyle = plateFill; ctx.fill();
-      ctx.strokeStyle = RIM; ctx.lineWidth = 1.3; ctx.stroke();
-      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.5;
-      const spin = o.twin ? (idx === 0 ? (s.orbSelfSpin || 0) : -(s.orbSelfSpin2 != null ? s.orbSelfSpin2 : (s.orbSelfSpin || 0))) : (s.orbSpin || 0);
-      for (let i = 0; i < 3; i++) { const a0 = spin + (i / 3) * TAU; ctx.beginPath(); ctx.moveTo(dx + Math.cos(a0) * dr * 0.25, dy + Math.sin(a0) * dr * 0.25); ctx.lineTo(dx + Math.cos(a0) * dr * 0.9, dy + Math.sin(a0) * dr * 0.9); ctx.stroke(); }
-      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(dx, dy, dr * 0.2, 0, TAU); ctx.fill();
-    });
-    // binaryStar: energized tether manifold bridging the two drums
+    // binaryStar: energized tether manifold bridging the two stern hardpoints
     if (o.tether) {
       ctx.globalCompositeOperation = 'lighter';
       ctx.strokeStyle = 'rgba(255,240,170,0.8)'; ctx.lineWidth = 2.2;
-      ctx.beginPath(); ctx.moveTo(dx, -0.42 * r); ctx.lineTo(dx, 0.42 * r); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-1.15 * r, -0.4 * r); ctx.lineTo(-1.15 * r, 0.4 * r); ctx.stroke();
       ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1;
       const w = 0.1 * r * Math.sin(t * 23);
-      ctx.beginPath(); ctx.moveTo(dx, -0.42 * r); ctx.quadraticCurveTo(dx + w, 0, dx, 0.42 * r); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-1.15 * r, -0.4 * r); ctx.quadraticCurveTo(-1.15 * r + w, 0, -1.15 * r, 0.4 * r); ctx.stroke();
       ctx.globalCompositeOperation = 'source-over';
     }
   }
@@ -532,11 +520,11 @@ window.PULSAR.Ships = (function () {
 
     // Railship: the base pattern — sealed gun pod at rest; charging splits the shell
     // and the rail telescopes out to nearly double length at full charge.
-    railship(ctx, r, s, P, t)    { railBody(ctx, r, s, P, t, { len: 1.35, ext: 1.05, back: 0.62, barrel: 0.16, rings: 2 }); },
+    railship(ctx, r, s, P, t)    { railBody(ctx, r, s, P, t, { len: 1.35, ext: 1.05, back: 0.62, barrel: 0.16, rings: 2, wings: 1 }); },
     // Helion: the shell opens on beam ramp; short heavy barrel extends into a focusing
     // LENS RING that glows with the ramp — a solar furnace, not a sniper rifle.
     helion(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.5, back: 0.68, barrel: 0.19, rings: 2, useRamp: true });
+      railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.5, back: 0.68, barrel: 0.19, rings: 2, useRamp: true, wings: 1 });
       const ramp = Math.min(1, s.beamRamp || 0), dep = s._railDeploy != null ? s._railDeploy : ramp;
       const lx = (1.05 + 0.5 * dep) * r + 0.28 * r;   // lens rides the retracting muzzle
       ctx.globalCompositeOperation = 'lighter';
@@ -557,12 +545,12 @@ window.PULSAR.Ships = (function () {
     },
     // Star Piercer: siege pod — heavier shell, wider split, jaws hinge open at the
     // muzzle of the extending rail.
-    starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 1.55, ext: 0.95, back: 0.80, barrel: 0.21, rings: 3, prong: true, cowlGap: 0.62 }); },
+    starPiercer(ctx, r, s, P, t) { railBody(ctx, r, s, P, t, { len: 1.55, ext: 0.95, back: 0.80, barrel: 0.21, rings: 3, prong: true, wings: 2 }); },
     // Supernova: the furnace gone critical — oversized lens, and a CORONA ring around the
     // whole hull that burns brighter as HEAT builds (the nova you're owed). Prominence arcs
     // grow agitated as the bar fills.
     supernova(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.55, back: 0.75, barrel: 0.21, rings: 3, useRamp: true, cowlGap: 0.62 });
+      railBody(ctx, r, s, P, t, { len: 1.05, ext: 0.55, back: 0.75, barrel: 0.21, rings: 3, useRamp: true, wings: 2 });
       const ramp = Math.min(1, s.beamRamp || 0), dep = s._railDeploy != null ? s._railDeploy : ramp;
       const lx = (1.05 + 0.55 * dep) * r + 0.32 * r;   // lens rides the retracting muzzle
       const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
@@ -589,7 +577,7 @@ window.PULSAR.Ships = (function () {
     // Starbreak: heavier siege chassis — dorsal rift-blades with shimmering edges (space is
     // thin around this ship), and faint rift dashes flicker ahead of the maw as it charges.
     starbreak(ctx, r, s, P, t) {
-      railBody(ctx, r, s, P, t, { len: 1.75, ext: 1.30, back: 0.95, barrel: 0.23, rings: 4, prong: true, cowlGap: 0.68 });
+      railBody(ctx, r, s, P, t, { len: 1.75, ext: 1.30, back: 0.95, barrel: 0.23, rings: 4, prong: true, wings: 2 });
       const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
       for (const sgn of [1, -1]) {
         poly(ctx, [[0.15 * r, 0.42 * r * sgn], [-0.25 * r, 1.05 * r * sgn], [-0.65 * r, 0.95 * r * sgn], [-0.55 * r, 0.38 * r * sgn]]);
@@ -618,11 +606,11 @@ window.PULSAR.Ships = (function () {
 
     // Gravitor line: a long carrier that cradles a gravity core out front. Each tier is bigger —
     // more nacelles + windows, bigger core, then the control branch's containment rings/vanes.
-    gravitor(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 1.5, coreR: 0.30, nacelles: 2, windows: 7, horn: true, tier: 1 }); },
-    meteorist(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 1.55, coreR: 0.34, nacelles: 2, windows: 8, horn: true, tier: 2 }); },
-    starfall(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 1.5, coreR: 0.36, nacelles: 3, windows: 9, horn: true, launchRail: true, tier: 2 }); },
-    singularity(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 1.4, coreR: 0.36, nacelles: 2, windows: 8, voidCore: true, vanes: 3, ringN: 2, tier: 2 }); },
-    eventHorizon(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 1.35, coreR: 0.42, nacelles: 3, windows: 10, voidCore: true, vanes: 4, ringN: 3, tier: 3 }); },
+    gravitor(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 0.78, coreR: 0.30, nacelles: 2, windows: 7, horn: true, tier: 1 }); },
+    meteorist(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 0.8, coreR: 0.36, nacelles: 2, windows: 8, horn: true, tier: 2 }); },
+    starfall(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 0.78, coreR: 0.4, nacelles: 3, windows: 9, horn: true, launchRail: true, tier: 2 }); },
+    singularity(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 0.78, coreR: 0.38, nacelles: 2, windows: 8, voidCore: true, vanes: 3, ringN: 2, tier: 2 }); },
+    eventHorizon(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 0.82, coreR: 0.46, nacelles: 3, windows: 10, voidCore: true, vanes: 4, ringN: 3, tier: 3 }); },
 
     // Flail line: a long salvage warship, winch drivetrain forward. Twinmaul doubles the drums;
     // Binary Star bridges them with the energized tether manifold. Each tier grows.

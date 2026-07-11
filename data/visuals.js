@@ -17,14 +17,14 @@ window.PULSAR.classVisuals = {
   starter: { hue: "#9fb3c8", silhouette: "dart",
              accent: "none", note: "Tiny neutral dart with a cockpit dot." },
 
-  // Railship — a GUN with a ship attached: at rest a sealed clamshell gun pod with a
-  // small tail craft. Charging splits the shell open and the inner rail telescopes
-  // out, growing longer and brighter until the shot.
+  // Railship — a sleek white/cyan fighter (concept art) with swept accent-edged wings and a thin
+  // forward RAIL BARREL. Charging telescopes the barrel out and warms up a double-HELIX coil that
+  // shifts colour by charge (blue → cyan → white → gold overcharge). Maw classes carry twin rails.
   railship: { hue: "#39d0ff", silhouette: "railship",
               accent: "frontSpineGlow",
-              cues: ["shell splits open when charging", "barrel telescopes longer + brighter",
-                     "capacitor rings light with charge", "golden overcharge shimmer",
-                     "heat-vent slats glow when hot"] },
+              cues: ["sleek fighter, swept wings, forward rail barrel", "barrel telescopes out with charge",
+                     "helix coil warms up + shifts colour by charge (blue→cyan→white→gold)",
+                     "muzzle bloom at the tip", "breech glows red when hot"] },
   helion:      { inherits: "railship", silhouette: "helion",
                  note: "Solar-furnace pod: the shell opens on BEAM RAMP and the barrel extends " +
                        "into a focusing lens ring that glows hotter as the beam ramps.",

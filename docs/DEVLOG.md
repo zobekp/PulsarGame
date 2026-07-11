@@ -71,6 +71,51 @@ against the server with the slice/jitter code — zero errors.
 
 ---
 
+## 2026-07-11 — Fleet resprite to match the user's concept-art sheets (all four families)
+**What changed:** the user added painterly concept-art sheets (`RailSprites.png`, `HammerheadSprite.png`,
+`GravandFlailSprites.png`) — sleek white hulls with the family accent colours. Re-drew every family's
+procedural model to match those designs in the game's flat-neon vector style, keeping each family's
+charge/ability animations. Added a shared `fighterHull` helper (white body, swept accent-edged
+wings, rear thrusters, canopy, running lights) so the three fighter families share a base.
+- **Rail** (cyan): sleek fighter, swept wings, thin forward RAIL BARREL that telescopes out with
+  charge, wrapped by a colour-shifting warm-up **helix** (blue→cyan→white→gold overcharge) + muzzle
+  bloom. Maw classes (Star Piercer/Starbreak) carry TWIN rails + canard fins. (Replaces the previous
+  Halcyon split-hull — the user's art supersedes it.)
+- **Hammer** (orange): armored wedge + ram prow, now with the concept art's **twin forward cannons**
+  on the upper/lower flanks. Ram wind-up (boost pods + molten edge) and Brace shield unchanged.
+- **Gravitor** (purple): `gravShip` → sleek fighter with the big glowing gravity-core RING at the
+  FRONT (was cradled out on prongs); grows + gains containment rings/vanes up the control branch,
+  launch rail on the artillery branch. Core still brightens with loaded rocks.
+- **Flail** (gold): `flailBody` → sleek gold fighter with chain hardpoints at the STERN where the
+  mace/blade heads feed out (heads/swords still drawn in `game.js`); twin classes get two + the
+  Binary Star tether manifold.
+
+**Files:** `src/ships.js` (fighterHull + railBody/hammerBody/gravShip/flailBody), `data/visuals.js`.
+Render-only. Verified every family + tier via headless renders against the concept sheets.
+**Note:** flat-neon translation of painterly art — captures silhouette + signature + accent + the
+animations, not the painted panel shading (that's the game's house style).
+
+---
+
+## 2026-07-10 — Rail line resprite: Halcyon split-hull + colour-shifting warm-up helix  *(superseded by the concept-art resprite above)*
+**What changed:** rebuilt `railBody` (all rail classes) from the clamshell gun-pod into a sleek
+**Halcyon-style starliner split down the middle**, with a **huge central cannon** poking out the
+bow. The charge animation is unchanged (barrel telescopes out, folds shut on the fire cooldown),
+but the two long hull halves now **split apart laterally** to reveal the cannon, and the capacitor
+rings are replaced by a **double-HELIX coil** wrapping the barrel that "warms up" (brightens +
+amplitude grows) and **shifts colour by charge level**: cold blue → cyan → white-hot at full →
+gold at overcharge (`helixColor` ramp, driven by `chRaw` so overcharge reads). Breech heat-glow
+replaces the vent slats. Muzzle bloom kept. Helion lens / Supernova corona / Starbreak rift-blades
+still layer on top. Render-only.
+
+**Files:** `src/ships.js` (`railBody`), `data/visuals.js` (cues). Verified across the whole rail
+line at charge 0→1.25 (helix goes gold at overcharge; halves split; cannon telescopes).
+
+**Open:** Zenith (tier-4 rail) redesign — user wants it to STAY the railgun + add autoaim
+light-damage side cannons. Asking for the details before speccing/building.
+
+---
+
 ## 2026-07-10 — Grab-bag pass: zoom-UI fix, VFX escalation, melee/bot tuning, juice
 Worked the "what else needs work" list.
 - **Zoom-UI readability (regression fix):** enemy name tags, HP bars (`drawEnemyTag`) and floating
