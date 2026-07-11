@@ -30,6 +30,65 @@ window.PULSAR = window.PULSAR || {};
   // ---- WEAPONS -------------------------------------------------------------
   const weapons = {
 
+    // ===== TIER-4 APEX WEAPONS — each builds on its final's weapon (bigger via tier-4 scaling) =====
+    // ZENITH: the spinal siege railgun + ALWAYS-ON autoaim point-defense batteries.
+    zenithRail: {
+      update(api, ship, dt, ctx) {
+        weapons.mawRail.update(api, ship, dt, ctx);
+        ship._pdCd = (ship._pdCd || 0) - dt;
+        if (ship._pdCd <= 0) {
+          const pd = api.config.railship.zenith.pointDefense, rng = pd.range * (ship.rangeMult || 1);
+          let best = null, bd = rng;
+          for (const e of api.enemiesOf(ship)) { if (e.spawnProtect > 0) continue; const d = Math.hypot(e.x - ship.x, e.y - ship.y); if (d < bd) { bd = d; best = e; } }
+          if (best) {
+            ship._pdCd = pd.cooldownSec;
+            const a = Math.atan2(best.y - ship.y, best.x - ship.x), dx = Math.cos(a), dy = Math.sin(a);
+            api.damage(best, pd.damage, { dx, dy, knockback: 12, source: ship });
+            api.fx.spawnBeam(ship.x + dx * ship.radius, ship.y + dy * ship.radius, best.x, best.y, '#9fe8ff', 2, 0.09, 0.3);
+            api.fx.spawnParticles(best.x, best.y, 3, '#9fe8ff', { speed: 130, life: 0.2 });
+          }
+        }
+      },
+    },
+    // PRISM: the ramping beam + auto-tracking sub-beams onto the next-nearest enemies.
+    prismBeam: {
+      update(api, ship, dt, ctx) {
+        weapons.helionBeam.update(api, ship, dt, ctx);
+        const ramp = ship.beamRamp || 0;
+        if (ctx.firing && ramp > 0.05) {
+          const P = api.config.helion.prism, rng = P.range * (ship.rangeMult || 1), cands = [];
+          for (const e of api.enemiesOf(ship)) { if (e.spawnProtect > 0) continue; const d = Math.hypot(e.x - ship.x, e.y - ship.y); if (d < rng) cands.push({ e, d }); }
+          cands.sort((a, b) => a.d - b.d);
+          for (let i = 0; i < Math.min(P.subBeams, cands.length); i++) {
+            const e = cands[i].e, a = Math.atan2(e.y - ship.y, e.x - ship.x), dx = Math.cos(a), dy = Math.sin(a);
+            api.damage(e, P.subDps * ramp * dt, { dx, dy, knockback: 0, source: ship });
+            api.fx.spawnBeam(ship.x + dx * ship.radius, ship.y + dy * ship.radius, e.x, e.y, hueFor(ship.classId), P.subWidth, 0.05, 0.4 * ramp);
+          }
+        }
+      },
+    },
+    // JUGGERNAUT: the ram (tier-4 scaling makes it a plow). TODO: sustained overrun that hits all in a corridor.
+    juggernautRam: { update(api, ship, dt, ctx) { weapons.hammerRam.update(api, ship, dt, ctx); } },
+    // CATACLYSM: the gravity well for now. TODO: orbital meteor barrage on a marked area.
+    cataclysm: { update(api, ship, dt, ctx) { weapons.gravityWell.update(api, ship, dt, ctx); } },
+    // DEVOURER: the gravity well + a lethal BLACK-HOLE field (pull enemies in; the core kills).
+    devourerWell: {
+      update(api, ship, dt, ctx) {
+        weapons.gravityWell.update(api, ship, dt, ctx);
+        const D = api.config.gravitor.devourer, R = D.pullRadius * (ship.rangeMult || 1);
+        for (const e of api.enemiesOf(ship)) {
+          const dx = ship.x - e.x, dy = ship.y - e.y, d = Math.hypot(dx, dy) || 1;
+          if (d > R) continue;
+          const f = 1 - d / R;
+          e.impX = (e.impX || 0) + (dx / d) * D.pull * f * f * dt;
+          e.impY = (e.impY || 0) + (dy / d) * D.pull * f * f * dt;
+          if (d < ship.radius + D.lethalRadius) api.damage(e, D.coreDps * dt, { dx: -dx / d, dy: -dy / d, knockback: 0, source: ship });
+        }
+      },
+    },
+    // CONSTELLATION: the twin-blade orbit for now. TODO: a full ring of tethered blades + cast-net.
+    constellation: { update(api, ship, dt, ctx) { weapons.wreckingOrb.update(api, ship, dt, ctx); } },
+
     popgun: {
       update(api, ship, dt, ctx) {
         ship.fireTimer = (ship.fireTimer || 0) - dt;

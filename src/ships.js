@@ -617,6 +617,31 @@ window.PULSAR.Ships = (function () {
     flailship(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { drum: 0.4, nacelles: 2, windows: 8, tier: 1 }); },
     twinmaul(ctx, r, s, P, t)  { flailBody(ctx, r, s, P, t, { twin: true, drum: 0.34, shoulders: true, nacelles: 2, windows: 9, tier: 2 }); },
     binaryStar(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { twin: true, drum: 0.34, shoulders: true, tether: true, nacelles: 3, windows: 10, tier: 3 }); },
+
+    // ===== TIER-4 TITAN models — the family body at apex scale + a signature flourish =====
+    // Zenith: the heaviest maw rail + autoaim point-defense turrets on the wings.
+    zenith(ctx, r, s, P, t) {
+      railBody(ctx, r, s, P, t, { len: 1.9, ext: 1.4, back: 1.0, barrel: 0.24, rings: 5, prong: true, wings: 2 });
+      for (const sgn of [1, -1]) { const bx = -0.45 * r, by = 0.7 * r * sgn; plate(ctx, [[bx - 0.12 * r, by - 0.1 * r], [bx + 0.12 * r, by - 0.1 * r], [bx + 0.12 * r, by + 0.1 * r], [bx - 0.12 * r, by + 0.1 * r]], P.plate, 1.1); light(ctx, bx, by, P.rgb, Math.max(1.1, 0.06 * r)); }
+    },
+    // Prism: the beam rail + three forward prism emitters.
+    prism(ctx, r, s, P, t) {
+      railBody(ctx, r, s, P, t, { len: 1.15, ext: 0.65, back: 0.85, barrel: 0.22, rings: 4, useRamp: true, wings: 2 });
+      const ramp = Math.min(1, s.beamRamp || 0);
+      ctx.globalCompositeOperation = 'lighter';
+      for (let i = -1; i <= 1; i++) { ctx.beginPath(); ctx.arc(0.7 * r, i * 0.22 * r, 0.08 * r * (0.6 + ramp), 0, TAU); ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.4 + 0.5 * ramp})`; ctx.fill(); }
+      ctx.globalCompositeOperation = 'source-over';
+    },
+    juggernaut(ctx, r, s, P, t) { hammerBody(ctx, r, s, P, t, { front: 2.0, span: 1.45, teeth: 0, nacelles: 4, wings: 2, armor: 3, ridge: 0.55 }); },
+    cataclysm(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 0.85, coreR: 0.5, nacelles: 3, windows: 12, horn: true, launchRail: true, tier: 3 }); },
+    devourer(ctx, r, s, P, t) {
+      gravShip(ctx, r, s, P, t, { coreX: 0.84, coreR: 0.52, nacelles: 3, windows: 12, voidCore: true, vanes: 5, ringN: 4, tier: 3 });
+      ctx.globalCompositeOperation = 'lighter';   // black-hole aura sucking inward
+      ctx.beginPath(); ctx.arc(0.84 * r, 0, 0.9 * r * (0.9 + 0.1 * Math.sin(t * 3)), 0, TAU);
+      ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},0.2)`; ctx.lineWidth = 2; ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    },
+    constellation(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { twin: true, tether: true, tier: 3 }); },
   };
 
   function modelFor(classId) {

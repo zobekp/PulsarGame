@@ -96,7 +96,8 @@ window.PULSAR.config = {
     levelChoosePath: 8,           // pick upgrade branch
     levelFinalEvolution: 15,      // final class form
     levelLeaderScaling: 25,       // dreadnought / crowned scaling kicks in
-    evolutionCosts: { class: 30, path: 80, final: 160 }, // scrap spent = banked progress
+    levelApex: 30,                // TIER-4 Titan-class apex (one per final) — past leader scaling
+    evolutionCosts: { class: 30, path: 80, final: 160, apex: 320 }, // scrap spent = banked progress
     // Level from cumulative earned scrap (XP): xpToReach(L) = round(k * (L-1)^exp).
     // ~L3≈28xp (early), L8≈250, L15≈880, L25≈2360 (leader grind). Tune in playtest.
     levelCurve: { k: 8, exp: 1.8 },
@@ -114,10 +115,10 @@ window.PULSAR.config = {
   //   • Maneuver (top speed + accel) tapers with size, so capital ships LUMBER and small ships
   //     dance around them — the David-vs-Goliath counterplay. Derived from radius so SP == MP.
   scaling: {
-    sizeByRank:  [1.0, 1.5, 2.2, 3.1],    // radius (== hitbox == drawn hull) vs baseRadius, × family sizeMult
-    hpByRank:    [1.0, 2.0, 3.6, 6.0],    // durability grows with hull, but less than area (still killable)
-    dmgByRank:   [1.0, 1.8, 3.0, 4.8],    // bigger guns hit harder (keeps intra-rank TTK reasonable)
-    rangeByRank: [1.0, 1.2, 1.45, 1.7],   // bigger weapons REACH further — beams, chain, lunge, grav field
+    sizeByRank:  [1.0, 1.5, 2.2, 3.1, 4.2],   // rank 4 = Titan-class apex (radius == hitbox == drawn hull)
+    hpByRank:    [1.0, 2.0, 3.6, 6.0, 9.0],   // durability grows with hull, but less than area (still killable)
+    dmgByRank:   [1.0, 1.8, 3.0, 4.8, 6.5],   // bigger guns hit harder (keeps intra-rank TTK reasonable)
+    rangeByRank: [1.0, 1.2, 1.45, 1.7, 2.0],  // bigger weapons REACH further — beams, chain, lunge, grav field
     leaderSizeMult: 1.5,  leaderHpMult: 1.6,  leaderDmgMult: 1.4,  leaderRangeMult: 1.3,  // dominance → dreadnought
     maneuver: { fullSizeRadius: 62, minMult: 0.70 }, // speed+accel taper: 1.0 at baseRadius → minMult by this size
                                                      // (0.70: eased so big brawlers can still close on kiters — tune in playtest)
@@ -288,6 +289,8 @@ window.PULSAR.config = {
     // Tier mods applied by class id. Multipliers/values vs the base rail above.
     evolveMods: {},   // tier-2 rails now have their OWN weapons (helionBeam / mawRail) — no stat-mod evolutions
     brokenCoreMarkSec: 2.0,   // Star Piercer special: weak-point mark duration on cracked leaders
+    // ZENITH (tier-4): always-on autoaim point-defense batteries — chip the nearest enemy while you charge.
+    zenith: { pointDefense: { range: 520, damage: 6, cooldownSec: 0.17 } },
     // Star Piercer siege maw (branch B weapon). Charging OPENS the cannon — beam width IS
     // maw width. Release fires ONE instantaneous blast: all the damage lands the frame you
     // let go, along the aim you committed to. Fired, not steered — miss = recycle wasted.
@@ -351,6 +354,8 @@ window.PULSAR.config = {
   // the gun force-vents.
   helion: {
     stats: { hp: 0.85, speed: 0.97, sizeMult: 0.94, difficulty: "medium" },
+    // PRISM (tier-4): the ramping beam splits into auto-tracking sub-beams onto the nearest enemies.
+    prism: { range: 900, subBeams: 3, subDps: 42, subWidth: 3 },
     beam: {
       range: 680, halfWidth: 6,        // thin, honest hitbox (bloom matches)
       dpsBase: 24, dpsMax: 82,         // ramp start -> full fury
@@ -377,6 +382,8 @@ window.PULSAR.config = {
   // Lineage: descends from Nova (Collapse/Event Horizon == Nova "pull-then-detonate").
   gravitor: {
     stats: { hp: 0.90, speed: 0.90, sizeMult: 1.02, difficulty: "medium" },
+    // DEVOURER (tier-4): a walking black hole — pull enemies toward the core; the very centre kills.
+    devourer: { pullRadius: 440, pull: 900, lethalRadius: 34, coreDps: 130 },
     well: {
       pullRadius: 440, enemyPull: 30, enemySlow: 0.10,
       launchSpeed: 660, launchDamage: 24,

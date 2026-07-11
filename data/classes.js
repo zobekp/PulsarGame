@@ -158,6 +158,55 @@ window.PULSAR.classes = {
     special: "staticLash",
     note: "Twin swords on live tethers — the blades AND the space between them are the weapon.",
   },
+
+  // ===== TIER-4 TITAN-CLASS APEXES (lvl 30) — one per final, the true dreadnoughts ==========
+  // ZENITH ← Starbreak: a bigger spinal railgun (longer reach, harder charge) flanked by AUTOAIM
+  // point-defense cannons that chip at whatever gets close while you line up the siege shot.
+  zenith: {
+    id: "zenith", displayName: "Zenith", tier: 4, parentId: "starbreak",
+    configKey: "railship", branchOf: "railship",
+    weapon: "zenithRail", ability: null, passive: "armorCrack", special: "brokenCore",
+    note: "Spinal siege railgun + always-on autoaim point-defense batteries.",
+  },
+  // PRISM ← Supernova: the ramping beam splits into auto-tracking sub-beams that fan onto multiple
+  // targets at once — a beam that fights a whole knot of ships.
+  prism: {
+    id: "prism", displayName: "Prism", tier: 4, parentId: "supernova",
+    configKey: "helion", branchOf: "railship",
+    weapon: "prismBeam", ability: null, passive: "armorCrack", special: "flareNova",
+    note: "The ramping beam splits into auto-tracking sub-beams — melt several ships at once.",
+  },
+  // JUGGERNAUT ← Worldsplitter: OVERRUN — spool sustained velocity, then plow THROUGH everything in
+  // a corridor without stopping on the first hit, dragging a shockwave wake.
+  juggernaut: {
+    id: "juggernaut", displayName: "Juggernaut", tier: 4, parentId: "worldsplitter",
+    configKey: "hammerhead", branchOf: "hammerhead",
+    weapon: "juggernautRam", ability: "brace", passive: "momentumDamage", special: "worldsplitterSlam",
+    note: "An unstoppable freight-train ram — plows through everything in a straight line.",
+  },
+  // CATACLYSM ← Starfall: ORBITAL BARRAGE — mark an area and a meteor rain falls from off-screen.
+  cataclysm: {
+    id: "cataclysm", displayName: "Cataclysm", tier: 4, parentId: "starfall",
+    configKey: "gravitor", branchOf: "gravitor",
+    weapon: "cataclysm", ability: "launchAsteroid", passive: "orbitalHarvest", special: "meteorVolley",
+    note: "Orbital bombardment — call down a telegraphed meteor rain on a target zone.",
+  },
+  // DEVOURER ← Event Horizon: BECOME A BLACK HOLE — project your own lethal mobile singularity that
+  // pulls enemies in and kills at the core (mirrors the map's black hole).
+  devourer: {
+    id: "devourer", displayName: "Devourer", tier: 4, parentId: "eventHorizon",
+    configKey: "gravitor", branchOf: "gravitor",
+    weapon: "devourerWell", ability: "launchAsteroid", passive: "tidalDrag", special: "collapse",
+    note: "A walking black hole — pull enemies in; the core is lethal.",
+  },
+  // CONSTELLATION ← Binary Star: BLADE WEB — a ring of tethered blades that shreds anything inside;
+  // cast the web outward as an ensnaring net.
+  constellation: {
+    id: "constellation", displayName: "Constellation", tier: 4, parentId: "binaryStar",
+    configKey: "flailship", branchOf: "flailship",
+    weapon: "constellation", ability: "swingControl", passive: "momentumHit", special: "staticLash",
+    note: "A ring of tethered blades — a lethal web you can cast as an ensnaring net.",
+  },
 };
 
 // Cross-class balance triangle (the combat ecosystem — no class universally good):

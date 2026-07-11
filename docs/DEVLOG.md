@@ -71,6 +71,33 @@ against the server with the slice/jitter code — zero errors.
 
 ---
 
+## 2026-07-11 — TIER 4: six Titan-class apexes (one per final, lvl 30)
+**What changed:** added a whole new evolution tier — one apex per tier-3 final, gated at level 30
+(cost 320), rank-4 scaling (`sizeByRank … 4.2`, dmg 6.5×, range 2.0× — the true dreadnoughts).
+Directions came from the user (6-per-final; Zenith = spinal railgun + autoaim point-defense; verbs
+locked per family).
+- **Plumbing:** `economy.levelApex 30` + `evolutionCosts.apex 320`; `EVO_GATES`/`EVO_COSTS` gained a
+  4th entry; `evolveOptions` cap lifted (`t >= 3` → `t >= 4`); scaling arrays extended to rank 4;
+  `IMPLEMENTED`/`FAMILY`/`EVOLVE_BLURB` + 6; class rows in `classes.js`; visuals rows + models.
+- **The six** (parent → apex): Starbreak→**Zenith**, Supernova→**Prism**, Worldsplitter→**Juggernaut**,
+  Starfall→**Cataclysm**, Event Horizon→**Devourer**, Binary Star→**Constellation**. Distinct
+  apex-scale models (family body + a signature flourish: Zenith wing turrets, Prism emitters,
+  Devourer void-core + inward aura, etc.).
+- **Verbs implemented now:** Zenith **autoaim point-defense** batteries (chip nearest enemy on a
+  cooldown); Prism **auto-tracking sub-beams** (fan onto the nearest N foes while the beam ramps);
+  Devourer **black-hole field** (pull enemies to a lethal core). Config: `railship.zenith`,
+  `helion.prism`, `gravitor.devourer`.
+- **Verbs still TODO (currently delegate to the parent weapon, so they play as scaled-up finals):**
+  Juggernaut overrun/plow-through, Cataclysm orbital meteor barrage, Constellation blade-web/net.
+  Marked with TODO in `weapons.js` + cues.
+
+**Files:** `data/config.js`, `data/classes.js`, `data/visuals.js`, `src/sim.js`, `src/weapons.js`,
+`src/ships.js`. **Verified:** every final evolves to its apex at lvl 30; all 6 weapons run finite;
+all 6 models render; sptest/finaltest green. Sim-affecting ⇒ MP authority needs this build.
+**Not playtested live** — a big new power tier; numbers are a first cut.
+
+---
+
 ## 2026-07-11 — Fleet resprite to match the user's concept-art sheets (all four families)
 **What changed:** the user added painterly concept-art sheets (`RailSprites.png`, `HammerheadSprite.png`,
 `GravandFlailSprites.png`) — sleek white hulls with the family accent colours. Re-drew every family's

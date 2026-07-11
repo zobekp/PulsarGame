@@ -93,6 +93,26 @@ window.PULSAR.classVisuals = {
                         "live crackling TETHER between the two swords",
                         "tether burns hotter during a synced throw (the garrote)",
                         "enemies dragged onto the wire"] },
+
+  // ===== TIER-4 TITAN-CLASS APEXES =====
+  zenith:       { inherits: "railship", silhouette: "zenith",
+                  note: "Spinal siege railgun + autoaim point-defense turrets on the wings.",
+                  cues: ["biggest maw rail, twin barrels + helix", "point-defense turrets pulse at nearby foes"] },
+  prism:        { inherits: "railship", silhouette: "prism",
+                  note: "The ramping beam splits into auto-tracking sub-beams; three forward prism emitters.",
+                  cues: ["main ramping beam + fan of sub-beams onto multiple targets"] },
+  juggernaut:   { inherits: "hammerhead", silhouette: "juggernaut",
+                  note: "The heaviest ram cruiser — plows through everything in a straight line.",
+                  cues: ["massive ram prow", "boost pods + molten edge on the overrun"] },
+  cataclysm:    { inherits: "gravitor", silhouette: "cataclysm",
+                  note: "Artillery dreadnought — orbital meteor barrage on a marked zone.",
+                  cues: ["huge core + launch rails", "meteor rain (WIP)"] },
+  devourer:     { inherits: "gravitor", silhouette: "devourer",
+                  note: "A walking black hole — void core pulls enemies in; the core is lethal.",
+                  cues: ["void core + containment rings", "inward gravity aura pulls foes to the lethal centre"] },
+  constellation:{ inherits: "flailship", silhouette: "constellation",
+                  note: "A ring of tethered blades — a lethal web you cast as an ensnaring net.",
+                  cues: ["twin swords + tether (ring/web WIP)"] },
 };
 
 // Leader/crowned overlay (David-vs-Goliath legibility): bigger body, crown glyph,

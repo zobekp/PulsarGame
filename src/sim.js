@@ -24,8 +24,8 @@
     debris:   { hp: 'debrisHP',   radius: 'debrisRadius',   scrap: 'scrapPerDebris',   hue: '#7b8694' },
     titan:    { hp: 'titanHP',    radius: 'titanRadius',    scrap: 'scrapPerTitan',    hue: '#9aa7c2' },
   };
-  const EVO_GATES = [eco.levelChooseClass, eco.levelChoosePath, eco.levelFinalEvolution];
-  const EVO_COSTS = [eco.evolutionCosts.class, eco.evolutionCosts.path, eco.evolutionCosts.final];
+  const EVO_GATES = [eco.levelChooseClass, eco.levelChoosePath, eco.levelFinalEvolution, eco.levelApex];
+  const EVO_COSTS = [eco.evolutionCosts.class, eco.evolutionCosts.path, eco.evolutionCosts.final, eco.evolutionCosts.apex];
   // Candidate points for the calm outer asteroid band. The world chooses a useful candidate
   // after its shared field exists — no player receives bespoke/private farm resources.
   function edgeSpawnCandidate() {
@@ -40,13 +40,15 @@
   }
   const IMPLEMENTED = new Set(['starter', 'railship', 'helion', 'starPiercer', 'supernova', 'starbreak',
     'hammerhead', 'maulbreaker', 'worldsplitter', 'gravitor', 'meteorist', 'starfall',
-    'singularity', 'eventHorizon', 'flailship', 'twinmaul', 'binaryStar']);
+    'singularity', 'eventHorizon', 'flailship', 'twinmaul', 'binaryStar',
+    'zenith', 'prism', 'juggernaut', 'cataclysm', 'devourer', 'constellation']);   // TIER-4 apexes
   const FAMILY = {
     starter: 'dart',
     railship: 'rail', helion: 'rail', starPiercer: 'rail', supernova: 'rail', starbreak: 'rail',
     hammerhead: 'hammer', maulbreaker: 'hammer', worldsplitter: 'hammer',
     gravitor: 'grav', meteorist: 'grav', starfall: 'grav', singularity: 'grav', eventHorizon: 'grav',
     flailship: 'flail', twinmaul: 'flail', binaryStar: 'flail',
+    zenith: 'rail', prism: 'rail', juggernaut: 'hammer', cataclysm: 'grav', devourer: 'grav', constellation: 'flail',
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
@@ -59,6 +61,13 @@
     supernova: 'FLARE NOVA [E] — dump ALL heat as a blast · clears vent lockout',
     starbreak: 'blasts tear a RIFT that detonates the line moments later',
     binaryStar: 'live TETHER between the maces — crossing it burns · garrote throws',
+    // TIER-4 Titans
+    zenith: 'SPINAL RAILGUN — longer reach, harder charge + AUTOAIM point-defense cannons',
+    prism: 'PRISM BEAM — the ramping beam splits into auto-tracking sub-beams',
+    juggernaut: 'OVERRUN — spool up and plow THROUGH everything in a corridor',
+    cataclysm: 'ORBITAL BARRAGE — call down a meteor rain on a marked area',
+    devourer: 'BECOME A BLACK HOLE — pull enemies in; the core kills',
+    constellation: 'BLADE WEB — a ring of tethered blades; cast it as an ensnaring net',
   };
 
   function classNode(id) { return PULSAR.classes[id]; }
@@ -164,7 +173,7 @@
     function earn(s, amount) { s.scrap += amount; s.xp += amount; updateLevel(s); }
     function evolveOptions(s) {
       const t = classNode(s.classId).tier;
-      if (t >= 3) return null;
+      if (t >= 4) return null;
       const optsArr = childrenOf(s.classId);
       if (!optsArr.length) return null;
       return { tier: t, gate: EVO_GATES[t], cost: EVO_COSTS[t], levelOk: s.level >= EVO_GATES[t], options: optsArr };
