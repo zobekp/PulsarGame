@@ -59,6 +59,80 @@ window.PULSAR.Ships = (function () {
     ctx.globalCompositeOperation = 'source-over';
   }
 
+  // ---- detailing toolkit (shared by the capital-ship models) ----------------
+  // A filled polygon with the shared bright rim. Pass any fill; keeps the readable outline.
+  function plate(ctx, pts, fill, lw) { poly(ctx, pts); ctx.fillStyle = fill; ctx.fill(); ctx.strokeStyle = RIM; ctx.lineWidth = lw || 1.4; ctx.stroke(); }
+  // Thin accent/panel line (hull greebling).
+  function line(ctx, ax, ay, bx, by, style, lw) { ctx.strokeStyle = style; ctx.lineWidth = lw || 1; ctx.beginPath(); ctx.moveTo(ax, ay); ctx.lineTo(bx, by); ctx.stroke(); }
+  // A small running light: a bright dot with a soft additive halo.
+  function light(ctx, x, y, rgb, rad) {
+    rad = rad || 2.4;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.beginPath(); ctx.arc(x, y, rad * 2.3, 0, TAU); ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},0.5)`; ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.beginPath(); ctx.arc(x, y, rad, 0, TAU);
+    ctx.fillStyle = `rgba(${Math.min(255, rgb[0] + 90)},${Math.min(255, rgb[1] + 90)},${Math.min(255, rgb[2] + 90)},0.95)`; ctx.fill();
+  }
+  // Tinted cockpit canopy (an elongated glass blister with a highlight).
+  function canopy(ctx, x, y, w, h, P) {
+    ctx.beginPath(); ctx.ellipse(x, y, w, h, 0, 0, TAU);
+    ctx.fillStyle = `rgba(${Math.round(P.rgb[0] * 0.5 + 120)},${Math.round(P.rgb[1] * 0.5 + 140)},${Math.round(P.rgb[2] * 0.5 + 160)},0.9)`; ctx.fill();
+    ctx.strokeStyle = RIM; ctx.lineWidth = 1.1; ctx.stroke();
+    ctx.beginPath(); ctx.ellipse(x + w * 0.18, y - h * 0.2, w * 0.42, h * 0.4, 0, 0, TAU);
+    ctx.fillStyle = 'rgba(255,255,255,0.7)'; ctx.fill();          // glass highlight
+  }
+  // Engine nacelle: an armored pod with a hot inner throat + honest thrust flare. The throat
+  // (flare origin) sits at (throatX, y); the pod body extends +x toward the hull by podLen.
+  function nacelle(ctx, s, throatX, y, w, podLen, P, t, plateFill) {
+    plate(ctx, [[throatX, y - w * 0.5], [throatX + podLen, y - w * 0.4], [throatX + podLen, y + w * 0.4], [throatX, y + w * 0.5]], plateFill, 1.2);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.beginPath(); ctx.arc(throatX + w * 0.12, y, w * 0.32, 0, TAU);
+    ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},0.6)`; ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+    engine(ctx, s, throatX, y, w * 0.85, P, t);
+  }
+
+  // Long capital-ship hull shared by the families: armor under-plate, plated spindle hull, keel +
+  // transverse plating, rows of lit crew windows ("thousands aboard"), dorsal spine, bridge +
+  // canopy, stern engine cluster, port/starboard nav lights, optional sensor mast. Grows LONGER
+  // (not wider) and busier with tier. The family mounts its weapon on top. Returns the hull poly.
+  // o = { nose, stern, beam, beamX, nacelles, windows, winY, bridgeX(null=none), mast, tier }
+  function capitalHull(ctx, r, s, P, t, o) {
+    const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
+    const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+    const darkFill = `rgba(${Math.round(P.rgb[0] * 0.18 + 6)},${Math.round(P.rgb[1] * 0.18 + 7)},${Math.round(P.rgb[2] * 0.18 + 11)},0.97)`;
+    const nose = o.nose * r, stern = o.stern * r, beam = o.beam * r, beamX = (o.beamX != null ? o.beamX : o.nose * 0.1) * r;
+    const tier = o.tier || 1, ww = Math.max(0.9, 0.055 * r);
+    // stern engine cluster
+    const en = o.nacelles || 2, ew = (en > 2 ? 0.17 : 0.22) * r;
+    for (let i = 0; i < en; i++) { const ey = (i - (en - 1) / 2) * (beam * 1.6 / en); nacelle(ctx, s, stern - 0.02 * r, ey, ew, 0.3 * r, P, t, plateFill); }
+    // hull spindle: under-plate (peeks at the flanks) then the body
+    const hull = [[nose, 0], [nose * 0.6, beam * 0.55], [beamX, beam], [stern * 0.72, beam * 0.86], [stern, beam * 0.5],
+                  [stern, -beam * 0.5], [stern * 0.72, -beam * 0.86], [beamX, -beam], [nose * 0.6, -beam * 0.55]];
+    ctx.save(); ctx.scale(1.05, 1.14); plate(ctx, hull, darkFill, 1.4); ctx.restore();
+    plate(ctx, hull, bodyFill, 1.6);
+    // keel + transverse plating (denser on higher tiers)
+    line(ctx, nose * 0.92, 0, stern * 0.9, 0, P.dim, 1);
+    const plates = 3 + tier;
+    for (let i = 1; i <= plates; i++) { const px = stern * 0.75 + (nose * 0.75 - stern * 0.75) * (i / (plates + 1)); line(ctx, px, beam * 0.72, px, -beam * 0.72, P.dim, 1); }
+    // rows of lit crew windows
+    const winY = (o.winY != null ? o.winY : o.beam * 0.55) * r, nW = o.windows || 7;
+    for (const sgn of [1, -1]) for (let i = 0; i < nW; i++) { const x = stern * 0.6 + (nose * 0.55 - stern * 0.6) * (i / (nW - 1)); light(ctx, x, winY * sgn, [255, 236, 178], ww); }
+    // dorsal spine
+    plate(ctx, [[nose * 0.58, beam * 0.22], [stern * 0.82, beam * 0.2], [stern * 0.82, -beam * 0.2], [nose * 0.58, -beam * 0.22]], plateFill, 1.1);
+    // bridge superstructure + canopy
+    if (o.bridgeX != null) {
+      const bx = o.bridgeX * r;
+      plate(ctx, [[bx + 0.34 * r, beam * 0.44], [bx - 0.3 * r, beam * 0.6], [bx - 0.3 * r, -beam * 0.6], [bx + 0.34 * r, -beam * 0.44]], plateFill, 1.3);
+      canopy(ctx, bx + 0.04 * r, 0, 0.5 * beam, 0.34 * beam, P);
+    }
+    // nav lights + optional forward sensor mast
+    light(ctx, beamX, beam, [255, 80, 80], Math.max(1.2, 0.075 * r));
+    light(ctx, beamX, -beam, [90, 255, 130], Math.max(1.2, 0.075 * r));
+    if (o.mast) { line(ctx, nose, 0, nose + 0.28 * r, 0, P.accent, 1.4); light(ctx, nose + 0.28 * r, 0, P.rgb, Math.max(1.1, 0.06 * r)); }
+    return hull;
+  }
+
   // ============================ RAIL FAMILY ==================================
   // A space gun with a ship attached. At rest the weapon hides inside a sealed
   // clamshell cowl — the sprite reads as a sleek closed gun pod with a small tail
@@ -94,16 +168,19 @@ window.PULSAR.Ships = (function () {
     const bl = (o.len + (o.ext || 0) * dep) * r;  // barrel telescopes out/in with deployment
     const bh = o.barrel * r;
 
-    // --- tail craft: the small ship attached to the back of the gun
-    engine(ctx, s, -1.15 * r, 0, 0.32 * r, P, t);
-    poly(ctx, [[-0.30 * r, 0.16 * r], [-1.05 * r, o.back * r], [-1.15 * r, 0.10 * r]]);
-    fillStroke(ctx, plateFill, 1.2);
-    poly(ctx, [[-0.30 * r, -0.16 * r], [-1.05 * r, -o.back * r], [-1.15 * r, -0.10 * r]]);
-    fillStroke(ctx, plateFill, 1.2);
-    poly(ctx, [[-0.20 * r, 0.30 * r], [-1.15 * r, 0.20 * r], [-1.15 * r, -0.20 * r], [-0.20 * r, -0.30 * r]]);
-    fillStroke(ctx, bodyFill);
-    ctx.fillStyle = 'rgba(235,245,255,0.85)';
-    ctx.beginPath(); ctx.arc(-0.50 * r, 0, 0.10 * r, 0, TAU); ctx.fill();   // cockpit: the pilot rides the gun
+    // --- rear hull: a proper warship crew section behind the gun (grows with tier via o.rings)
+    const darkFill = `rgba(${Math.round(P.rgb[0] * 0.18 + 6)},${Math.round(P.rgb[1] * 0.18 + 7)},${Math.round(P.rgb[2] * 0.18 + 11)},0.97)`;
+    const stern = -1.8 * r, back = o.back * r;
+    for (const ey of [-0.16 * r, 0.16 * r]) nacelle(ctx, s, stern, ey, 0.18 * r, 0.32 * r, P, t, plateFill);
+    const rear = [[-0.15 * r, 0.34 * r], [-0.95 * r, back * 0.92], [stern, 0.17 * r], [stern, -0.17 * r], [-0.95 * r, -back * 0.92], [-0.15 * r, -0.34 * r]];
+    ctx.save(); ctx.scale(1.04, 1.12); plate(ctx, rear, darkFill, 1.3); ctx.restore();
+    plate(ctx, rear, bodyFill, 1.5);
+    const nW = 3 + o.rings;
+    for (const sgn of [1, -1]) for (let i = 0; i < nW; i++) { const x = stern * 0.82 + (-0.25 * r - stern * 0.82) * (i / (nW - 1)); light(ctx, x, 0.17 * r * sgn, [255, 236, 178], Math.max(0.9, 0.05 * r)); }
+    plate(ctx, [[-0.2 * r, 0.08 * r], [-1.55 * r, 0.07 * r], [-1.55 * r, -0.07 * r], [-0.2 * r, -0.07 * r]], plateFill, 1.0);   // spine
+    canopy(ctx, -0.46 * r, 0, 0.13 * r, 0.09 * r, P);
+    light(ctx, -0.92 * r, back * 0.86, [255, 80, 80], Math.max(1.1, 0.06 * r));
+    light(ctx, -0.92 * r, -back * 0.86, [90, 255, 130], Math.max(1.1, 0.06 * r));
     // heat vents: tail slats, cold-dim -> molten as heat rises; venting = red pulse
     const heatMax = (PULSAR.config.railship && PULSAR.config.railship.heat.max) || 100;
     const hf = Math.min(1, (s.heat || 0) / heatMax);
@@ -211,128 +288,127 @@ window.PULSAR.Ships = (function () {
   }
 
   // =========================== HAMMER FAMILY =================================
-  // All mass forward. A separate ram slab bolted to a stubby tug of a body,
-  // pushed by oversized engines — the ship IS the projectile.
+  // A heavy assault GUNSHIP: an armored fuselage with swept wings and clustered engine
+  // nacelles, all mass leaning into a reinforced ram prow (the weapon). Each tier is bigger
+  // and more complex — more nacelles, more wings, heavier armor. o = { front, span, teeth,
+  // ridge, nacelles, wings, armor(1..3) }.
   function hammerBody(ctx, r, s, P, t, o) {
     const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+    const darkFill = `rgba(${Math.round(P.rgb[0] * 0.18 + 6)},${Math.round(P.rgb[1] * 0.18 + 7)},${Math.round(P.rgb[2] * 0.18 + 11)},0.97)`;
     const c = s.ramActive > 0 ? 1 : (s.ramWinding ? (s.ramCharge || 0) : 0);
-    // engines first (behind the hull)
-    const en = o.engines, ew = 0.34 * r;
-    for (let i = 0; i < en; i++) {
-      const ey = (i - (en - 1) / 2) * 0.52 * r * (o.span / 1.05);
-      ctx.fillStyle = plateFill; ctx.fillRect(-1.25 * r, ey - ew * 0.55, 0.3 * r, ew * 1.1);
-      ctx.strokeStyle = RIM; ctx.lineWidth = 1.1; ctx.strokeRect(-1.25 * r, ey - ew * 0.55, 0.3 * r, ew * 1.1);
-      engine(ctx, s, -1.25 * r, ey, ew, P, t);
-    }
-    // Deploy-out boost jets: THE windup telegraph. As the ram charges, lateral booster pods
-    // slide straight OUT from the flanks on a strut and light up yellow -> deep red toward
-    // full commit; they stay extended and blazing through the lunge. Crucially the pods stay
-    // axis-aligned — their exhaust points dead astern, same as the main thrusters, so all the
-    // thrust drives the ram FORWARD. Pure visual — mechanics unchanged. Drawn before the hull.
+    const sp = o.span * r, f = o.front * r, armor = o.armor || 1;
+
+    // --- (1) ram-windup boost pods: slide OUT from the flanks, exhaust dead astern (drawn under)
     if (c > 0.03) {
-      const jg = Math.round(205 - 150 * c), jb = Math.round(100 - 80 * c);   // yellow -> red
+      const jg = Math.round(205 - 150 * c), jb = Math.round(100 - 80 * c);
       const flick = 0.8 + 0.35 * Math.sin(t * 27);
       for (const sgn of [1, -1]) {
-        const baseY = 0.46 * r * o.span * sgn;             // hull flank at the pod station
-        const outY = baseY + (0.12 + 0.30 * c) * r * sgn;  // slides out as charge builds
-        // deploy strut: hull -> pod, so the pod reads as extended rather than floating
-        ctx.strokeStyle = plateFill; ctx.lineWidth = 3.5;
-        ctx.beginPath(); ctx.moveTo(-0.30 * r, baseY); ctx.lineTo(-0.30 * r, outY); ctx.stroke();
-        ctx.save();
-        ctx.translate(-0.30 * r, outY);                    // NO rotation — burn stays astern
-        poly(ctx, [[0.34 * r, -0.09 * r], [-0.42 * r, -0.14 * r], [-0.52 * r, 0],
-                   [-0.42 * r, 0.14 * r], [0.34 * r, 0.09 * r]]);
-        fillStroke(ctx, plateFill, 1.1);
-        ctx.strokeStyle = `rgba(255,${jg},${jb},${0.5 + 0.5 * c})`; ctx.lineWidth = 1.6;
-        ctx.beginPath(); ctx.moveTo(-0.1 * r, -0.1 * r); ctx.lineTo(-0.1 * r, 0.1 * r); ctx.stroke();  // heat seam
+        const baseY = 0.5 * sp * sgn, outY = baseY + (0.14 + 0.34 * c) * r * sgn;
+        line(ctx, -0.30 * r, baseY, -0.30 * r, outY, plateFill, 3.5);      // deploy strut
+        ctx.save(); ctx.translate(-0.30 * r, outY);
+        plate(ctx, [[0.36 * r, -0.10 * r], [-0.44 * r, -0.15 * r], [-0.54 * r, 0], [-0.44 * r, 0.15 * r], [0.36 * r, 0.10 * r]], plateFill, 1.1);
         ctx.globalCompositeOperation = 'lighter';
-        const fl = r * (0.55 + 1.25 * c) * flick;          // burn grows + reddens with charge
-        poly(ctx, [[-0.48 * r, -0.2 * r], [-0.48 * r, 0.2 * r], [-0.48 * r - fl * 1.15, 0]]);   // outer haze
+        const fl = r * (0.55 + 1.25 * c) * flick;
+        poly(ctx, [[-0.5 * r, -0.2 * r], [-0.5 * r, 0.2 * r], [-0.5 * r - fl * 1.15, 0]]);
         ctx.fillStyle = `rgba(255,${Math.round(jg * 0.7)},${jb},${0.28 + 0.3 * c})`; ctx.fill();
-        poly(ctx, [[-0.5 * r, -0.13 * r], [-0.5 * r, 0.13 * r], [-0.5 * r - fl, 0]]);
+        poly(ctx, [[-0.52 * r, -0.12 * r], [-0.52 * r, 0.12 * r], [-0.52 * r - fl, 0]]);
         ctx.fillStyle = `rgba(255,${jg},${jb},${0.65 + 0.35 * c})`; ctx.fill();
-        poly(ctx, [[-0.5 * r, -0.06 * r], [-0.5 * r, 0.06 * r], [-0.5 * r - fl * 0.5, 0]]);
-        ctx.fillStyle = `rgba(255,255,255,${0.45 + 0.45 * c})`; ctx.fill();
         ctx.globalCompositeOperation = 'source-over';
         ctx.restore();
       }
     }
-    // body: trapezoid narrowing to the rear — everything leans into the plate
-    poly(ctx, [[0.6 * r, 0.62 * r * o.span], [0.6 * r, -0.62 * r * o.span],
-               [-1.0 * r, -0.34 * r * o.span], [-1.0 * r, 0.34 * r * o.span]]);
-    fillStroke(ctx, bodyFill);
-    // ram plate: dark slab with a molten leading edge when committed
-    const f = o.front * r, sp = o.span * r;
+
+    // --- (2) engine nacelles clustered at the stern
+    const en = o.nacelles, ew = (en > 2 ? 0.30 : 0.36) * r;
+    for (let i = 0; i < en; i++) {
+      const ey = (i - (en - 1) / 2) * (en > 2 ? 0.62 : 0.66) * r * (o.span / 1.05);
+      nacelle(ctx, s, -1.35 * r, ey, ew, 0.5 * r, P, t, plateFill);
+    }
+    // rear thruster deck tying the nacelles to the hull
+    plate(ctx, [[-0.55 * r, 0.42 * sp], [-0.9 * r, 0.34 * sp], [-0.9 * r, -0.34 * sp], [-0.55 * r, -0.42 * sp]], darkFill, 1.2);
+
+    // --- (3) swept wings (extra canard pair on the heaviest tier)
+    const wingPairs = o.wings || 1;
+    for (let w = 0; w < wingPairs; w++) {
+      const back = w === 0;                              // main wing sweeps back; canard forward
+      for (const sgn of [1, -1]) {
+        if (back) {
+          // main wing: broad delta swept back+out from the shoulder, tip well clear of the hull
+          plate(ctx, [[0.3 * r, 0.48 * sp * sgn], [0.05 * r, 1.42 * r * sgn], [-0.78 * r, 1.5 * r * sgn], [-0.62 * r, 0.44 * sp * sgn]], plateFill, 1.3);
+          line(ctx, 0.28 * r, 0.5 * sp * sgn, 0.02 * r, 1.4 * r * sgn, P.accent, 1.8);        // bright leading edge
+          line(ctx, -0.2 * r, 0.9 * r * sgn, -0.6 * r, 1.1 * r * sgn, P.dim, 1);              // panel crease
+          light(ctx, -0.72 * r, 1.44 * r * sgn, P.rgb, 2.4);                                  // wingtip light
+        } else {
+          // canard: forward fin near the prow (heaviest tier only)
+          plate(ctx, [[0.78 * r, 0.32 * sp * sgn], [1.08 * r, 0.98 * r * sgn], [0.72 * r, 1.02 * r * sgn], [0.5 * r, 0.4 * sp * sgn]], plateFill, 1.2);
+          line(ctx, 0.78 * r, 0.34 * sp * sgn, 1.06 * r, 0.96 * r * sgn, P.accent, 1.5);
+          light(ctx, 0.96 * r, 0.98 * r * sgn, P.rgb, 2.0);
+        }
+      }
+    }
+
+    // --- (4) hull: base armor plate under a shaped fuselage, with a dorsal spine + paneling
+    plate(ctx, [[0.66 * r, 0.64 * sp], [0.66 * r, -0.64 * sp], [-0.6 * r, -0.5 * sp], [-1.0 * r, -0.3 * sp], [-1.0 * r, 0.3 * sp], [-0.6 * r, 0.5 * sp]], darkFill, 1.5);
+    plate(ctx, [[0.6 * r, 0.56 * sp], [0.6 * r, -0.56 * sp], [-0.56 * r, -0.44 * sp], [-0.92 * r, -0.26 * sp], [-0.92 * r, 0.26 * sp], [-0.56 * r, 0.44 * sp]], bodyFill, 1.5);
+    // panel lines
+    line(ctx, 0.5 * r, 0.28 * sp, -0.85 * r, 0.2 * sp, P.dim, 1);
+    line(ctx, 0.5 * r, -0.28 * sp, -0.85 * r, -0.2 * sp, P.dim, 1);
+    // dorsal spine
+    plate(ctx, [[0.52 * r, 0.15 * sp], [-0.85 * r, 0.11 * sp], [-0.85 * r, -0.11 * sp], [0.52 * r, -0.15 * sp]], plateFill, 1.2);
+    for (let i = 0; i < 2 + armor; i++) { const px = 0.4 * r - i * 0.32 * r; line(ctx, px, 0.13 * sp, px, -0.13 * sp, P.dim, 1); }
+    // heavier tiers carry extra dorsal greeble blocks
+    if (armor >= 2) for (const sgn of [1, -1]) plate(ctx, [[-0.2 * r, 0.24 * sp * sgn], [-0.5 * r, 0.24 * sp * sgn], [-0.5 * r, 0.36 * sp * sgn], [-0.2 * r, 0.36 * sp * sgn]], darkFill, 1);
+    canopy(ctx, 0.34 * r, 0, 0.2 * r, 0.13 * r, P);
+    // crew windows + port/starboard nav lights (fleet consistency)
+    for (const sgn of [1, -1]) for (let i = 0; i < 4 + armor; i++) light(ctx, -0.8 * r + i * 0.28 * r, 0.32 * sp * sgn, [255, 236, 178], Math.max(0.9, 0.05 * r));
+    light(ctx, 0.55 * r, 0.6 * sp, [255, 80, 80], Math.max(1.1, 0.06 * r));
+    light(ctx, 0.55 * r, -0.6 * sp, [90, 255, 130], Math.max(1.1, 0.06 * r));
+
+    // --- (5) ram prow: reinforcement struts + heavy armor face (the weapon)
+    for (const sgn of [1, -1]) line(ctx, 0.55 * r, 0.42 * sp * sgn, f * 0.86, 0.7 * sp * sgn, plateFill, 3);
     if (o.teeth) {
       const pts = [[0.55 * r, sp], [f, sp]];
-      for (let i = 0; i < o.teeth; i++) {         // serrated maul face
-        const y1 = sp - (i + 0.35) * (2 * sp) / o.teeth, y2 = sp - (i + 1) * (2 * sp) / o.teeth;
-        pts.push([f + 0.16 * r, y1], [f, y2]);
-      }
-      pts.push([0.55 * r, -sp]);
-      poly(ctx, pts);
+      for (let i = 0; i < o.teeth; i++) { const y1 = sp - (i + 0.35) * (2 * sp) / o.teeth, y2 = sp - (i + 1) * (2 * sp) / o.teeth; pts.push([f + 0.16 * r, y1], [f, y2]); }
+      pts.push([0.55 * r, -sp]); plate(ctx, pts, plateFill, 1.7);
     } else {
-      poly(ctx, [[0.55 * r, sp], [f, sp * 0.92], [f, -sp * 0.92], [0.55 * r, -sp]]);
+      plate(ctx, [[0.55 * r, sp], [f, sp * 0.9], [f + 0.12 * r, 0], [f, -sp * 0.9], [0.55 * r, -sp]], plateFill, 1.7);
     }
-    fillStroke(ctx, plateFill, 1.7);
-    // leading edge heats with windup (orange -> white-hot at full commit)
-    ctx.strokeStyle = c > 0 ? `rgba(255,${Math.round(150 + 105 * c)},${Math.round(60 + 160 * c)},${0.5 + 0.5 * c})`
-                            : P.dim;
-    ctx.lineWidth = 2 + 2.5 * c;
-    ctx.beginPath(); ctx.moveTo(f + (o.teeth ? 0.16 * r : 0), -sp * 0.88); ctx.lineTo(f + (o.teeth ? 0.16 * r : 0), sp * 0.88); ctx.stroke();
-    // rivets: the "bolted-on armor" tell
-    ctx.fillStyle = 'rgba(235,245,255,0.75)';
-    for (let i = 0; i < 3; i++) {
-      const ry = (i - 1) * sp * 0.6;
-      ctx.beginPath(); ctx.arc(0.72 * r, ry, 0.07 * r, 0, TAU); ctx.fill();
-    }
-    // cleaving ridge (Worldsplitter): a central blade that lands the shockwave
+    // rivets down the face
+    ctx.fillStyle = 'rgba(235,245,255,0.8)';
+    for (let i = 0; i < 3 + armor; i++) { const ry = (i - (2 + armor) / 2) * sp * (1.6 / (3 + armor)); ctx.beginPath(); ctx.arc(0.74 * r, ry, 0.06 * r, 0, TAU); ctx.fill(); }
+    // molten leading edge — heats orange -> white-hot with the ram windup
+    const edgeX = f + (o.teeth ? 0.16 * r : 0.12 * r);
+    ctx.strokeStyle = c > 0 ? `rgba(255,${Math.round(150 + 105 * c)},${Math.round(60 + 160 * c)},${0.5 + 0.5 * c})` : P.dim;
+    ctx.lineWidth = 2 + 3 * c;
+    ctx.beginPath(); ctx.moveTo(edgeX, -sp * 0.86); ctx.lineTo(edgeX, sp * 0.86); ctx.stroke();
+    if (c > 0.02) { ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = `rgba(255,${Math.round(140 + 100 * c)},60,${0.4 * c})`; ctx.lineWidth = 4 + 8 * c; ctx.beginPath(); ctx.moveTo(edgeX, -sp * 0.86); ctx.lineTo(edgeX, sp * 0.86); ctx.stroke(); ctx.globalCompositeOperation = 'source-over'; }
+    // cleaving ridge (Worldsplitter)
     if (o.ridge) {
-      poly(ctx, [[f, 0.18 * r], [f + o.ridge * r, 0], [f, -0.18 * r]]);
-      fillStroke(ctx, plateFill, 1.4);
-      // hazard chevrons on the face
-      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.6;
+      plate(ctx, [[f, 0.2 * r], [f + o.ridge * r, 0], [f, -0.2 * r]], plateFill, 1.4);
+      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.8;
       ctx.beginPath();
-      ctx.moveTo(f - 0.28 * r, sp * 0.55); ctx.lineTo(f - 0.05 * r, sp * 0.25);
-      ctx.moveTo(f - 0.28 * r, -sp * 0.55); ctx.lineTo(f - 0.05 * r, -sp * 0.25);
-      ctx.stroke();
+      ctx.moveTo(f - 0.3 * r, sp * 0.5); ctx.lineTo(f - 0.06 * r, sp * 0.22);
+      ctx.moveTo(f - 0.3 * r, -sp * 0.5); ctx.lineTo(f - 0.06 * r, -sp * 0.22); ctx.stroke();
     }
-    // (the old front telegraph ring is gone — the fold-out jets + molten ram edge ARE the
-    // windup read now; counterplay still has two charge-scaled tells)
+
+    // --- (6) BRACE ability: hardened hex shield shimmer over the hull
+    const brace = Math.min(1, (s.braceTimer || 0) / 0.5);
+    if (brace > 0.01) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = `rgba(255,${Math.round(160 + 60 * brace)},110,${0.35 * brace + 0.15 * Math.sin(t * 18)})`;
+      ctx.lineWidth = 2.5;
+      ctx.beginPath();
+      const hr = 1.15 * r;
+      for (let i = 0; i <= 6; i++) { const a = (i / 6) * TAU + t * 0.4; const X = Math.cos(a) * hr, Y = Math.sin(a) * hr * o.span; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }
+      ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
+    }
   }
 
   // ============================ GRAV FAMILY ===================================
-  // A C-shaped annular hull wrapping an exposed gravity core, mouth open forward.
-  // Artillery branch grows launcher rails from the horns; control branch closes
-  // the C toward a full containment ring around a void core.
-  function crescentHull(ctx, r, s, P, t, o) {
-    const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
-    const gap = o.gap, ir = o.inner * r;          // mouth half-angle + inner radius
-    // engine pod bolted to the back of the ring
-    const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-    ctx.fillStyle = plateFill;
-    ctx.fillRect(-1.25 * r, -0.26 * r, 0.35 * r, 0.52 * r);
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.2; ctx.strokeRect(-1.25 * r, -0.26 * r, 0.35 * r, 0.52 * r);
-    engine(ctx, s, -1.25 * r, 0, 0.34 * r, P, t);
-    // the C hull itself
-    ctx.beginPath();
-    ctx.arc(0, 0, r, gap, TAU - gap);
-    ctx.arc(0, 0, ir, TAU - gap, gap, true);
-    ctx.closePath();
-    fillStroke(ctx, bodyFill);
-    // horn emitters: forward prongs at the mouth tips — where the field projects from
-    if (o.horn) {
-      const rm = (r + ir) / 2, hw = (r - ir) * 0.5;
-      for (const sgn of [1, -1]) {
-        const hx = Math.cos(gap) * rm, hy = Math.sin(gap) * rm * sgn;
-        poly(ctx, [[hx - hw * 0.2, hy - hw * sgn], [hx + o.horn * r, hy * 0.55], [hx - hw * 0.2, hy + hw * sgn]]);
-        fillStroke(ctx, plateFill, 1.2);
-        ctx.strokeStyle = P.accent; ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.moveTo(hx + o.horn * r, hy * 0.55); ctx.lineTo(hx + (o.horn + 0.22) * r, hy * 0.48); ctx.stroke();
-      }
-    }
-  }
+  // A long carrier that cradles an exposed gravity core out ahead of the bow. Artillery branch
+  // adds a launch rail; control branch wraps a void core in containment rings + field vanes.
   function gravCore(ctx, r, s, P, t, o) {
     const cap = (s.captured && s.captured.length) || 0;
     const cx = o.coreX * r, cr = o.coreR * r;
@@ -363,80 +439,95 @@ window.PULSAR.Ships = (function () {
       ctx.beginPath(); ctx.arc(0, 0, rad * r, a0, a0 + 0.7); ctx.stroke();
     }
   }
+  // Gravitor as a long warship that CRADLES its gravity core out ahead of the bow in a pair of
+  // containment prongs. Artillery branch grows a launch rail through the cradle; control branch
+  // wraps the (void) core in counter-rotating containment rings + field vanes.
+  function gravShip(ctx, r, s, P, t, o) {
+    const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+    if (o.vanes) fieldVanes(ctx, r, P, t, o.vanes, 1.35);
+    capitalHull(ctx, r, s, P, t, { nose: 0.95, stern: -1.6, beam: 0.36, beamX: -0.3, nacelles: o.nacelles, windows: o.windows, bridgeX: -0.3, tier: o.tier });
+    const cx = o.coreX * r;
+    // forward containment cradle: two prongs from the bow reaching around the core
+    for (const sgn of [1, -1]) {
+      plate(ctx, [[0.82 * r, 0.16 * r * sgn], [cx + 0.34 * r, 0.4 * r * sgn], [cx + 0.02 * r, 0.14 * r * sgn], [0.82 * r, 0.02 * r * sgn]], plateFill, 1.2);
+      line(ctx, cx + 0.34 * r, 0.4 * r * sgn, cx + 0.52 * r, 0.32 * r * sgn, P.accent, 1.5);   // emitter tip
+      if (o.horn) light(ctx, cx + 0.52 * r, 0.32 * r * sgn, P.rgb, Math.max(1.2, 0.07 * r));
+    }
+    if (o.launchRail) plate(ctx, [[0.7 * r, 0.09 * r], [cx + 0.75 * r, 0], [0.7 * r, -0.09 * r]], plateFill, 1.2);  // volley rail
+    if (o.ringN) { ctx.strokeStyle = P.dim; ctx.lineWidth = 1.7; for (let i = 0; i < o.ringN; i++) { const a0 = -t * 0.5 + (i / o.ringN) * TAU; ctx.beginPath(); ctx.arc(cx, 0, (o.coreR + 0.28 + i * 0.14) * r, a0, a0 + 1.6); ctx.stroke(); } }
+    gravCore(ctx, r, s, P, t, { coreX: o.coreX, coreR: o.coreR, voidCore: o.voidCore });
+  }
 
   // ============================ FLAIL FAMILY ==================================
   // A working tug: hex hull, front chain-guide yoke, and a big winch drum whose
   // spokes spin with the orb — the machine that swings the wrecking ball.
+  // spokes spin with the orb — the machine that swings the wrecking ball. Now a long salvage
+  // WARSHIP with the winch drivetrain mounted forward; the heads/swords are drawn in game.js.
   function flailBody(ctx, r, s, P, t, o) {
-    const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-    const k = o.scale || 1;
-    engine(ctx, s, -1.0 * r * k, 0, 0.4 * r, P, t);
-    if (o.counterweight) {                        // Ironmoon: rear ballast block
-      ctx.fillStyle = plateFill;
-      ctx.fillRect(-1.35 * r, -0.5 * r, 0.45 * r, 1.0 * r);
-      ctx.strokeStyle = RIM; ctx.lineWidth = 1.3; ctx.strokeRect(-1.35 * r, -0.5 * r, 0.45 * r, 1.0 * r);
-      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.2;
-      ctx.beginPath(); ctx.moveTo(-1.28 * r, 0.3 * r); ctx.lineTo(-0.97 * r, -0.3 * r); ctx.stroke();
+    capitalHull(ctx, r, s, P, t, { nose: 0.95, stern: -1.7, beam: 0.42, beamX: -0.25, nacelles: o.nacelles || 2, windows: o.windows || 8, bridgeX: -0.45, tier: o.tier });
+    // chain-guide yoke at the bow (twin prongs the chain feeds through)
+    for (const sgn of [1, -1]) plate(ctx, [[0.85 * r, 0.15 * r * sgn], [1.4 * r, 0.3 * r * sgn], [0.95 * r, 0.44 * r * sgn]], plateFill, 1.1);
+    if (o.shoulders) for (const sgn of [1, -1]) {   // armored winch cheeks
+      plate(ctx, [[0.72 * r, 0.4 * r * sgn], [0.36 * r, 0.72 * r * sgn], [-0.05 * r, 0.7 * r * sgn], [0.1 * r, 0.36 * r * sgn]], plateFill, 1.2);
+      ctx.fillStyle = 'rgba(235,245,255,0.7)'; ctx.beginPath(); ctx.arc(0.28 * r, 0.55 * r * sgn, 0.05 * r, 0, TAU); ctx.fill();
     }
-    if (o.round) {
-      ctx.beginPath(); ctx.arc(0, 0, 0.95 * r * k, 0, TAU); fillStroke(ctx, bodyFill);
-    } else {
-      poly(ctx, [[1.05 * r * k, 0], [0.5 * r * k, 0.85 * r * k], [-0.6 * r * k, 0.85 * r * k],
-                 [-0.95 * r * k, 0], [-0.6 * r * k, -0.85 * r * k], [0.5 * r * k, -0.85 * r * k]]);
-      fillStroke(ctx, bodyFill);
+    // winch drum(s) — the drivetrain, spinning with the orb (twin drums counter-rotate)
+    const dr = (o.drum || 0.4) * r, dx = 0.42 * r;
+    const drums = o.twin ? [0.42 * r, -0.42 * r] : [0];
+    drums.forEach((dy, idx) => {
+      ctx.beginPath(); ctx.arc(dx, dy, dr, 0, TAU); ctx.fillStyle = plateFill; ctx.fill();
+      ctx.strokeStyle = RIM; ctx.lineWidth = 1.3; ctx.stroke();
+      ctx.strokeStyle = P.accent; ctx.lineWidth = 1.5;
+      const spin = o.twin ? (idx === 0 ? (s.orbSelfSpin || 0) : -(s.orbSelfSpin2 != null ? s.orbSelfSpin2 : (s.orbSelfSpin || 0))) : (s.orbSpin || 0);
+      for (let i = 0; i < 3; i++) { const a0 = spin + (i / 3) * TAU; ctx.beginPath(); ctx.moveTo(dx + Math.cos(a0) * dr * 0.25, dy + Math.sin(a0) * dr * 0.25); ctx.lineTo(dx + Math.cos(a0) * dr * 0.9, dy + Math.sin(a0) * dr * 0.9); ctx.stroke(); }
+      ctx.fillStyle = 'rgba(255,255,255,0.85)'; ctx.beginPath(); ctx.arc(dx, dy, dr * 0.2, 0, TAU); ctx.fill();
+    });
+    // binaryStar: energized tether manifold bridging the two drums
+    if (o.tether) {
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.strokeStyle = 'rgba(255,240,170,0.8)'; ctx.lineWidth = 2.2;
+      ctx.beginPath(); ctx.moveTo(dx, -0.42 * r); ctx.lineTo(dx, 0.42 * r); ctx.stroke();
+      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1;
+      const w = 0.1 * r * Math.sin(t * 23);
+      ctx.beginPath(); ctx.moveTo(dx, -0.42 * r); ctx.quadraticCurveTo(dx + w, 0, dx, 0.42 * r); ctx.stroke();
+      ctx.globalCompositeOperation = 'source-over';
     }
-    if (o.shoulders) {                            // Chainmaul: bolted armor cheeks
-      for (const sgn of [1, -1]) {
-        poly(ctx, [[0.55 * r, 0.55 * r * sgn], [0.15 * r, 0.95 * r * sgn], [-0.55 * r, 0.95 * r * sgn], [-0.35 * r, 0.55 * r * sgn]]);
-        fillStroke(ctx, plateFill, 1.2);
-        ctx.fillStyle = 'rgba(235,245,255,0.7)';
-        ctx.beginPath(); ctx.arc(-0.1 * r, 0.75 * r * sgn, 0.06 * r, 0, TAU); ctx.fill();
-      }
-    }
-    // guide rings (control branch): the visible promise of a stable orbit
-    if (o.rings) {
-      for (let i = 0; i < o.rings; i++) {
-        const rr = (1.22 + i * 0.24) * r;
-        ctx.strokeStyle = i === 0 ? P.dim : P.glow; ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.arc(0, 0, rr, 0, TAU); ctx.stroke();
-        ctx.strokeStyle = P.accent; ctx.lineWidth = 1.6;
-        for (let j = 0; j < 4; j++) {             // tick marks ride the orb spin
-          const a0 = (s.orbSpin || 0) * (i % 2 ? -0.8 : 1) + (j / 4) * TAU;
-          ctx.beginPath(); ctx.arc(0, 0, rr, a0, a0 + 0.16); ctx.stroke();
-        }
-      }
-    }
-    // chain-guide yoke: twin prongs the chain feeds through
-    for (const sgn of [1, -1]) {
-      poly(ctx, [[0.9 * r * k, 0.16 * r * sgn], [1.35 * r * k, 0.30 * r * sgn], [0.95 * r * k, 0.42 * r * sgn]]);
-      fillStroke(ctx, plateFill, 1.1);
-    }
-    // winch drum + spokes (rotate with the orb — the drivetrain is visible)
-    const dr = (o.drum || 0.45) * r;
-    ctx.beginPath(); ctx.arc(0, 0, dr, 0, TAU); ctx.fillStyle = plateFill; ctx.fill();
-    ctx.strokeStyle = RIM; ctx.lineWidth = 1.4; ctx.stroke();
-    ctx.strokeStyle = P.accent; ctx.lineWidth = 1.6;
-    const spokes = o.spokes || 3;
-    for (let i = 0; i < spokes; i++) {
-      const a0 = (s.orbSpin || 0) + (i / spokes) * TAU;
-      ctx.beginPath(); ctx.moveTo(Math.cos(a0) * dr * 0.25, Math.sin(a0) * dr * 0.25);
-      ctx.lineTo(Math.cos(a0) * dr * 0.9, Math.sin(a0) * dr * 0.9); ctx.stroke();
-    }
-    ctx.fillStyle = 'rgba(255,255,255,0.85)';
-    ctx.beginPath(); ctx.arc(0, 0, dr * 0.2, 0, TAU); ctx.fill();
   }
 
   // ---- model registry (visuals.js `silhouette` names -> draw fns) ------------
   const MODELS = {
-    // Starter: tiny neutral dart with a cockpit dot — deliberately plain.
+    // Starter: a small CORVETTE — the smallest real warship in the fleet. Long slender hull
+    // (length >> beam), a bridge superstructure, a stern engine cluster, and rows of lit windows
+    // so it reads as a crewed vessel, not an arrowhead. The seed the capital ships grow from.
     dart(ctx, r, s, P, t) {
       const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
-      engine(ctx, s, -0.62 * r, 0, 0.34 * r, P, t);
-      poly(ctx, [[1.45 * r, 0], [-0.75 * r, 0.72 * r], [-0.45 * r, 0], [-0.75 * r, -0.72 * r]]);
-      fillStroke(ctx, bodyFill);
-      ctx.fillStyle = 'rgba(235,245,255,0.85)';
-      ctx.beginPath(); ctx.arc(0.35 * r, 0, 0.16 * r, 0, TAU); ctx.fill();
+      const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+      const darkFill = `rgba(${Math.round(P.rgb[0] * 0.18 + 6)},${Math.round(P.rgb[1] * 0.18 + 7)},${Math.round(P.rgb[2] * 0.18 + 11)},0.97)`;
+      // slender hull outline (bow at +x, blunt stern at -x)
+      const hull = [[1.7 * r, 0], [0.95 * r, 0.2 * r], [0.15 * r, 0.32 * r], [-1.05 * r, 0.27 * r],
+                    [-1.4 * r, 0.15 * r], [-1.4 * r, -0.15 * r], [-1.05 * r, -0.27 * r], [0.15 * r, -0.32 * r], [0.95 * r, -0.2 * r]];
+      // stern engine cluster (twin nacelles)
+      for (const ey of [-0.14 * r, 0.14 * r]) nacelle(ctx, s, -1.48 * r, ey, 0.2 * r, 0.32 * r, P, t, plateFill);
+      // dark armor under-plate (slightly larger, peeks at the flanks) then the hull body
+      ctx.save(); ctx.scale(1.05, 1.16); plate(ctx, hull, darkFill, 1.3); ctx.restore();
+      plate(ctx, hull, bodyFill, 1.5);
+      // transverse plating + a couple of hull seams
+      for (const px of [0.55 * r, 0.0, -0.6 * r]) line(ctx, px, 0.26 * r, px, -0.26 * r, P.dim, 1);
+      line(ctx, 1.6 * r, 0, -1.3 * r, 0, P.dim, 1);                       // keel line
+      // rows of lit windows — the "decks full of crew" read
+      for (const sgn of [1, -1]) for (let i = 0; i < 7; i++) light(ctx, -0.85 * r + i * 0.27 * r, 0.18 * r * sgn, [255, 236, 178], 1.1);
+      // dorsal spine + bridge superstructure with a canopy
+      plate(ctx, [[1.0 * r, 0.07 * r], [-1.15 * r, 0.06 * r], [-1.15 * r, -0.06 * r], [1.0 * r, -0.06 * r]], plateFill, 1.1);
+      plate(ctx, [[0.55 * r, 0.14 * r], [-0.12 * r, 0.19 * r], [-0.12 * r, -0.19 * r], [0.55 * r, -0.14 * r]], plateFill, 1.3);
+      canopy(ctx, 0.26 * r, 0, 0.17 * r, 0.1 * r, P);
+      // bright prow rake + a forward sensor mast
+      line(ctx, 1.68 * r, 0, 0.95 * r, 0.2 * r, P.accent, 1.5);
+      line(ctx, 1.68 * r, 0, 0.95 * r, -0.2 * r, P.accent, 1.5);
+      line(ctx, 1.7 * r, 0, 2.0 * r, 0, P.accent, 1.3); light(ctx, 2.0 * r, 0, P.rgb, 1.3);
+      // port/starboard navigation lights
+      light(ctx, 0.12 * r, 0.31 * r, [255, 80, 80], 1.5);
+      light(ctx, 0.12 * r, -0.31 * r, [90, 255, 130], 1.5);
     },
 
     // Railship: the base pattern — sealed gun pod at rest; charging splits the shell
@@ -520,81 +611,24 @@ window.PULSAR.Ships = (function () {
       }
     },
 
-    hammerhead(ctx, r, s, P, t)    { hammerBody(ctx, r, s, P, t, { front: 1.3, span: 1.05, teeth: 0, engines: 2 }); },
-    maulbreaker(ctx, r, s, P, t)   { hammerBody(ctx, r, s, P, t, { front: 1.42, span: 1.4, teeth: 4, engines: 2 }); },
-    worldsplitter(ctx, r, s, P, t) { hammerBody(ctx, r, s, P, t, { front: 1.5, span: 1.75, teeth: 0, engines: 3, ridge: 0.45 }); },
+    // Hammerhead line grows tier by tier: more nacelles, more wings, heavier armor + prow.
+    hammerhead(ctx, r, s, P, t)    { hammerBody(ctx, r, s, P, t, { front: 1.3, span: 1.05, teeth: 0, nacelles: 2, wings: 1, armor: 1 }); },
+    maulbreaker(ctx, r, s, P, t)   { hammerBody(ctx, r, s, P, t, { front: 1.42, span: 1.4, teeth: 4, nacelles: 2, wings: 1, armor: 2 }); },
+    worldsplitter(ctx, r, s, P, t) { hammerBody(ctx, r, s, P, t, { front: 1.5, span: 1.75, teeth: 0, nacelles: 3, wings: 2, armor: 3, ridge: 0.45 }); },
 
-    gravitor(ctx, r, s, P, t) {
-      crescentHull(ctx, r, s, P, t, { gap: 0.85, inner: 0.52, horn: 0.35 });
-      gravCore(ctx, r, s, P, t, { coreX: 0.10, coreR: 0.30 });
-    },
-    meteorist(ctx, r, s, P, t) {
-      crescentHull(ctx, r, s, P, t, { gap: 0.72, inner: 0.44, horn: 0.6 });
-      gravCore(ctx, r, s, P, t, { coreX: 0.10, coreR: 0.34 });
-    },
-    starfall(ctx, r, s, P, t) {
-      crescentHull(ctx, r, s, P, t, { gap: 0.72, inner: 0.44, horn: 0.75 });
-      // central launch rail splitting the mouth: the volley thrower
-      const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-      poly(ctx, [[0.1 * r, 0.10 * r], [1.6 * r, 0], [0.1 * r, -0.10 * r]]);
-      fillStroke(ctx, plateFill, 1.2);
-      gravCore(ctx, r, s, P, t, { coreX: 0.0, coreR: 0.36 });
-    },
-    singularity(ctx, r, s, P, t) {
-      fieldVanes(ctx, r, P, t, 3, 1.3);
-      crescentHull(ctx, r, s, P, t, { gap: 0.38, inner: 0.55 });
-      gravCore(ctx, r, s, P, t, { coreX: 0, coreR: 0.36, voidCore: true });
-    },
-    eventHorizon(ctx, r, s, P, t) {
-      fieldVanes(ctx, r, P, t, 4, 1.55);
-      // outer broken containment ring, slowly counter-rotating
-      ctx.strokeStyle = P.dim; ctx.lineWidth = 1.8;
-      for (let i = 0; i < 3; i++) {
-        const a0 = -t * 0.5 + (i / 3) * TAU;
-        ctx.beginPath(); ctx.arc(0, 0, 1.32 * r, a0, a0 + 1.5); ctx.stroke();
-      }
-      crescentHull(ctx, r, s, P, t, { gap: 0.14, inner: 0.58 });
-      gravCore(ctx, r, s, P, t, { coreX: 0, coreR: 0.42, voidCore: true });
-    },
+    // Gravitor line: a long carrier that cradles a gravity core out front. Each tier is bigger —
+    // more nacelles + windows, bigger core, then the control branch's containment rings/vanes.
+    gravitor(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 1.5, coreR: 0.30, nacelles: 2, windows: 7, horn: true, tier: 1 }); },
+    meteorist(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 1.55, coreR: 0.34, nacelles: 2, windows: 8, horn: true, tier: 2 }); },
+    starfall(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 1.5, coreR: 0.36, nacelles: 3, windows: 9, horn: true, launchRail: true, tier: 2 }); },
+    singularity(ctx, r, s, P, t)  { gravShip(ctx, r, s, P, t, { coreX: 1.4, coreR: 0.36, nacelles: 2, windows: 8, voidCore: true, vanes: 3, ringN: 2, tier: 2 }); },
+    eventHorizon(ctx, r, s, P, t) { gravShip(ctx, r, s, P, t, { coreX: 1.35, coreR: 0.42, nacelles: 3, windows: 10, voidCore: true, vanes: 4, ringN: 3, tier: 3 }); },
 
-    flailship(ctx, r, s, P, t)    { flailBody(ctx, r, s, P, t, { drum: 0.45, spokes: 3 }); },
-    // Twinmaul: the drivetrain doubled — bulkier hull with armored shoulders and TWO winch
-    // drums side by side, spokes counter-rotating (one per chain).
-    twinmaul(ctx, r, s, P, t) {
-      flailBody(ctx, r, s, P, t, { scale: 1.08, drum: 0, spokes: 0, shoulders: true });
-      const plateFill = s.hitFlash > 0 ? 'rgba(255,150,150,0.95)' : P.plate;
-      for (const sgn of [1, -1]) {
-        const dy = 0.38 * r * sgn, dr = 0.38 * r;
-        ctx.beginPath(); ctx.arc(0, dy, dr, 0, TAU); ctx.fillStyle = plateFill; ctx.fill();
-        ctx.strokeStyle = RIM; ctx.lineWidth = 1.3; ctx.stroke();
-        ctx.strokeStyle = P.accent; ctx.lineWidth = 1.5;
-        const spin = (sgn > 0 ? (s.orbSelfSpin || 0) : -(s.orbSelfSpin2 != null ? s.orbSelfSpin2 : (s.orbSelfSpin || 0)));
-        for (let i = 0; i < 3; i++) {
-          const a0 = spin + (i / 3) * TAU;
-          ctx.beginPath(); ctx.moveTo(Math.cos(a0) * dr * 0.25, dy + Math.sin(a0) * dr * 0.25);
-          ctx.lineTo(Math.cos(a0) * dr * 0.9, dy + Math.sin(a0) * dr * 0.9); ctx.stroke();
-        }
-        ctx.fillStyle = 'rgba(255,255,255,0.85)';
-        ctx.beginPath(); ctx.arc(0, dy, dr * 0.2, 0, TAU); ctx.fill();
-      }
-    },
-    // Binary Star: Twinmaul's drums bridged by an energized tether manifold — the hull
-    // advertises that the space BETWEEN the heads is the weapon.
-    binaryStar(ctx, r, s, P, t) {
-      MODELS.twinmaul(ctx, r, s, P, t);
-      ctx.globalCompositeOperation = 'lighter';
-      ctx.strokeStyle = 'rgba(255,240,170,0.8)'; ctx.lineWidth = 2.2;
-      ctx.beginPath(); ctx.moveTo(0, -0.38 * r); ctx.lineTo(0, 0.38 * r); ctx.stroke();
-      ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 1;
-      const w = 0.10 * r * Math.sin(t * 23);
-      ctx.beginPath(); ctx.moveTo(0, -0.38 * r); ctx.quadraticCurveTo(w, 0, 0, 0.38 * r); ctx.stroke();
-      ctx.globalCompositeOperation = 'source-over';
-      const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
-      for (const sgn of [1, -1]) {
-        poly(ctx, [[0.14 * r, 0.38 * r * sgn], [0, 0.52 * r * sgn], [-0.14 * r, 0.38 * r * sgn], [0, 0.24 * r * sgn]]);
-        fillStroke(ctx, plateFill, 1.1);
-      }
-    },
+    // Flail line: a long salvage warship, winch drivetrain forward. Twinmaul doubles the drums;
+    // Binary Star bridges them with the energized tether manifold. Each tier grows.
+    flailship(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { drum: 0.4, nacelles: 2, windows: 8, tier: 1 }); },
+    twinmaul(ctx, r, s, P, t)  { flailBody(ctx, r, s, P, t, { twin: true, drum: 0.34, shoulders: true, nacelles: 2, windows: 9, tier: 2 }); },
+    binaryStar(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { twin: true, drum: 0.34, shoulders: true, tether: true, nacelles: 3, windows: 10, tier: 3 }); },
   };
 
   function modelFor(classId) {

@@ -84,7 +84,7 @@ window.PULSAR = window.PULSAR || {};
         if (big && mods.fullChargeDamageMult) dmg *= mods.fullChargeDamageMult;
         const pierce = ch.pierce[stage], recoil = ch.recoil[stage];
         const heatAdd = { snap: heat.tapShot, focus: heat.halfCharge, lance: heat.fullCharge, overcharge: heat.overcharge }[stage];
-        const maxRange = R.beam.maxRange * (mods.rangeMult || 1);
+        const maxRange = R.beam.maxRange * (mods.rangeMult || 1) * (ship.rangeMult || 1);   // bigger hull reaches further
         const halfWidth = R.beam.halfWidth * (mods.beamWidthMult || 1);
 
         const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);
@@ -160,8 +160,9 @@ window.PULSAR = window.PULSAR || {};
         const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);
         const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
         const dps = B.dpsBase + (B.dpsMax - B.dpsBase) * ramp;
-        const hits = beamHits(api, ship, ox, oy, dx, dy, B.range, B.halfWidth);
-        let pierced = 0, end = B.range;
+        const range = B.range * (ship.rangeMult || 1);   // bigger hull reaches further
+        const hits = beamHits(api, ship, ox, oy, dx, dy, range, B.halfWidth);
+        let pierced = 0, end = range;
         for (const h of hits) {
           if (pierced >= B.pierce) break;
           const fall = h.t.isShip ? R.pierceFalloff.players : R.pierceFalloff.neutral;
@@ -214,7 +215,8 @@ window.PULSAR = window.PULSAR || {};
         const dmg = M.damageAtMin + (M.damageAtFull - M.damageAtMin) * c;
         const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);        // locked at this instant
         const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
-        const hits = beamHits(api, ship, ox, oy, dx, dy, M.range, w);
+        const range = M.range * (ship.rangeMult || 1);   // bigger siege hull reaches further
+        const hits = beamHits(api, ship, ox, oy, dx, dy, range, w);
         let pierced = 0, neutrals = 0;
         for (const h of hits) {
           if (pierced >= M.pierce) break;
@@ -224,7 +226,7 @@ window.PULSAR = window.PULSAR || {};
           pierced++; if (!h.t.isShip) neutrals++;
         }
         if (neutrals >= R.lineBreakThreshold) api.lineBreak(ship, neutrals, ox, oy);
-        api.fx.spawnBeam(ox, oy, ox + dx * M.range, oy + dy * M.range, hueFor(ship.classId), w, M.beamVisualSec, 0.6 + 0.4 * c);
+        api.fx.spawnBeam(ox, oy, ox + dx * range, oy + dy * range, hueFor(ship.classId), w, M.beamVisualSec, 0.6 + 0.4 * c);
         api.fx.spawnParticles(ox + dx * ship.radius, oy + dy * ship.radius, 10 + Math.round(c * 18),
           hueFor(ship.classId), { dir: ship.aim, spread: 0.5, speed: 320 + c * 260 });
         api.applyImpulse(ship, -dx * M.recoil * c, -dy * M.recoil * c);
@@ -239,7 +241,7 @@ window.PULSAR = window.PULSAR || {};
         if (RF && ship.classId === 'starbreak' && c >= RF.minCharge) {
           const rifts = ship.rifts || (ship.rifts = []);
           if (rifts.length >= RF.maxActive) rifts.shift();
-          rifts.push({ ox, oy, dx, dy, len: M.range, t: RF.delaySec, vt: 0 });
+          rifts.push({ ox, oy, dx, dy, len: range, t: RF.delaySec, vt: 0 });
         }
       },
       tickRifts(api, ship, dt) {
@@ -317,18 +319,24 @@ window.PULSAR = window.PULSAR || {};
         ship.ramCd = ship.ramActive + H.lunge.cooldownSec;   // can't dash again until the active phase + cooldown elapse
         ship.ramHitList = [];
         const dx = Math.cos(ship.aim), dy = Math.sin(ship.aim);
-        api.applyImpulse(ship, dx * H.lunge.speed * f, dy * H.lunge.speed * f);
+        const rm = ship.rangeMult || 1;   // bigger hull lunges further
+        api.applyImpulse(ship, dx * H.lunge.speed * f * rm, dy * H.lunge.speed * f * rm);
         api.fx.spawnParticles(ship.x, ship.y, 8 + Math.round(c * 10), hueFor(ship.classId), { dir: ship.aim, spread: 0.5, speed: 220 + c * 160 });
         if (!ship.isBot) api.fx.addShake(5 + c * 7);
       },
       smash(api, ship, H) {
         const heavy = (ship.classId === 'maulbreaker' || ship.classId === 'worldsplitter');
-        const reach = ship.radius * (heavy ? H.maulbreaker.frontHitboxMult : 1);
+        const reach = ship.radius * (heavy ? H.maulbreaker.frontHitboxMult : H.lunge.hitboxMult);
         const impact = ship.ramHitBase + Math.hypot(ship.impX, ship.impY) * H.ram.momentumMultiplier;
         const kb = api.config.combat.knockbackBase * (heavy ? H.maulbreaker.knockbackMult : 1);
         for (const t of api.hittables(ship)) {
           const rr = reach + t.radius;
-          if ((ship.x - t.x) ** 2 + (ship.y - t.y) ** 2 > rr * rr) continue;
+          // Swept circle from the previous to current fixed-tick position. At full speed the ram
+          // moves ~25px/tick; checking only the endpoint could skip a visually direct collision.
+          const ax = ship.px, ay = ship.py, vx = ship.x - ax, vy = ship.y - ay, len2 = vx * vx + vy * vy;
+          const u = len2 > 0 ? Math.max(0, Math.min(1, ((t.x - ax) * vx + (t.y - ay) * vy) / len2)) : 1;
+          const cx = ax + vx * u, cy = ay + vy * u;
+          if ((cx - t.x) ** 2 + (cy - t.y) ** 2 > rr * rr) continue;
           if (ship.ramHitList.indexOf(t) >= 0) continue;
           ship.ramHitList.push(t);
           const d = Math.hypot(ship.x - t.x, ship.y - t.y) || 1;
@@ -352,11 +360,12 @@ window.PULSAR = window.PULSAR || {};
     gravityWell: {
       update(api, ship, dt, ctx) {
         const G = api.config.gravitor;
+        const pullR = G.well.pullRadius * (ship.rangeMult || 1);   // bigger hull => wider gravity field
         if (!ship.captured) ship.captured = [];
         ship.orbSpin = (ship.orbSpin || 0) + G.orbit.speed * dt;
         const drag = (ship.classId === 'singularity' || ship.classId === 'eventHorizon');
         if (drag) {                                   // tidalDrag passive: slow enemies in the well
-          const td = G.tidalDrag, rad = G.well.pullRadius * td.radiusMult;
+          const td = G.tidalDrag, rad = pullR * td.radiusMult;
           for (const e of api.enemiesOf(ship)) {
             const d = Math.hypot(e.x - ship.x, e.y - ship.y);
             if (d > rad) continue;
@@ -393,7 +402,7 @@ window.PULSAR = window.PULSAR || {};
         const cap = (G.launchByClass[ship.classId] || G.launchByClass.gravitor).cap;
         if (ship.captured.length >= cap) { ship.accretionT = 0; return; }
         const need = cap - ship.captured.length, cands = [];
-        for (const o of api.state.objects) { if (o.type === 'titan') continue; const d = Math.hypot(o.x - ship.x, o.y - ship.y); if (d < G.well.pullRadius) cands.push({ o, d }); }   // titans are mountains, not ammo
+        for (const o of api.state.objects) { if (o.type === 'titan') continue; const d = Math.hypot(o.x - ship.x, o.y - ship.y); if (d < pullR) cands.push({ o, d }); }   // titans are mountains, not ammo
         cands.sort((a, b) => a.d - b.d);
         for (let i = 0; i < Math.min(need, cands.length); i++) {
           const o = cands[i].o, d = cands[i].d || 1;
@@ -444,6 +453,9 @@ window.PULSAR = window.PULSAR || {};
           flingDamageMin: F.orb.flingDamageMin * b.dmgMult, flingDamageMax: F.orb.flingDamageMax * b.dmgMult,
           trailDamage: F.orb.trailDamage * b.dmgMult, tipRadius: F.orb.tipRadius * b.sizeMult,
         });
+        // bigger hull => longer chain: the mace/blade reaches + swings wider as the ship grows
+        const rm = ship.rangeMult || 1;
+        if (rm !== 1) O = Object.assign({}, O, { maxReach: O.maxReach * rm, spinRadius: O.spinRadius * rm, trailDistance: O.trailDistance * rm });
         const twin = ship.classId === 'twinmaul' || ship.classId === 'binaryStar';
         const nHeads = twin ? 2 : 1;
         const dmgMult = twin ? F.twin.dmgMult : 1;

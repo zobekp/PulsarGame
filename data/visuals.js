@@ -86,11 +86,11 @@ window.PULSAR.classVisuals = {
                         "STATIC LASH stun flash around the heads"] },
   binaryStar:  { inherits: "flailship", silhouette: "binaryStar",
                  note: "Twinmaul's drums bridged by an energized tether manifold; the maces are " +
-                       "now whirling BLADE rotors — faster, longer reach, heavier hits (still block " +
+                       "now energized SWORDS — faster, longer reach, heavier hits (still block " +
                        "shots). The blades AND the space between them are the weapon.",
-                 cues: ["twin spinning BLADE rotors (was mace heads)",
-                        "blades whiten + edges glow as they swing faster",
-                        "live crackling TETHER between the two blades",
+                 cues: ["twin SWORDS (was mace heads), blades point outward on their chains",
+                        "steel whitens + edges glow as they swing faster",
+                        "live crackling TETHER between the two swords",
                         "tether burns hotter during a synced throw (the garrote)",
                         "enemies dragged onto the wire"] },
 };
@@ -109,6 +109,8 @@ window.PULSAR.objectVisuals = {
   crystal:  { hue: "#5eead4", shape: "shard", faintGlow: true },
   debris:   { hue: "#4b5563", shape: "fragment" },
   wreckage: { hue: "#6b7280", shape: "bigBlob" },
-  pulsar:   { hue: "#ffffff", shape: "star", pulsingBloom: true,
-              note: "Brightest fixed object on the map — the literal & visual center." },
+  pulsar:   { hue: "#ffffff", shape: "blackhole", pulsingBloom: true,
+              note: "A BLACK HOLE at map center: dark event horizon + photon ring, WARPS the grid " +
+                    "around it (frame-drag swirl), PULLS ships toward the core (touch it = death), " +
+                    "and fires intermittent bipolar RELATIVISTIC JETS of scrap along a rotating axis." },
 };

@@ -12,8 +12,8 @@ window.PULSAR.config = {
   sim: {
     tickRate: 60,            // fixed sim steps per second (the determinism clock)
     maxFrameTimeSec: 0.25,   // clamp huge frame gaps (tab-out) so we don't spiral-of-death
-    maxRenderFps: 360,       // render ceiling — sim is unaffected; frames past this are skipped
-                             // (rAF is vsync-bound anyway; this only bites on 360Hz+ displays)
+    maxRenderFps: 60,        // explicit visual budget; fixed simulation remains 60Hz independently
+    renderDprCap: 1.25,      // bloom is fill-rate bound; avoids 2.25× pixel cost from the old 1.5 cap
   },
 
   // ---- Arena & spatial model -------------------------------------------------
@@ -23,11 +23,26 @@ window.PULSAR.config = {
   arena: {
     width: 6000,
     height: 6000,
-    pulsarRadius: 220,            // the central neutron-star honeypot
-    pulsarPulseIntervalSec: 4,    // rhythm on which it ejects scrap motes
+    pulsarRadius: 220,            // visual + reference radius of the central black hole
     edgeSafeMargin: 800,          // outer band where asteroids are dense & PvP is rare
     spawnEdgeInset: 250,          // spawns land between this and edgeSafeMargin from the wall —
                                   // you wake up in the calm farming band, never at the pulsar brawl
+    // The Pulsar is a BLACK HOLE: a gravity well that drags ships toward the core, a lethal
+    // event horizon (touch it = death), and intermittent bipolar RELATIVISTIC JETS that fling
+    // scrap far out along a slowly-rotating axis. Escapable at range, certain death near the core.
+    pulsar: {
+      lethalRadius: 55,           // touch the event horizon => instant death (the singularity)
+      pullRadius: 900,            // gravity-well reach; pull ramps up sharply toward the core
+      pullMaxSpeed: 340,          // px/sec peak inward drag (> baseSpeed 280 ⇒ inescapable close in)
+      dangerRadius: 340,          // bots steer OUT of this band so they don't feed the hole
+      jetIntervalSec: 6.5,        // seconds between jets — intermittent, not a steady stream
+      jetMotes: 16,               // scrap motes per jet, split between the two poles (bipolar)
+      jetScrapPerMote: 6,         // 16×6 = 96 scrap flung out per jet
+      jetSpeed: 950,              // relativistic — motes streak far out along the axis
+      jetLifeSec: 3.2,            // how long the jet motes fly before fading
+      jetSpreadRad: 0.11,         // narrow cone (a beam, not a spray)
+      jetAxisDriftRadPerSec: 0.3, // the jet axis slowly rotates, sweeping the map
+    },
   },
 
   // ---- Player base -----------------------------------------------------------
@@ -47,6 +62,9 @@ window.PULSAR.config = {
     cruise: { rampSec: 2.4, maxMult: 1.4, alignDot: 0.6, decayPerSec: 2.5 },
     respawnDelaySec: 1.7,         // wreck -> respawn wait
     regen: { delaySec: 5.0, perSec: 18 }, // passive regen after 5s of no weapon use
+    // Spawn selection samples existing edge-band positions and chooses one with nearby shared
+    // farmables. It gives every new life something to do immediately without minting private loot.
+    spawnFarmSearch: { attempts: 12, radius: 520, minObjects: 3 },
   },
 
   // ---- Economy & death (greed model) ----------------------------------------
@@ -58,8 +76,7 @@ window.PULSAR.config = {
     scrapPerCrystal: 6,           // higher-yield, rarer neutral object
     scrapPerDebris: 2,
     scrapPerTitan: 950,           // one titan ≥ level 15 (levelCurve L15 ≈ 925 xp) — a mountain worth mining
-    pulsarScrapPerMote: 4,        // motes the pulsar ejects on each pulse
-    pulsarMotesPerPulse: 8,
+    // (pulsar scrap is now the black hole's relativistic jet — see arena.pulsar)
     killScrapFraction: 0.5,       // killer collects this share of victim's carried scrap
     dropFractionOnDeath: 0.5,     // victim drops this share of UNSPENT carried scrap
     lineBreakBonusScrap: 4,       // Railship "LINE BREAK": 3+ objects in one shot
@@ -72,10 +89,26 @@ window.PULSAR.config = {
     // Level from cumulative earned scrap (XP): xpToReach(L) = round(k * (L-1)^exp).
     // ~L3≈28xp (early), L8≈250, L15≈880, L25≈2360 (leader grind). Tune in playtest.
     levelCurve: { k: 8, exp: 1.8 },
-    // Within-family growth so evolving READS as power: each step above the base family
-    // (tier 2 = upgrade, tier 3 = final) grows the hull + HP. Combined with per-family
-    // sizeMult and leader scaling. Makes Lancer/Star Piercer etc. visibly bigger + tankier.
-    tierGrowth: { radius: 0.14, hp: 0.20 },
+    // (ship size/HP/damage progression now lives in the top-level `scaling` block)
+  },
+
+  // ---- PROGRESSION SCALE (galactic-war dreadnoughts) -------------------------
+  // Ships — AND their hitboxes — grow dramatically as you evolve, so a maxed ship DWARFS a fresh
+  // one (the Revenge-of-the-Sith opening: huge dreadnoughts slug it out while fighters dart between
+  // them). A bigger hitbox also means you WHIFF less as you invest — landing shots stops being the
+  // barrier to playing on. Rank: starter=0, base class=1, tier-2=2, tier-3(final)=3.
+  //   • HP scales with size (tanky) but sub-area, so a big ship is still killable by focused fire.
+  //   • Damage scales with size too, so same-rank duels keep a sane TTK while a dreadnought
+  //     devastates fighters (and fighters must dodge, not trade).
+  //   • Maneuver (top speed + accel) tapers with size, so capital ships LUMBER and small ships
+  //     dance around them — the David-vs-Goliath counterplay. Derived from radius so SP == MP.
+  scaling: {
+    sizeByRank:  [1.0, 1.5, 2.2, 3.1],    // radius (== hitbox == drawn hull) vs baseRadius, × family sizeMult
+    hpByRank:    [1.0, 2.0, 3.6, 6.0],    // durability grows with hull, but less than area (still killable)
+    dmgByRank:   [1.0, 1.8, 3.0, 4.8],    // bigger guns hit harder (keeps intra-rank TTK reasonable)
+    rangeByRank: [1.0, 1.2, 1.45, 1.7],   // bigger weapons REACH further — beams, chain, lunge, grav field
+    leaderSizeMult: 1.5,  leaderHpMult: 1.6,  leaderDmgMult: 1.4,  leaderRangeMult: 1.3,  // dominance → dreadnought
+    maneuver: { fullSizeRadius: 62, minMult: 0.62 }, // speed+accel taper: 1.0 at baseRadius → minMult by this size
   },
 
   // ---- Meta / persistence (Phase 6) ------------------------------------------
@@ -132,6 +165,23 @@ window.PULSAR.config = {
     teamHueIsBodyRing: true,      // hue=team, silhouette+aura=class, brightness=threat
   },
 
+  // ---- First-minute guidance (presentation only; no scripted objectives) -----
+  onboarding: {
+    promptSec: 12,                // fades if the player has not collected scrap first
+    targetSearchRadius: 650,      // how far the local guide may point to an existing neutral
+    targetRingPulsePerSec: 2.2,   // visual cadence only
+    showDevPanel: true,           // balance builds keep instant level-up + bot toggles accessible
+  },
+
+  // ---- Interface layout (presentation only) ---------------------------------
+  ui: {
+    panelRadius: 10,
+    statusWidth: 270,
+    abilitySlotWidth: 184,
+    abilitySlotHeight: 54,
+    minimapSize: 168,
+  },
+
   // ---- Combat reference ------------------------------------------------------
   combat: {
     ttkReferenceHits: 5,          // dial that decides twitchy vs grindy; keep TTK long
@@ -166,8 +216,7 @@ window.PULSAR.config = {
     moteLifeSec: 12,
     collectRadius: 150,       // VICINITY vacuum: get this close and motes fly to you
     vacuumSpeed: 620,         // px/sec pull once inside collectRadius (accelerates in)
-    pulsarMoteSpeed: 190,     // pulsar motes eject faster (they spread from the core)
-    pulsarMoteLifeSec: 7,     // and decay sooner — go get them fresh (the honeypot pull)
+    jetDrag: 0.25,            // relativistic jet motes coast (low drag) so they streak far out
   },
 
   // ---- CLASS 1: Railship (precision sniper / line farmer / anti-large) -------
@@ -246,7 +295,7 @@ window.PULSAR.config = {
       // STARBREAK (tier-3 final) only: a strong-enough blast tears a RIFT along the shot line —
       // a glowing scar that lingers delaySec, then collapses and detonates the corridor. A miss
       // is no longer nothing: it's area denial. Same width feel as the blast, honest hitbox.
-      rift: { minCharge: 0.6, delaySec: 0.6, damage: 55, halfWidth: 26, knockback: 130, maxActive: 2 },
+      rift: { minCharge: 0.6, delaySec: 0.6, damage: 45, halfWidth: 26, knockback: 130, maxActive: 2 },
     },
   },
 
@@ -257,21 +306,22 @@ window.PULSAR.config = {
     ram: {
       tapBashDamage: 10, chargedDamage: 34, overcommitDamage: 60,
       momentumMultiplier: 0.12,   // impactDamage = base + lunge-speed * this
-      windupSec: 0.6, missRecoverySec: 0.9, turnRateDuringCharge: 0.3,
+      windupSec: 0.6, missRecoverySec: 0.9, turnRateDuringCharge: 0.42,
     },
     // Hold fire to wind up, release to LUNGE forward; contact during the lunge is the hit.
     // While lunging you shrug off rocks (you're the aggressor) — the farming style is "plow".
     // Windup scales BOTH damage (tap/charged/overcommit) AND dash distance: a fuller wind-up
     // lunges faster and glides longer. During the lunge drag is low (glideDampPerSec) so the
     // ship carries its momentum and the distance reads clearly.
-    lunge: { chargeTimeSec: 0.7, speed: 1500, durationSec: 0.40, selfDamageReduction: 0.8,
+    lunge: { chargeTimeSec: 0.7, speed: 1500, durationSec: 0.48, selfDamageReduction: 0.8,
+             hitboxMult: 1.12,        // slight active-ram forgiveness; procedural nose visual covers this area
              minLungeFactor: 0.28,      // tap-lunge speed/distance floor; windup scales up to 1.0
              glideDampPerSec: 1.5,      // low drag mid-lunge (vs player.impulseDampPerSec) = real glide
              cooldownSec: 1.2 },        // forced wait after a lunge ends — no ram-spam
     // Non-dash impact: the heavy hull bashes enemies you bump into BETWEEN dashes (gated so it's
     // a steady body-check, not a per-tick grind). Keeps Hammerhead threatening off cooldown.
     bodyCheck: { damage: 12, cooldownSec: 0.6, knockback: 90 },
-    maulbreaker: { frontHitboxMult: 1.4, knockbackMult: 1.5 },        // biggerFrontHitbox/moreKnockback
+    maulbreaker: { frontHitboxMult: 1.5, knockbackMult: 1.5 },        // evolved hammer nose is wider, not harder
     worldsplitterSlam: { radius: 230, damage: 40, knockback: 320 },   // full-lunge hit -> shockwave
     ability: "brace",             // "brace" (DR) or "brakeTurn" (redirect) — pick in code
     brace: { damageReduction: 0.5, durationSec: 0.8, cooldownSec: 6 },
@@ -333,7 +383,7 @@ window.PULSAR.config = {
     launchByClass: {
       gravitor:  { cap: 3, per: 1, cd: 0.45 },
       meteorist: { cap: 6, per: 2, cd: 0.22 },
-      starfall:  { cap: 9, per: 3, cd: 0 },      // hold 9, hurl 3 at a time, NO cooldown
+      starfall:  { cap: 5, per: 2, cd: 0.15 },   // holds five visible meteors; staggered volley stays dodgeable
       // Branch B (control) — fewer rocks, the well itself is the weapon (tidalDrag).
       singularity:  { cap: 4, per: 1, cd: 0.5 },
       eventHorizon: { cap: 6, per: 2, cd: 0.35 },
@@ -369,10 +419,10 @@ window.PULSAR.config = {
       trailFollowPerSec: 7,             // how snappily the trailing mace tucks in behind the hull
       trailDamage: 6,                   // dragging the mace across something still stings
       spinRadius: 74,                   // swing-circle radius while spinning up
-      spinUpSec: 2.1,                   // hold-time from standstill to full radial momentum
+      spinUpSec: 1.6,                   // faster access so close-range ships can threaten before being kited out
       spinSpeedMin: 3.0, spinSpeedMax: 11.5,   // rad/sec at momentum 0 -> 1
       spinDamageMin: 9, spinDamageMax: 30,     // contact damage while swinging, by momentum
-      maxReach: 340,                    // chain length — a fling can reach THIS far (unchanged)
+      maxReach: 390,                    // chain length — lets a committed fling contest mid-range spacing
       releaseSweepRadPerSec: 13,        // min swing speed while releasing — the mace SWINGS to the
                                         // cursor line and lets go (hammer-throw), never teleports
       flingSpeedMin: 520, flingSpeedMax: 1800, // cast speed scales with momentum
@@ -397,7 +447,7 @@ window.PULSAR.config = {
     // and a synced (RMB) throw turns the tether into a GARROTE: both effects amplified while
     // the heads are in flight. You fence space and CATCH people, not just swing.
     binaryStar: {
-      tether: { halfWidth: 12, damage: 9, rehitSec: 0.4, pull: 220,
+      tether: { halfWidth: 16, damage: 10, rehitSec: 0.35, pull: 220,
                 thrownPullMult: 2.4, thrownDmgMult: 1.7 },
       // Tier-3 final: the two maces become BLADES — they swing FASTER, reach FURTHER, and hit
       // HARDER than the Twinmaul heads. Applied as multipliers over F.orb. They still block
@@ -446,5 +496,7 @@ window.PULSAR.config = {
     screenShakeDecayPerSec: 60,
     floatTextRiseSpeed: 46,   // px/sec a "LINE BREAK"/scrap number floats up
     floatTextLifeSec: 1.1,
+    objectHitParticles: 11,       // neutral hits must read through the dark arena
+    objectBreakParticles: 28,     // stronger payoff when a farmable breaks
   },
 };

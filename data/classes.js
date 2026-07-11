@@ -147,7 +147,7 @@ window.PULSAR.classes = {
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
   },
-  // FINAL (lvl 15): BINARY STAR — the two maces become whirling BLADES (faster, longer reach,
+  // FINAL (lvl 15): BINARY STAR — the two maces become energized SWORDS (faster, longer reach,
   // heavier hits; still block shots) linked by a live energy tether. Anything crossing the line
   // between the heads takes ticking damage and is dragged onto it; a synced (RMB) throw turns the
   // tether into a GARROTE mid-flight. Fence space. Catch people. Cut them.
@@ -156,7 +156,7 @@ window.PULSAR.classes = {
     configKey: "flailship", branchOf: "flailship",
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
-    note: "Twin blades on live tethers — the blades AND the space between them are the weapon.",
+    note: "Twin swords on live tethers — the blades AND the space between them are the weapon.",
   },
 };
 

@@ -26,22 +26,23 @@ for (const [parent, child] of [['helion', 'supernova'], ['starPiercer', 'starbre
 // ---- Supernova: Flare Nova scales with heat, clears it + the vent ----------
 const nova = world.addShip({ classId: 'supernova', x: 3000, y: 3000 });
 const dummy = world.addShip({ classId: 'railship', x: 3100, y: 3000 });
-dummy.spawnProtect = 0; clearNear(3000, 3000, 500);
+dummy.spawnProtect = 0; dummy.maxHp = dummy.hp = 5000; clearNear(3000, 3000, 500);   // durable so scaled damage is measurable
 nova.heat = 80; nova.ventTimer = 1.0;
 const hp0 = dummy.hp;
 P.resolveSpecial('flareNova').activate(world.api, nova);
 const N = cfg.helion.supernova;
-const expect = (N.baseDamage + N.damagePerHeat * 80) * (1 - (100 / N.radius) * N.edgeFalloff);
+// nova damage scales with the ship's progression dmgMult too (bigger ship => bigger nova)
+const expect = (N.baseDamage + N.damagePerHeat * 80) * (1 - (100 / N.radius) * N.edgeFalloff) * nova.dmgMult;
 check('nova damage scales with heat', Math.abs((hp0 - dummy.hp) - expect) < 1.5, `dealt ${(hp0 - dummy.hp).toFixed(1)} vs ${expect.toFixed(1)}`);
 check('nova consumed heat + cleared vent', nova.heat === 0 && nova.ventTimer === 0);
-nova.heat = 10;
+nova.heat = 10; dummy.hp = dummy.maxHp;
 const cdWeak = P.resolveSpecial('flareNova').activate(world.api, nova);
 check('below minHeat: refused (short retry cd)', cdWeak < 1 && dummy.hp > 0);
 
 // ---- Starbreak: blast leaves a rift that detonates the line after the delay -
 const sb = world.addShip({ classId: 'starbreak', x: 1500, y: 1500, aim: 0 });
 const tgt = world.addShip({ classId: 'hammerhead', x: 1900, y: 1500 });
-tgt.spawnProtect = 0; tgt.combatTimer = 99;               // hold regen off for clean deltas
+tgt.spawnProtect = 0; tgt.combatTimer = 99; tgt.maxHp = tgt.hp = 5000;   // durable: survive the scaled blast so the rift is measurable
 clearNear(1500, 1500, 1200);
 const hpA = tgt.hp;
 P.resolveWeapon('mawRail').fire(world.api, sb, 1.0);       // full-charge blast

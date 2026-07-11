@@ -71,6 +71,268 @@ against the server with the slice/jitter code — zero errors.
 
 ---
 
+## 2026-07-10 — DREADNOUGHT SCALING: ships + hitboxes grow hard with progression
+**Why:** whiffing shots is a barrier to playing on; making ships (and their HITBOXES) grow as you
+evolve means you land more as you invest, AND unlocks the galactic-war fantasy — a maxed ship should
+DWARF a fresh one (Revenge-of-the-Sith: dreadnoughts slug it out while fighters dart between them).
+
+**New `config.scaling` block** (replaces `economy.tierGrowth`). Rank = starter 0 / base class 1 /
+tier-2 2 / tier-3 3, plus a leader "dominance" bump:
+- `sizeByRank [1, 1.5, 2.2, 3.1]` — radius == hitbox == drawn hull (× per-family sizeMult).
+- `hpByRank [1, 2, 3.6, 6]` — tankier with size but sub-area (still killable by focused fire).
+- `dmgByRank [1, 1.8, 3, 4.8]` — bigger guns hit harder (via new `s.dmgMult`, applied in
+  `damageShip` to ALL ship damage — weapons, rams, specials).
+- `rangeByRank [1, 1.2, 1.45, 1.7]` — bigger weapons REACH further (via new `s.rangeMult`):
+  rail/helion/maw beam range, hammer lunge distance, flail chain reach + swing radius, gravitor
+  field radius. A tier-3 rail reaches ~2210px (leader ~2870) vs the starter's 1300.
+- `leaderSizeMult 1.5 / leaderHpMult 1.6 / leaderDmgMult 1.4` — a marked leader becomes a true
+  dreadnought.
+- `maneuver {fullSizeRadius 62, minMult 0.62}` — top-speed + accel taper with hull size, so capital
+  ships LUMBER and fighters dance around them. Derived from radius (`maneuverFor`) so it's a pure
+  function of a synced value ⇒ single-player and the MP predictor agree with no new sync.
+
+**Measured (real radii):** starter r16 → base r22 → tier-2 r33 → tier-3 r47 → tier-3 leader ~r71
+(worldsplitter leader ~r95). Dwarf ratio ~4× radius (~16× area); intra-rank TTK proxy stays ~1.06
+(same-tier fights stay fair); a dreadnought needs ~3 hits to delete a fighter while a fighter needs
+~70 to grind a dreadnought (David-vs-Goliath by design — evolve or dodge, don't trade).
+
+**Files:** `data/config.js`, `src/sim.js` (`applyClassStats` + `maneuverFor` + `damageShip`),
+`src/weapons.js` (per-family range via `s.rangeMult`), `src/mpclient.js` (predictor maneuver).
+Models already draw in radius units, so they scale for free.
+
+**Verified:** new `scaletest.js` (dwarf ratio, monotonic growth, TTK sanity, asymmetry, lumber) +
+`sptest`/`finaltest`/`predtest`/`edgetest` green (finaltest updated: finals now over-kill fragile
+dummies, so those tests use durable targets + account for `dmgMult`). Finals dueltest: all fights
+resolve (≤2 timeouts).
+
+**Known / follow-ups (NOT done):** ① Balance is a first cut — **needs human playtest**; the maneuver
+penalty slightly favors ranged over melee finals (melee closes slower). ② VFX escalation (bigger =
+"Star Wars" bloom/engine trails/turret fire) is only partly there (models scale; no new tier VFX
+yet). ③ A camera that zooms out around big ships would sell the battle scale — deferred. ④ Deeper
+mechanical changes the brief invited (capital-ship subsystems, point-defense, etc.) are open.
+
+---
+
+## 2026-07-10 — Fleet-wide capital-ship rollout: all families are crewed warships now
+**What changed:** Applied the long-warship style across every family via a shared `capitalHull`
+helper (`src/ships.js`) — a detailed hull with armor under-plate, keel + transverse plating, rows
+of lit crew windows, dorsal spine, bridge + canopy, stern engine-nacelle cluster, and port/
+starboard nav lights. Grows LONGER (not wider) and busier with tier.
+- **Gravitor** (full rebuild): `crescentHull` retired → `gravShip` = long carrier that cradles the
+  gravity core out ahead of the bow in containment prongs. Artillery branch adds a launch rail;
+  control branch (singularity/eventHorizon) wraps a void core in counter-rotating rings + vanes.
+- **Flail** (rebuild): `flailBody` → long salvage warship, winch drivetrain forward; Twinmaul gets
+  twin counter-rotating drums, Binary Star bridges them with the tether manifold. Swords still
+  drawn in `game.js`.
+- **Rail** (in-style pass): kept the refined clamshell gun + fold animation; grew the little "tail
+  craft" into a full rear crew hull (windows, spine, bridge canopy, twin nacelles, nav lights).
+- **Hammer** (light touch, kept the design you liked): added crew windows + nav lights for fleet
+  consistency.
+Per-tier scale comes from new opts (`nacelles`/`windows`/`tier`/`armor`) plus the existing
+`tierGrowth` radius. Render-only; no sim/config/hitbox change. Verified every family + tier via
+headless renders (all draw without error).
+
+**Still open:** the hitbox-honesty call (detailed hulls read larger than collision `r`; defaulted
+to decorative). Hammer is the one family still noticeably wide (its ram identity) — could be
+stretched longer if wanted.
+
+---
+
+## 2026-07-10 — Base ship reborn as a corvette + direction: LONGER, not wider (galactic-war scale)
+**Direction locked:** ships should grow in LENGTH (capital-ship / dreadnought proportions), not
+width, and read like crewed warships ("thousands aboard") — not the Asteroids arrowhead. Hammerhead
+implementation is kept; it'll be re-proportioned longer as the style rolls out.
+
+**What changed:** rebuilt the starter `dart` model (`src/ships.js`) into a small **corvette** — the
+smallest real warship in the fleet, the seed the capital ships grow from:
+- Slender hull (length ≫ beam, ~3.1r long) with a dark armor under-plate, transverse plating, and
+  a keel line.
+- Bridge superstructure block + canopy, dorsal spine, stern twin-nacelle engine cluster, forward
+  sensor mast, and port/starboard (red/green) nav lights.
+- Two rows of lit **windows** down the hull — the "decks full of crew" read.
+Uses the shared detailing toolkit (`plate`/`line`/`light`/`canopy`/`nacelle`). Render-only.
+
+**Next:** re-proportion the class families longer (Gravitor full rebuild; Rail/Flail in-style pass),
+scaling each tier into a bigger, busier capital ship.
+
+---
+
+## 2026-07-10 — Detailed ship models: capital-ship overhaul (Hammerhead = flagship template)
+**What changed:** Start of a big visual pass — ships become detailed "big spaceships" (layered
+hulls, wings, engine nacelles, cockpits, greebling) that grow bigger + more complex each tier,
+with ability animations. Built a shared **detailing toolkit** in `src/ships.js` (`plate`, `line`,
+`light` running-lights, `canopy` cockpit, `nacelle` engine pod) and rebuilt the **Hammerhead
+family** as the proof-of-style:
+- Armored fuselage (base plate + shaped body + dorsal spine + panel lines), cockpit canopy, swept
+  delta wings with bright leading edges + wingtip lights, clustered engine nacelles with hot
+  throats, reinforcement struts into the ram prow.
+- **Tier ramp** via new `hammerBody` opts `{nacelles, wings, armor, front, span, teeth, ridge}`:
+  hammerhead (2 nacelles / 1 wing / armor 1) → maulbreaker (teeth prow, armor 2) → worldsplitter
+  (3 nacelles / +canard wings / armor 3 / cleaving ridge). Combined with `tierGrowth` radius, each
+  upgrade is visibly larger + busier.
+- **Ability animations:** ram wind-up still slides the boost pods out + heats the prow edge molten
+  (now with an additive glow); the **Brace** ability (`braceTimer`) now draws a hardened hex-shield
+  shimmer over the hull.
+
+**Files touched:** `src/ships.js` only (render-only; no sim/config/hitbox change).
+
+**OPEN DECISIONS before rolling this across the other 3 families:**
+1. **Hitbox honesty:** the detailed hull (wings ~1.5r, prow ~1.5r) now reads noticeably larger than
+   the collision radius `r`. Options: keep it decorative (wings are cosmetic overhang), or grow the
+   hitbox to match (a balance change). Defaulted to decorative — needs a call.
+2. Rail is already "super refined" and Flail just got swords, so those get an *adaptation* (more
+   greebles/wings/lights in-style), not a teardown; Gravitor gets the full treatment.
+
+**How to test:** run the app, play Hammerhead line; hold ram to see pods deploy + prow go molten;
+trigger Brace for the shield shimmer. Verify each evolution looks bigger + more complex.
+
+---
+
+## 2026-07-10 — Restore and enforce the 60 FPS presentation budget
+**What changed:** Performance is now an explicit acceptance constraint. The fixed simulation remains 60Hz; rendering is deliberately capped at 60 FPS instead of attempting up to 360 FPS, which could waste 2–6× the frame budget on high-refresh displays after the UI pass.
+
+- `sim.maxRenderFps` is now 60.
+- Added `sim.renderDprCap: 1.25`; `src/render.js` reads it instead of hard-coding 1.5. This cuts the worst-case canvas pixel workload by roughly 31% while retaining light supersampling.
+- The render scheduler now carries fractional timing remainder. A naive 60 FPS cap on a 144Hz display otherwise quantizes to 48 FPS because each render waits for three 6.94ms refresh intervals.
+- The collapsible DEV tab now displays the rolling rendered FPS and turns red below 55, keeping future visual changes accountable.
+
+**Files touched:** `data/config.js`, `src/render.js`, `src/game.js`.
+**How to test:** play with DEV visible and confirm its FPS value holds near the display's 60 FPS target during farming, combat, evolution overlays, and pulsar effects. Simulation tests remain independent of render cadence.
+**Known limit:** automated local-browser measurement was unavailable in this session because localhost browser access was blocked; the code-level safeguards and tests were applied, but the user should confirm the displayed live FPS on their hardware.
+
+---
+
+## 2026-07-10 — Hammerhead ram consistency: honest reach + swept collision
+**What changed:** Kept Hammerhead's existing cursor snap, trajectory commitment, damage, cooldown, and travel distance. Increased only the active contact forgiveness: base Hammerhead reach is now `1.12×` hull radius and Maulbreaker/Worldsplitter `1.50×` (was `1.0×` / `1.4×`). The procedural hammer nose already visually covers this small extension.
+
+**Collision correctness:** active rams now test a swept circle from the ship's previous fixed-tick position to its current position. A full lunge moves roughly 25px per 60Hz tick; endpoint-only collision could pass across a target without registering. The sweep fixes that tunneling without accepting genuinely distant near-misses.
+
+**Files touched:** `data/config.js`, `src/weapons.js`, `tools/edgetest.js`.
+**How to test:** `node tools/edgetest.js` includes a regression where the target lies between tick endpoints. Also test glancing live rams with Hammerhead and its evolved forms.
+**Known limits:** this deliberately does not add steering, Brake Turn, extra damage, or any other Hammerhead feel change.
+
+---
+
+## 2026-07-10 — UI visual polish pass
+**What changed:** Rebuilt the presentation layer into a cohesive sci-fi instrument-panel style without changing simulation or gameplay.
+
+- **Title screen (`index.html`):** quieter gridded backdrop, tighter logo/input composition, glass entry panel, and properly dark cosmetic cards. The previous selector allowed the bright global PLAY-button style to overpower every skin card; skin-specific rules now win, leaving PLAY as the sole bright call to action.
+- **Status HUD (`src/game.js`):** framed glass panel with clear class/level/scrap hierarchy and labeled HULL / EVOLUTION / HEAT-or-RAM bars. Multiplayer status is separated into a compact online indicator.
+- **Ability dock:** bottom-center LMB / ability / special modules show key, action, and READY/cooldown state. Scout has correct POP GUN / THRUST labels; class-specific actions derive from the existing data keys.
+- **Evolution overlay:** responsive card grid (2×2 for the four base families, side-by-side for branch choices), larger animated hull previews, role blurbs, affordability state, and clearer cost hierarchy.
+- **Right rail:** leaderboard is a framed TOP PILOTS panel; kill-feed events receive compact dark backplates; dev controls remain enabled but live in a collapsible DEV drawer.
+- **Minimap:** larger framed tactical display with crosshairs, corner brackets, and a labeled pulsar-center header.
+- **Config:** new presentation-only `ui` block owns panel radius and primary HUD dimensions.
+
+**How to test:** run `node mpserver.js`, open `http://localhost:8080`, inspect the title screen, then PLAY. Use the DEV level button to trigger the level-3 evolution grid. Confirm the bottom action dock matches the current class, DEV collapses/expands, and the minimap/leaderboard remain clear at 1280×720.
+
+**Verified:** browser visual QA at 1280×720 on title and live match; no console warnings/errors. `node --check src/game.js`, `tools/sptest.js`, `tools/finaltest.js`, and `git diff --check` pass.
+
+**Known limit:** HUD dimensions target desktop play; a dedicated compact/mobile layout remains deferred.
+
+---
+
+## 2026-07-09 — First balance pass: close-range access, artillery volume, siege coverage
+**What changed:** Applied the first measured balance pass after repeated mirrored bot-duel samples. All changed gameplay numbers remain in `data/config.js`.
+
+- **Flail / Binary Star:** `spinUpSec` 2.1→1.6 and `maxReach` 340→390 so the family can threaten before long range permanently resets spacing. Binary Star tether is more forgiving/active: half-width 12→16, damage 9→10, rehit 0.4→0.35.
+- **Worldsplitter:** lunge duration 0.40→0.48 and charge steering 0.30→0.42. This targets connection reliability only; impact damage remains unchanged.
+- **Starfall:** now holds five rocks, throws two, and has a 0.15s launch cadence (was 9 / 3 / zero cooldown), matching its dodgeable-artillery role.
+- **Starbreak:** rift damage 55→45. The siege blast remains the payoff; missed-line coverage is less punishing.
+- **Bot correctness:** Gravitor bots now use their own data-defined rock capacity instead of a hidden hard-coded cap of nine.
+- **Telemetry:** `PULSAR.createWorld` now exposes non-networked resolved ship damage + hit counts. `tools/dueltest.js` reports average damage/hits for every pairing.
+- **Combat correction:** receiving ship damage now resets the target's existing regeneration delay. This was required before interpreting telemetry: prior duels could record hundreds of beam damage without a kill because an idle target regenerated through the pressure.
+
+**How to test:** run `node tools/dueltest.js` for final forms and `node tools/dueltest.js railship hammerhead gravitor flailship` for bases. Confirm all conclusions through human play before another tuning pass; bot duels are a regression signal, not a replacement for skilled PvP.
+
+---
+
+## 2026-07-09 — Balance controls retained + duel sampler
+**What changed:** Kept the in-match DEV panel enabled for the balance build (`onboarding.showDevPanel: true`), preserving the instant level-up button and bot toggle. Added `tools/dueltest.js`, a headless bot-versus-bot sampler for the four base forms, six tier-2 forms, or six finals. It puts both ships into the same shared-rock setup, removes spawn protection, then reports first-kill results over 12 mirrored-start rounds per pairing.
+
+**How to test:** start `node mpserver.js`; the top-right `ADMIN ▸ +1 LVL [L]` and `BOTS` controls are visible. Run `node tools/dueltest.js` for finals, or pass class ids, for example `node tools/dueltest.js railship hammerhead gravitor flailship`.
+
+**Known limits:** duel output is a bot-pilot regression signal, not a substitute for skilled human PvP. It is particularly useful for spotting systemic failures (for example, a class losing every ranged matchup), but tuning should be confirmed through live manual play before numbers ship.
+
+---
+
+## 2026-07-09 — First-minute clarity & farming readability pass
+**What changed:** Improved the opening play loop without introducing scripted objectives or player-private loot. Fresh lives now sample existing calm-edge spawn points and choose one with nearby shared farmables; a local, temporary guide highlights the nearest on-screen neutral and says `BREAK ROCKS → COLLECT SCRAP` until the first collection (or 12 seconds). The guide is render-only and never changes simulation state.
+
+**Files touched:** `data/config.js`, `src/sim.js`, `src/game.js`.
+- **Spawn-to-action:** `player.spawnFarmSearch` tunes candidate count, target radius, and minimum nearby shared objects. `sim.js` scores real world objects after field population, so this is authoritative and works identically in single-player and multiplayer.
+- **Farming feedback:** neutral hits emit a denser directed spark burst; breaks emit a larger burst. Damaged neutral objects now show a brighter health arc and visible surface fracture. All new VFX counts remain in `config.fx`.
+- **Navigation & UI:** the pulsar marker and local player arrow are clearer on a slightly larger minimap. The normal HUD no longer shows FPS; the developer admin panel is gated by `onboarding.showDevPanel` (default `false`).
+
+**How to test:** run `node mpserver.js`, open `http://localhost:8080`, press PLAY. A farmable should be nearby and briefly marked; break it and collect a mote to dismiss the guide. Verify the pulsar is obvious on the minimap, the DEV controls are absent, and damaged rocks visibly crack.
+
+**Known limits / TODO hooks:** this is presentation and spawn selection only; sustained combat/balance still needs human two-browser playtest sign-off for Phase 5. The local guide does not create or reserve resources, by design.
+
+---
+
+## 2026-07-06 — Pulsar is now a BLACK HOLE: pulls ships in, lethal core, relativistic scrap jets
+**Why:** iterate on the pulsar again — it should read as a black hole, PULL ships toward it, KILL
+anything that touches the singularity, and shoot scrap out in intermittent relativistic JETS
+(replacing the radial firehose from the entry below, which this supersedes).
+
+**Gameplay (`src/sim.js`, `data/config.js`):** new `arena.pulsar` block.
+- **Gravity well** (`pulsarGravity`, per ship after it moves): a direct positional pull toward the
+  core, `pullMaxSpeed·f²` where `f = 1 - d/pullRadius`. Peak 340 px/s > baseSpeed 280 ⇒ escapable
+  at range, inescapable near the core.
+- **Lethal event horizon:** `d < lethalRadius (55)` ⇒ `killShip(s, null)` (no killer, normal drop).
+- **Relativistic jets** (`pulsarStep`): every `jetIntervalSec (6.5)`, a bipolar jet ejects
+  `jetMotes (16)` at `jetSpeed (950)` in a narrow cone along an axis that = `time·drift`
+  (deterministic ⇒ MP-safe). Jet motes get low drag (`pickups.jetDrag 0.25`) so they streak
+  ~1700px out before fading — collect them along the stream, away from the deadly core.
+- `ejectMotes` gained a directed `{angle, spread, jet}` mode. Old radial `pulsarPulse` +
+  `economy.pulsar*` / `pickups.pulsarMote*` / `arena.pulsarPulseIntervalSec` removed.
+
+**Bots (`src/bots.js`):** idle bots now drift to a SAFE RING (0.85·pullRadius), not dead center;
+plus a danger-band avoidance push (inside `dangerRadius 340`) so they don't get dragged in.
+Smoke-tested: 0 core-deaths across 6 bots over 30s.
+
+**Visual (`src/render.js`, `src/game.js` minimap):** `drawPulsar` rebuilt as a black hole — dark
+event-horizon core, thin photon ring, faint accretion swirl, and two fading JET beams along the
+axis on the beat. The grid warp (drawGrid) stays as the visible gravity well. Minimap marker is
+now a dark core + bright ring. All jet timing/axis derive from `time`, matching the sim.
+
+**Verified:** headless mechanics test (ship dies on horizon; passive ship pulled 300→99; thrusting
+escapes at range; jet fires 16 motes that streak 1678px; bots don't feed the hole; all finite) +
+existing `tools/sptest.js` still green. **MP:** `pt`/`tm` already synced; jet motes stream from the
+server. Client prediction doesn't model the pull, so expect minor snap near the core in MP —
+acceptable for now, note for later. Numbers are all tunable in `arena.pulsar`.
+
+---
+
+## 2026-07-06 — The Pulsar becomes a SINGULARITY (warps space) + a scrap firehose  *(superseded by the black-hole entry above)*
+**Why:** the pulsar was still the Phase-0 placeholder (two glows + a white dot) and ejected only
+32 scrap/pulse — "no real incentive to be there." Goal: make it LOOK like a singularity warping
+space, and make the center the richest, most contested spot.
+
+**Visual (`src/render.js`):**
+- `drawPulsar` rebuilt: dark event-horizon core (radial-gradient black, occludes the grid),
+  a rotating multi-arc accretion disk, a hot photon ring, a breathing halo, and a pulse
+  shockwave ring that flares on the eject beat. All additive except the core.
+- `drawGrid(time)` now WARPS the grid near the pulsar: `warpPoint` drags each grid vertex toward
+  the core and swirls it (frame-drag), vanishing at the influence edge (radius = 4.4×pulsarRadius)
+  so there's no seam. Lines are subdivided only when the warp is on-screen; otherwise the fast
+  straight grid is drawn. `game.js` passes `state.time` into `drawGrid`.
+
+**Economy (`data/config.js`, `src/sim.js`):** `pulsarMotesPerPulse` 8→18 and `pulsarScrapPerMote`
+4→5 — 90 scrap/pulse (~22/s at the 4s cadence, was 8/s). Motes still damp-pool near the core, so
+you must actually HOLD the center to collect. Pulse FX burst enlarged (40 particles) to sell the
+eruption.
+
+**Files touched:** `src/render.js`, `src/game.js`, `src/sim.js`, `data/config.js`, `data/visuals.js`.
+Economy change is sim-affecting ⇒ MP authority needs this build. The grid warp is render-only.
+**Not yet playtested live** — watch for center-camping (bounty/pulse-scatter are the brakes);
+the scrap numbers are tunable in `economy`.
+
+**Follow-up idea (not built):** a telegraphed "supercharge" jackpot every N pulses to create a
+rush moment — deferred to keep this focused; say the word.
+
+---
+
 ## 2026-07-06 — Binary Star (flail final): maces become BLADES — faster, longer, harder
 **What changed:** the tier-3 flail final's two mace heads are now whirling BLADE rotors. New
 `flailship.binaryStar.blade` config {spinMult 1.4, reachMult 1.35, dmgMult 1.4, sizeMult 1.3}.
@@ -80,10 +342,12 @@ damage (spin/fling/trail), and a bigger head. **Still blocks projectiles** — `
 scales with the enlarged `tipRadius`, so the block is preserved and slightly wider. Twinmaul and
 base Flailship are unchanged (multipliers gate on classId === 'binaryStar').
 
-**Visual:** `src/game.js` flail head-draw now branches — Binary Star draws a 3-blade swept scythe
-rotor (steel body, gold heat edge that brightens with swing speed) instead of the spiked ball;
-all other flail classes keep the mace. Works local and remote (drives off the same
-selfSpin/orbX fields). Tether render unchanged.
+**Visual:** `src/game.js` flail head-draw now branches — Binary Star draws an energized SWORD per
+head (tapered blade + fuller, crossguard, wrapped grip, pommel; steel whitens + edge glows with
+swing speed) instead of the spiked ball. The blade points OUTWARD along its chain (rotates by the
+ship→head angle, not selfSpin) so it reads as a sword slashing around the ship. All other flail
+classes keep the mace. Works local and remote (drives off orbX/head positions). Tether unchanged.
+*(First cut was a 3-blade rotor; swapped to swords per feedback.)*
 
 **Files touched:** `data/config.js`, `data/classes.js`, `data/visuals.js`, `src/weapons.js`,
 `src/game.js`. Sim-affecting (damage/reach/speed) ⇒ MP authority needs this build. **Not yet

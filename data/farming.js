@@ -27,20 +27,19 @@ window.PULSAR.worldObjects = {
     size: "large", common: false, note: "Chunky; good for momentum/AoE classes.",
   },
 
-  // ---- The Pulsar (central honeypot) ----------------------------------------
-  // A neutron star at map center. On a rhythm it ejects scrap motes outward that
-  // decay with distance — densest value at the core, thinning to the rim. This is
-  // the PvP draw: richest scrap + everyone converges. No zone, no rules to learn.
+  // ---- The Pulsar (central BLACK HOLE) --------------------------------------
+  // A black hole at map center: a gravity well that drags ships inward, a lethal event
+  // horizon (touch it and you die), and intermittent bipolar RELATIVISTIC JETS that fling
+  // scrap far out along a slowly-rotating axis. The scrap is safest to grab out ALONG the
+  // jet stream, away from the deadly core — so positioning near the hole is the risk/reward.
   pulsar: {
     id: "pulsar",
     radiusKey: "arena.pulsarRadius",
-    pulseIntervalKey: "arena.pulsarPulseIntervalSec",
-    motesPerPulseKey: "economy.pulsarMotesPerPulse",
-    motePerScrapKey: "economy.pulsarScrapPerMote",
-    behavior: "On each pulse, eject N motes radially; motes drift out and decay. " +
-              "Standing near the core to vacuum motes is high-reward, high-risk.",
-    campingMitigation: "Pulse-scatter spreads value so no one can sit on all of it; " +
-                       "the bounty/leader system marks whoever tries.",
+    mechanicsKey: "arena.pulsar",          // lethalRadius / pullRadius / pullMaxSpeed / jet*
+    behavior: "Pull ships toward the core; instant death inside lethalRadius. Every " +
+              "jetIntervalSec, fire a two-pole jet of scrap motes that streak far out.",
+    campingMitigation: "The core is lethal (can't sit on it); the jet sweeps its axis so the " +
+                       "scrap lands in a different place each time; bounty marks whoever dominates.",
   },
 };
 

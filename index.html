@@ -10,38 +10,46 @@
 
   /* ---- title screen ---- */
   #title { position: fixed; inset: 0; z-index: 500; display: flex; flex-direction: column;
-    align-items: center; justify-content: center; gap: 22px;
-    background: radial-gradient(ellipse at 50% 40%, rgba(20,40,80,0.35), rgba(5,6,10,0.92) 70%); }
-  #title .logo { font-weight: 800; font-size: clamp(54px, 12vw, 132px); letter-spacing: -4px; line-height: 0.9;
+    align-items: center; justify-content: center; gap: 17px;
+    background: radial-gradient(ellipse at 50% 35%, rgba(18,45,78,0.30), rgba(4,6,12,0.95) 72%);
+    backdrop-filter: blur(3px); }
+  #title::before { content:""; position:absolute; inset:0; pointer-events:none; opacity:.28;
+    background: linear-gradient(rgba(90,160,220,.045) 1px, transparent 1px), linear-gradient(90deg, rgba(90,160,220,.045) 1px, transparent 1px);
+    background-size: 72px 72px; mask-image: radial-gradient(circle at center, black, transparent 78%); }
+  #title > * { position: relative; }
+  #title .logo { font-weight: 850; font-size: clamp(54px, 10vw, 116px); letter-spacing: -4px; line-height: 0.9;
     color: #eaf6ff; position: relative; animation: pulse 3.2s ease-in-out infinite;
     text-shadow: 0 0 14px #39d0ff, 0 0 40px rgba(57,208,255,0.8), 0 0 90px rgba(57,208,255,0.45); }
   #title .logo span { color: #7be0ff; font-weight: 300; text-shadow: 0 0 16px rgba(123,224,255,0.9); }
-  #title .tag { color: rgba(180,210,240,0.75); font-size: 14px; letter-spacing: 6px; text-transform: uppercase; margin-top: -8px; }
-  #title .row { display: flex; gap: 10px; }
+  #title .tag { color: rgba(180,210,240,0.68); font-size: 12px; letter-spacing: 6px; text-transform: uppercase; margin-top: -5px; }
+  #title .row { display: flex; gap: 9px; padding: 7px; border: 1px solid rgba(105,180,230,.2); border-radius: 12px;
+    background: rgba(7,13,24,.72); box-shadow: 0 18px 60px rgba(0,0,0,.35); }
   #title input { width: 240px; padding: 13px 16px; font-size: 16px; color: #eaf6ff; outline: none;
     background: rgba(20,32,52,0.7); border: 1.5px solid rgba(120,224,255,0.5); border-radius: 8px; }
   #title input::placeholder { color: rgba(150,180,210,0.5); }
   #title input:focus { border-color: #39d0ff; box-shadow: 0 0 0 3px rgba(57,208,255,0.18); }
-  #title button { padding: 13px 26px; font-size: 16px; font-weight: 700; color: #04121c; cursor: pointer;
+  #title button { padding: 13px 26px; font-size: 14px; letter-spacing: 1px; font-weight: 800; color: #04121c; cursor: pointer;
     background: linear-gradient(180deg, #8fe9ff, #39d0ff); border: none; border-radius: 8px;
     box-shadow: 0 0 22px rgba(57,208,255,0.6); transition: transform .08s, box-shadow .2s; }
   #title button:hover { transform: translateY(-1px); box-shadow: 0 0 34px rgba(57,208,255,0.9); }
   #title .hint { color: rgba(150,180,210,0.55); font-size: 12px; letter-spacing: 1px; margin-top: 6px; }
   @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
   /* ---- cosmetics shop ---- */
-  #shop { display: flex; flex-direction: column; align-items: center; gap: 10px; margin-top: 4px; }
-  #shop .cores { color: #8fe9ff; font-size: 14px; letter-spacing: 2px; text-shadow: 0 0 12px rgba(143,233,255,0.7); }
-  #skins { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; max-width: 520px; }
-  .skin { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 78px; padding: 8px 4px 6px; cursor: pointer;
-    background: rgba(16,26,42,0.7); border: 1.5px solid rgba(80,110,150,0.4); border-radius: 8px; color: rgba(200,220,240,0.85);
+  #shop { display: flex; flex-direction: column; align-items: center; gap: 9px; margin-top: 1px; padding: 11px 13px 13px;
+    background: rgba(7,12,22,.62); border: 1px solid rgba(90,145,195,.18); border-radius: 12px; }
+  #shop .cores { color: #8fe9ff; font-size: 11px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(143,233,255,0.5); }
+  #skins { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; max-width: 590px; }
+  #title .skin { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 72px; padding: 8px 4px 6px; cursor: pointer;
+    background: rgba(11,19,32,0.92); border: 1px solid rgba(80,110,150,0.32); border-radius: 8px; color: rgba(190,210,230,0.76);
+    box-shadow: none; letter-spacing: 0;
     font-size: 11px; transition: border-color .15s, transform .08s; }
-  .skin:hover { transform: translateY(-1px); border-color: rgba(120,224,255,0.5); }
+  #title .skin:hover { transform: translateY(-2px); border-color: rgba(120,224,255,0.52); box-shadow: 0 8px 20px rgba(0,0,0,.25); }
   .skin .sw { width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
     box-shadow: 0 0 12px var(--accent), inset 0 0 6px rgba(255,255,255,0.5); }
   .skin .nm { font-weight: 600; }
   .skin .st { font-size: 10px; color: rgba(150,180,210,0.7); }
   .skin.owned .st { color: #7be0ff; }
-  .skin.eq { border-color: var(--accent); box-shadow: 0 0 16px rgba(57,208,255,0.35); }
+  #title .skin.eq { background: rgba(18,31,48,.96); border-color: var(--accent); box-shadow: 0 0 15px rgba(57,208,255,0.22), inset 0 0 16px rgba(90,180,230,.06); }
   .skin.eq .st { color: #eaf6ff; font-weight: 700; }
 </style>
 </head>

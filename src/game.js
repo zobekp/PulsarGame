@@ -36,7 +36,7 @@ window.PULSAR = window.PULSAR || {};
     gravitor: 'auto-pulls rocks · condenses PEBBLES when dry', flailship: 'SPIKED MACE — hold to SPIN UP, release to fling',
     helion: 'SUSTAIN BEAM — dmg ramps while held, heat compounds', starPiercer: 'SIEGE MAW — charge WIDENS the beam · BROKEN CORE [E]',
     maulbreaker: '+ram reach · +knockback', worldsplitter: 'full-lunge SHOCKWAVE · slam burst [E]',
-    meteorist: 'holds 3 rocks · harder throws', starfall: 'hold 9, hurl 3, no cooldown · BARRAGE [E]',
+    meteorist: 'holds 3 rocks · harder throws', starfall: 'holds 5 rocks · hurls 2 · BARRAGE [E]',
     singularity: 'well SLOWS enemies (tidal drag)', eventHorizon: 'COLLAPSE the well [E]',
     twinmaul: 'TWO maces — LMB volley · RMB both at once · STATIC LASH [E]',
     supernova: 'FLARE NOVA [E] — dump ALL heat as a blast · clears vent lockout',
@@ -82,6 +82,7 @@ window.PULSAR = window.PULSAR || {};
 
   // ---- title / name / killfeed ----------------------------------------------
   let gameStarted = false;
+  let onboardingStartXp = 0, onboardingStartTime = 0;
   const killFeed = [];
   function nameOf(s) { return s === p ? (p.name || 'YOU') : (s.name || classNode(s.classId).displayName); }
   function addKill(killer, victim, leader) { killFeed.push({ killer, victim, leader, t: state.time }); if (killFeed.length > 8) killFeed.shift(); }
@@ -183,7 +184,7 @@ window.PULSAR = window.PULSAR || {};
     if (PULSAR.MP && PULSAR.MP.connected) PULSAR.MP.syncState(state, p);   // authoritative: rebuild state from server (real alpha stays — own ship + fx use it for sub-tick smoothness)
     const pxi = lerp(p.px, p.x, alpha), pyi = lerp(p.py, p.y, alpha);
     R.camera.x = (p.alive ? pxi : p.x) + Fx.shakeX(); R.camera.y = (p.alive ? pyi : p.y) + Fx.shakeY();
-    R.beginFrame(); R.drawGrid(); R.drawPulsar(state.time);
+    R.beginFrame(); R.drawGrid(state.time); R.drawPulsar(state.time);
 
     // BLOOM PASS
     R.setComposite('lighter');
@@ -211,6 +212,7 @@ window.PULSAR = window.PULSAR || {};
     }
 
     uiButtons = [];
+    drawOnboardingGuide();
     drawHud(); drawLeaderboard(); drawKillFeed(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
     if (showTree) drawClassTree();
   }
@@ -402,31 +404,31 @@ window.PULSAR = window.PULSAR || {};
         ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(ox, oy); ctx.stroke();
         // momentum reads as light: the head burns brighter the faster it swings / flies
         R.setComposite('lighter'); R.glow(ox, oy, O.tipRadius * (2.2 + 1.6 * hot), [255, 210, 120], 0.55 + 0.45 * hot); R.setComposite('source-over');
-        // head art, tumbling with its own spin
-        ctx.save(); ctx.translate(ox, oy); ctx.rotate(h.selfSpin || 0);
+        ctx.save(); ctx.translate(ox, oy);
         if (s.classId === 'binaryStar') {
-          // BLADES (final): a tumbling rotor of swept blades — reads as a fast whirling edge.
+          // TWIN SWORDS (final): each head is an energized sword whose blade points OUTWARD along
+          // its chain, slashing around the ship. Steel whitens + edge glows as it swings faster.
           const bs = cfg.flailship.binaryStar.blade, R0 = O.tipRadius * (bs ? bs.sizeMult : 1.3);
-          const nB = 3;
-          ctx.fillStyle = hot > 0.6 ? '#f2f7ff' : '#d6e0ea';       // steel, whitens when fast
-          for (let i = 0; i < nB; i++) {
-            const a = (i / nB) * TAU;
-            const P = (ang, rad) => [Math.cos(a + ang) * R0 * rad, Math.sin(a + ang) * R0 * rad];
-            ctx.beginPath();
-            ctx.moveTo(...P(-0.40, 0.50));   // root, leading edge
-            ctx.lineTo(...P(0.28, 1.90));    // swept sharp tip
-            ctx.quadraticCurveTo(...P(0.66, 1.35), ...P(0.62, 0.95));  // curved trailing (scythe) edge
-            ctx.lineTo(...P(0.16, 0.50));    // root, trailing
-            ctx.closePath(); ctx.fill();
-            ctx.strokeStyle = `rgba(255,210,120,${0.45 + 0.5 * hot})`; ctx.lineWidth = 1.4;
-            ctx.stroke();                                          // hot edge glows with speed
-          }
-          ctx.fillStyle = hot > 0.6 ? '#fff3cf' : '#ffe6a8';
-          ctx.beginPath(); ctx.arc(0, 0, R0 * 0.5, 0, TAU); ctx.fill();               // hub
-          ctx.strokeStyle = 'rgba(120,90,30,0.8)'; ctx.lineWidth = 1.5;
-          ctx.beginPath(); ctx.arc(0, 0, R0 * 0.28, 0, TAU); ctx.stroke();
+          ctx.rotate(Math.atan2(oy - cy, ox - cx));               // blade points away from the ship
+          const steel = hot > 0.6 ? '#f2f7ff' : '#cdd8e6', gold = hot > 0.6 ? '#fff3cf' : '#ffe0a0';
+          ctx.fillStyle = 'rgba(58,48,38,0.95)';                   // wrapped grip
+          ctx.fillRect(-R0 * 0.64, -R0 * 0.10, R0 * 0.52, R0 * 0.20);
+          ctx.fillStyle = gold;                                    // pommel
+          ctx.beginPath(); ctx.arc(-R0 * 0.66, 0, R0 * 0.15, 0, TAU); ctx.fill();
+          ctx.fillStyle = steel;                                   // blade, tapering to a point
+          ctx.beginPath();
+          ctx.moveTo(R0 * 0.26, -R0 * 0.16); ctx.lineTo(R0 * 1.30, -R0 * 0.11);
+          ctx.lineTo(R0 * 2.05, 0); ctx.lineTo(R0 * 1.30, R0 * 0.11); ctx.lineTo(R0 * 0.26, R0 * 0.16);
+          ctx.closePath(); ctx.fill();
+          ctx.strokeStyle = `rgba(255,210,120,${0.5 + 0.5 * hot})`; ctx.lineWidth = 1.3; ctx.stroke();
+          ctx.strokeStyle = 'rgba(255,255,255,0.5)'; ctx.lineWidth = 1;   // fuller line
+          ctx.beginPath(); ctx.moveTo(R0 * 0.4, 0); ctx.lineTo(R0 * 1.8, 0); ctx.stroke();
+          ctx.fillStyle = gold;                                    // crossguard + collar
+          ctx.fillRect(R0 * 0.16, -R0 * 0.52, R0 * 0.16, R0 * 1.04);
+          ctx.beginPath(); ctx.arc(0, 0, R0 * 0.13, 0, TAU); ctx.fill();
         } else {
-          // spiked mace head (ball)
+          // spiked mace head (ball), tumbling with its own spin
+          ctx.rotate(h.selfSpin || 0);
           ctx.fillStyle = hot > 0.6 ? '#fff3cf' : '#ffe6a8';
           for (let i = 0; i < O.spikes; i++) {
             const a = (i / O.spikes) * TAU;
@@ -503,62 +505,122 @@ window.PULSAR = window.PULSAR || {};
   function crystalPath(ctx, r) { ctx.beginPath(); ctx.moveTo(0, -r); ctx.lineTo(r * 0.7, 0); ctx.lineTo(0, r); ctx.lineTo(-r * 0.7, 0); ctx.closePath(); }
   function debrisPath(ctx, r) { ctx.beginPath(); ctx.moveTo(-r, -r * 0.4); ctx.lineTo(r * 0.6, -r); ctx.lineTo(r, r * 0.5); ctx.lineTo(-r * 0.3, r); ctx.closePath(); }
   function objectOverlays(ctx, o, x, y) {
-    if (o.hp < o.maxHp) { ctx.beginPath(); ctx.arc(x, y, o.radius + 5, -Math.PI / 2, -Math.PI / 2 + TAU * (o.hp / o.maxHp)); ctx.strokeStyle = 'rgba(120,200,160,0.55)'; ctx.lineWidth = 2; ctx.stroke(); }
+    if (o.hp < o.maxHp) {
+      const hurt = 1 - o.hp / o.maxHp;
+      ctx.beginPath(); ctx.arc(x, y, o.radius + 5, -Math.PI / 2, -Math.PI / 2 + TAU * (o.hp / o.maxHp)); ctx.strokeStyle = `rgba(160,225,205,${0.55 + hurt * 0.3})`; ctx.lineWidth = 2; ctx.stroke();
+      ctx.save(); ctx.translate(x, y); ctx.rotate(o.spin);
+      ctx.strokeStyle = `rgba(225,240,255,${0.28 + hurt * 0.52})`; ctx.lineWidth = 1 + hurt * 1.2;
+      ctx.beginPath(); ctx.moveTo(-o.radius * 0.55, -o.radius * 0.2); ctx.lineTo(-o.radius * 0.1, 0); ctx.lineTo(o.radius * 0.18, o.radius * 0.37); ctx.lineTo(o.radius * 0.48, o.radius * 0.52); ctx.stroke();
+      ctx.restore();
+    }
     if (o.cracked) { ctx.strokeStyle = `rgba(255,170,90,${0.5 + 0.3 * Math.sin(state.time * 14)})`; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(x, y, o.radius + 9, 0, TAU); ctx.stroke(); }
   }
 
   // ---- HUD / overlay / minimap ----------------------------------------------
   let fps = 0, fpsAccum = 0, fpsFrames = 0;
-  function bar(ctx, x, y, w, h, frac, fill) { ctx.fillStyle = 'rgba(255,255,255,0.10)'; ctx.fillRect(x, y, w, h); ctx.fillStyle = fill; ctx.fillRect(x, y, w * Math.max(0, Math.min(1, frac)), h); }
-  function drawHud() {
-    const ctx = Render.ctx, x = 16, w = 220, fam = FAMILY[p.classId];
-    bar(ctx, x, 16, w, 10, p.hp / p.maxHp, '#7be0a0');
-    if (fam === 'rail') { const hf = p.heat / cfg.railship.heat.max; bar(ctx, x, 30, w, 8, hf, p.ventTimer > 0 ? '#ff5b5b' : (hf > 0.7 ? '#ff9b3c' : '#ffd23c')); if (p.charging) bar(ctx, x, 40, w, 6, Math.min(1.25, p.charge) / 1.25, p.charge > 1 ? '#ffd98a' : '#bfe9ff'); }
-    else if (fam === 'hammer' && (p.ramWinding || p.ramActive > 0)) bar(ctx, x, 30, w, 6, p.ramActive > 0 ? 1 : p.ramCharge, '#ff9b3c');
-    const cur = world.xpForLevel(p.level), nxt = world.xpForLevel(p.level + 1); bar(ctx, x, 50, w, 6, (p.xp - cur) / Math.max(1, nxt - cur), '#6aa9ff');
+  let devOpen = true;
+  function roundRect(ctx, x, y, w, h, r) {
+    r = Math.min(r, w / 2, h / 2); ctx.beginPath(); ctx.moveTo(x + r, y); ctx.lineTo(x + w - r, y); ctx.quadraticCurveTo(x + w, y, x + w, y + r); ctx.lineTo(x + w, y + h - r); ctx.quadraticCurveTo(x + w, y + h, x + w - r, y + h); ctx.lineTo(x + r, y + h); ctx.quadraticCurveTo(x, y + h, x, y + h - r); ctx.lineTo(x, y + r); ctx.quadraticCurveTo(x, y, x + r, y); ctx.closePath();
+  }
+  function panel(ctx, x, y, w, h, accent) {
+    roundRect(ctx, x, y, w, h, cfg.ui.panelRadius); ctx.fillStyle = 'rgba(6,11,21,0.82)'; ctx.fill();
+    ctx.strokeStyle = accent || 'rgba(91,151,205,0.35)'; ctx.lineWidth = 1; ctx.stroke();
+    ctx.fillStyle = accent || 'rgba(91,151,205,0.35)'; ctx.fillRect(x + 12, y, Math.max(24, w * 0.22), 1.5);
+  }
+  function bar(ctx, x, y, w, h, frac, fill, label, value) {
+    frac = Math.max(0, Math.min(1, frac)); roundRect(ctx, x, y, w, h, h / 2); ctx.fillStyle = 'rgba(210,230,255,0.09)'; ctx.fill();
+    if (frac > 0) { roundRect(ctx, x, y, Math.max(h, w * frac), h, h / 2); ctx.fillStyle = fill; ctx.fill(); }
+    if (label) { ctx.font = '700 9px system-ui, sans-serif'; ctx.fillStyle = 'rgba(190,215,238,0.65)'; ctx.fillText(label, x, y - 4); ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(225,240,255,0.78)'; ctx.fillText(value || '', x + w, y - 4); ctx.textAlign = 'left'; }
+  }
+  function drawOnboardingGuide() {
+    if (!gameStarted || p.xp > onboardingStartXp || state.time - onboardingStartTime > cfg.onboarding.promptSec) return;
+    let target = null, best = cfg.onboarding.targetSearchRadius;
+    for (const o of state.objects) {
+      if (o.type === 'titan') continue;
+      const d = Math.hypot(o.x - p.x, o.y - p.y);
+      if (d < best) { best = d; target = o; }
+    }
+    const ctx = Render.ctx, fade = Math.min(1, (cfg.onboarding.promptSec - (state.time - onboardingStartTime)) / 1.5);
+    if (target && onScreen(target.x, target.y, target.radius + 30)) {
+      const x = Render.sx(target.x), y = Render.sy(target.y), ring = target.radius + 12 + Math.sin(state.time * TAU * cfg.onboarding.targetRingPulsePerSec) * 2;
+      Render.setComposite('lighter'); Render.glow(x, y, ring * 2.1, [123, 224, 255], 0.32 * fade); Render.setComposite('source-over');
+      ctx.strokeStyle = `rgba(150,235,255,${0.85 * fade})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, ring, 0, TAU); ctx.stroke();
+    }
+    ctx.textAlign = 'center'; ctx.font = '700 13px system-ui, sans-serif'; ctx.fillStyle = `rgba(210,240,255,${0.92 * fade})`;
+    ctx.fillText(target ? 'BREAK ROCKS  →  COLLECT SCRAP' : 'FIND ROCKS  →  COLLECT SCRAP', Render.viewW / 2, Render.viewH - cfg.ui.abilitySlotHeight - 31);
     ctx.textAlign = 'left';
-    ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#bfe9ff'; ctx.fillText(`${classNode(p.classId).displayName}  ·  LV ${p.level}${p.isLeader ? '  ★' : ''}`, x, 76);
-    const coresTxt = PULSAR.Profile ? `   ◆ ${PULSAR.Profile.get().cores}` : '';
-    ctx.font = '600 14px system-ui, sans-serif'; ctx.fillStyle = '#ffd98a'; ctx.fillText(`SCRAP ${Math.floor(p.scrap)}   ⚔ ${p.kills}${coresTxt}`, x, 94);
-    const abil = classNode(p.classId).ability, spec = classNode(p.classId).special;
-    const abilKey = fam === 'grav' ? '[click]' : '[Space]';
-    ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = p.abilityCd > 0 ? 'rgba(160,190,220,0.4)' : '#7be0ff';
-    ctx.fillText(abil ? (p.abilityCd > 0 ? `${abil} ${p.abilityCd.toFixed(1)}s` : `${abil} ready ${abilKey}`) : 'no active ability', x, 112);
-    if (spec) { ctx.fillStyle = p.specialCd > 0 ? 'rgba(255,180,120,0.4)' : '#ffb27a'; ctx.fillText(p.specialCd > 0 ? `${spec} ${p.specialCd.toFixed(1)}s` : `${spec} ready [E]`, x, 128); }
-    const fireHint = fam === 'grav' ? 'click=launch · auto-pulls rocks'
-      : fam === 'flail' ? (p.classId === 'twinmaul' ? 'hold=SPIN · LMB=volley · RMB=BOTH · E=lash' : 'hold=SPIN UP · release=fling at cursor')
-      : fam === 'rail' ? ((p.burnCd || 0) > 0 ? `hold=charge · Shift=burn ${p.burnCd.toFixed(1)}s` : 'hold=charge · Shift=AFTERBURN')
-      : 'hold=fire · Space=ability';
-    ctx.fillStyle = 'rgba(160,190,220,0.5)'; ctx.fillText(`${fps.toFixed(0)} fps · WASD · ${fireHint} · E=special · T=tree`, x, spec ? 144 : 128);
+  }
+  function drawHud() {
+    const ctx = Render.ctx, x = 14, y = 14, w = cfg.ui.statusWidth, fam = FAMILY[p.classId], node = classNode(p.classId);
+    panel(ctx, x, y, w, 126, 'rgba(105,205,245,0.48)');
+    ctx.textAlign = 'left'; ctx.font = '800 15px system-ui, sans-serif'; ctx.fillStyle = '#e9f7ff'; ctx.fillText(node.displayName.toUpperCase(), x + 14, y + 23);
+    ctx.font = '700 10px system-ui, sans-serif'; ctx.fillStyle = '#72d9ff'; ctx.fillText(`LEVEL ${p.level}${p.isLeader ? '  ·  ★ LEADER' : ''}`, x + 14, y + 39);
+    ctx.textAlign = 'right'; ctx.font = '800 17px system-ui, sans-serif'; ctx.fillStyle = '#ffd98a'; ctx.fillText(Math.floor(p.scrap), x + w - 14, y + 25);
+    ctx.font = '700 8px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,217,138,.65)'; ctx.fillText('SCRAP', x + w - 14, y + 38); ctx.textAlign = 'left';
+    bar(ctx, x + 14, y + 57, w - 28, 9, p.hp / p.maxHp, '#70e0a2', 'HULL', `${Math.ceil(p.hp)} / ${Math.ceil(p.maxHp)}`);
+    const cur = world.xpForLevel(p.level), nxt = world.xpForLevel(p.level + 1);
+    bar(ctx, x + 14, y + 83, w - 28, 7, (p.xp - cur) / Math.max(1, nxt - cur), '#5e9cff', 'EVOLUTION', `${Math.floor(p.xp - cur)} / ${Math.ceil(nxt - cur)}`);
+    if (fam === 'rail') { const hf = p.heat / cfg.railship.heat.max; bar(ctx, x + 14, y + 108, w - 28, 6, hf, p.ventTimer > 0 ? '#ff5b5b' : (hf > 0.7 ? '#ff8b42' : '#f5c451'), 'HEAT', `${Math.round(hf * 100)}%`); }
+    else if (fam === 'hammer') bar(ctx, x + 14, y + 108, w - 28, 6, p.ramActive > 0 ? 1 : p.ramCharge || 0, '#ff9955', 'RAM CHARGE', p.ramActive > 0 ? 'COMMITTED' : `${Math.round((p.ramCharge || 0) * 100)}%`);
+    else { ctx.font = '700 9px system-ui, sans-serif'; ctx.fillStyle = 'rgba(170,200,225,.6)'; ctx.fillText(`⚔ ${p.kills} KILLS`, x + 14, y + 113); if (PULSAR.Profile) ctx.fillText(`◆ ${PULSAR.Profile.get().cores} CORES`, x + 92, y + 113); }
+    drawAbilityDock(fam, node);
     if (PULSAR.MP && PULSAR.MP.AUTH) {
       const on = PULSAR.MP.connected;
-      ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';
-      ctx.fillText(on ? `◉ MULTIPLAYER · ${PULSAR.MP.count + 1} players` : (gameStarted ? '◌ RECONNECTING — world paused' : '◌ connecting…'), x, spec ? 160 : 144);
+      ctx.font = '700 9px system-ui, sans-serif'; ctx.fillStyle = on ? '#7be0a0' : 'rgba(255,180,120,0.8)';
+      ctx.fillText(on ? `● ONLINE  ·  ${PULSAR.MP.count + 1} PILOTS` : (gameStarted ? '○ RECONNECTING — PAUSED' : '○ CONNECTING'), x + 14, y + 151);
     }
     if (!p.alive) { ctx.textAlign = 'center'; ctx.font = '700 16px system-ui, sans-serif'; ctx.fillStyle = '#ff8a8a'; ctx.fillText('WRECKED — respawning…', Render.viewW / 2, Render.viewH / 2 + 90); ctx.textAlign = 'left'; }
   }
+  function drawAbilityDock(fam, node) {
+    const ctx = Render.ctx, slotW = cfg.ui.abilitySlotWidth, h = cfg.ui.abilitySlotHeight;
+    const primary = fam === 'dart' ? ['LMB', 'POP GUN', 0, '#69d8ff']
+      : fam === 'grav' ? ['LMB', 'LAUNCH ROCK', 0, '#8f7cff']
+      : fam === 'flail' ? ['LMB', 'MOMENTUM FLING', 0, '#ffd56a']
+      : fam === 'rail' ? ['LMB', p.classId === 'helion' || p.classId === 'supernova' ? 'SUSTAIN BEAM' : 'CHARGE RAIL', p.ventTimer || 0, '#69d8ff']
+      : ['LMB', 'HAMMER RAM', p.ramActive || 0, '#ff9955'];
+    const ability = fam === 'dart' ? ['WASD', 'THRUST', 0, '#67e8d0']
+      : node.ability ? [fam === 'grav' ? 'CLICK' : 'SPACE', String(node.ability).replace(/([A-Z])/g, ' $1').toUpperCase(), p.abilityCd || 0, '#67e8d0']
+      : fam === 'rail' ? ['SHIFT', 'AFTERBURN', p.burnCd || 0, '#67e8d0'] : ['SPACE', 'MANEUVER', p.abilityCd || 0, '#67e8d0'];
+    const special = node.special ? ['E', String(node.special).replace(/([A-Z])/g, ' $1').toUpperCase(), p.specialCd || 0, '#ffaf70'] : ['T', 'CLASS TREE', 0, '#9fb8d5'];
+    const slots = [primary, ability, special], total = slots.length * slotW + (slots.length - 1) * 8, x0 = (Render.viewW - total) / 2, y = Render.viewH - h - 14;
+    slots.forEach((s, i) => {
+      const x = x0 + i * (slotW + 8), cd = s[2]; panel(ctx, x, y, slotW, h, cd > 0 ? 'rgba(90,110,140,.3)' : s[3]);
+      ctx.fillStyle = 'rgba(215,235,250,.08)'; roundRect(ctx, x + 8, y + 9, 36, 36, 7); ctx.fill(); ctx.strokeStyle = s[3]; ctx.stroke();
+      ctx.textAlign = 'center'; ctx.font = '800 10px system-ui, sans-serif'; ctx.fillStyle = cd > 0 ? 'rgba(170,190,210,.48)' : '#ecf9ff'; ctx.fillText(s[0], x + 26, y + 31);
+      ctx.textAlign = 'left'; ctx.font = '800 10px system-ui, sans-serif'; ctx.fillStyle = cd > 0 ? 'rgba(165,185,205,.45)' : '#dff5ff'; ctx.fillText(s[1], x + 52, y + 24);
+      ctx.font = '700 9px system-ui, sans-serif'; ctx.fillStyle = cd > 0 ? 'rgba(255,175,112,.72)' : 'rgba(120,235,195,.82)'; ctx.fillText(cd > 0 ? `${cd.toFixed(1)}s` : 'READY', x + 52, y + 39);
+    });
+    ctx.textAlign = 'left';
+  }
   function drawLeaderboard() {
     const ctx = Render.ctx, ranked = allShips().filter(s => s.alive).sort((a, b) => b.scrap - a.scrap).slice(0, 4);
-    const x = Render.viewW - 164, y0 = 48;
-    ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(160,190,220,0.7)'; ctx.fillText('LEADERBOARD', x, y0);
-    ctx.font = '400 11px system-ui, sans-serif';
-    ranked.forEach((s, i) => { ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(220,230,245,0.7)'); ctx.fillText(`${i + 1}. ${s === p ? 'YOU' : nameOf(s)}`, x, y0 + 16 + i * 14); ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + 148, y0 + 16 + i * 14); ctx.textAlign = 'left'; });
+    const w = 190, x = Render.viewW - w - 14, y0 = 14; panel(ctx, x, y0, w, 104, 'rgba(110,170,220,.32)');
+    ctx.textAlign = 'left'; ctx.font = '800 9px system-ui, sans-serif'; ctx.fillStyle = 'rgba(155,195,225,0.62)'; ctx.fillText('TOP PILOTS', x + 12, y0 + 18);
+    ctx.font = '600 10px system-ui, sans-serif';
+    ranked.forEach((s, i) => {
+      const yy = y0 + 37 + i * 16; if (s === p) { ctx.fillStyle = 'rgba(80,190,235,.10)'; ctx.fillRect(x + 7, yy - 11, w - 14, 15); }
+      ctx.fillStyle = s === p ? '#bfe9ff' : (s.isLeader ? '#ffd98a' : 'rgba(205,220,238,0.68)'); ctx.fillText(`${i + 1}`, x + 12, yy); ctx.fillText(s === p ? 'YOU' : nameOf(s), x + 29, yy);
+      ctx.textAlign = 'right'; ctx.fillText('' + Math.floor(s.scrap), x + w - 12, yy); ctx.textAlign = 'left';
+    });
   }
   function drawDevPanel() {
+    if (!cfg.onboarding.showDevPanel) return;
     const mp = PULSAR.MP && PULSAR.MP.connected;   // in MP the buttons send admin messages to the authority
-    const ctx = Render.ctx, w = 150, h = 26, x = Render.viewW - w - 14;
-    ctx.font = '700 10px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.fillStyle = 'rgba(255,140,230,0.55)';
-    ctx.fillText('DEV', x + w, 10); ctx.textAlign = 'left';
+    const ctx = Render.ctx, w = 166, h = 27, x = Render.viewW - w - 14, tabY = 124;
+    const tabW = 70, fpsOk = fps >= 55; panel(ctx, Render.viewW - tabW - 14, tabY, tabW, 23, fpsOk ? 'rgba(120,225,175,.38)' : 'rgba(255,110,110,.55)');
+    ctx.textAlign = 'center'; ctx.font = '800 9px system-ui, sans-serif'; ctx.fillStyle = fpsOk ? '#8ee8b8' : '#ff8f8f'; ctx.fillText(`${devOpen ? 'DEV ×' : 'DEV +'}  ${Math.round(fps)}`, Render.viewW - tabW / 2 - 14, tabY + 15); ctx.textAlign = 'left';
+    uiButtons.push({ x: Render.viewW - tabW - 14, y: tabY, w: tabW, h: 23, onClick: () => { devOpen = !devOpen; } });
+    if (!devOpen) return;
+    panel(ctx, x, tabY + 29, w, 70, 'rgba(255,140,230,.3)');
     const btn = (y, label, fg, bg, border, onClick) => {
-      ctx.fillStyle = bg; ctx.fillRect(x, y, w, h);
-      ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.strokeRect(x, y, w, h);
+      roundRect(ctx, x + 7, y, w - 14, h, 6); ctx.fillStyle = bg; ctx.fill(); ctx.strokeStyle = border; ctx.lineWidth = 1; ctx.stroke();
       ctx.textAlign = 'center'; ctx.font = '700 12px system-ui, sans-serif'; ctx.fillStyle = fg;
       ctx.fillText(label, x + w / 2, y + 17); ctx.textAlign = 'left';
-      uiButtons.push({ x, y, w, h, onClick });
+      uiButtons.push({ x: x + 7, y, w: w - 14, h, onClick });
     };
-    btn(16, 'ADMIN ▸ +1 LVL  [L]', '#ffb4ee', 'rgba(58,18,58,0.75)', 'rgba(255,140,230,0.7)', adminLevelUp);
+    btn(tabY + 36, '+1 LEVEL  [L]', '#ffb4ee', 'rgba(58,18,58,0.75)', 'rgba(255,140,230,0.55)', adminLevelUp);
     const on = mp ? PULSAR.MP.remotes.some(r => r.isBot) : world.countBots() > 0;
-    btn(48, on ? 'BOTS: ON' : 'BOTS: OFF',
+    btn(tabY + 66, on ? 'BOTS  ON' : 'BOTS  OFF',
       on ? '#9fe8ff' : 'rgba(170,185,205,0.8)',
       on ? 'rgba(18,40,58,0.78)' : 'rgba(28,30,38,0.78)',
       on ? 'rgba(120,200,255,0.65)' : 'rgba(140,150,170,0.5)',
@@ -567,47 +629,55 @@ window.PULSAR = window.PULSAR || {};
   function drawEvolveOverlay() {
     const e = world.evolveOptions(p);
     if (!e || !e.levelOk || !p.alive) return;
-    const ctx = Render.ctx, bw = 316, bh = 62, gap = 8, n = e.options.length;
-    const panelW = bw + 24, panelH = 44 + n * (bh + gap), x0 = (Render.viewW - panelW) / 2, y0 = 70;
-    ctx.fillStyle = 'rgba(8,12,20,0.82)'; ctx.fillRect(x0, y0, panelW, panelH); ctx.strokeStyle = 'rgba(120,224,255,0.6)'; ctx.lineWidth = 1.5; ctx.strokeRect(x0, y0, panelW, panelH);
-    ctx.textAlign = 'center'; ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = '#bfe9ff'; ctx.fillText(`EVOLVE — choose (cost ${e.cost} scrap)`, x0 + panelW / 2, y0 + 24);
+    const ctx = Render.ctx, n = e.options.length, cols = n > 2 ? 2 : n, rows = Math.ceil(n / cols), bw = 300, bh = 96, gap = 10;
+    const panelW = cols * bw + (cols - 1) * gap + 28, panelH = 62 + rows * bh + (rows - 1) * gap + 18, x0 = (Render.viewW - panelW) / 2, y0 = 64;
+    panel(ctx, x0, y0, panelW, panelH, 'rgba(120,224,255,.6)');
+    ctx.textAlign = 'left'; ctx.font = '800 10px system-ui, sans-serif'; ctx.fillStyle = 'rgba(140,205,235,.68)'; ctx.fillText('EVOLUTION AVAILABLE', x0 + 16, y0 + 20);
+    ctx.font = '800 18px system-ui, sans-serif'; ctx.fillStyle = '#eaf8ff'; ctx.fillText('CHOOSE YOUR NEXT FORM', x0 + 16, y0 + 42);
+    ctx.textAlign = 'right'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#ffd98a'; ctx.fillText(`${e.cost} SCRAP`, x0 + panelW - 16, y0 + 31); ctx.textAlign = 'left';
     const afford = p.scrap >= e.cost;
     for (let i = 0; i < n; i++) {
-      const bx = x0 + 12, by = y0 + 36 + i * (bh + gap); uiButtons.push({ x: bx, y: by, w: bw, h: bh, onClick: () => requestEvolve(i) });
-      ctx.fillStyle = afford ? 'rgba(120,224,255,0.14)' : 'rgba(120,140,160,0.10)'; ctx.fillRect(bx, by, bw, bh);
-      ctx.strokeStyle = afford ? 'rgba(120,224,255,0.5)' : 'rgba(120,140,160,0.3)'; ctx.lineWidth = 1; ctx.strokeRect(bx, by, bw, bh);
+      const col = i % cols, row = Math.floor(i / cols), bx = x0 + 14 + col * (bw + gap), by = y0 + 56 + row * (bh + gap); uiButtons.push({ x: bx, y: by, w: bw, h: bh, onClick: () => requestEvolve(i) });
+      roundRect(ctx, bx, by, bw, bh, 8); ctx.fillStyle = afford ? 'rgba(16,35,52,0.94)' : 'rgba(12,19,29,0.88)'; ctx.fill(); ctx.strokeStyle = afford ? 'rgba(120,224,255,0.48)' : 'rgba(110,130,150,0.22)'; ctx.stroke();
       // Live hull preview: the actual model, idling — drums spin, cores pulse. Clipped to
       // its slot so long rail barrels don't spill over the text.
       ctx.save();
-      ctx.beginPath(); ctx.rect(bx + 1, by + 1, 84, bh - 2); ctx.clip();
-      ctx.translate(bx + 40, by + bh / 2); ctx.rotate(-0.35);
+      ctx.beginPath(); ctx.rect(bx + 1, by + 1, 92, bh - 2); ctx.clip();
+      ctx.translate(bx + 45, by + bh / 2); ctx.rotate(-0.35);
       PULSAR.Ships.draw(ctx, {
-        classId: e.options[i].id, radius: 12, aim: 0, vx: 0, vy: 0, hitFlash: 0,
+        classId: e.options[i].id, radius: 15, aim: 0, vx: 0, vy: 0, hitFlash: 0,
         charging: false, charge: 0, heat: 0, ventTimer: 0, ramWinding: false, ramCharge: 0,
         ramActive: 0, orbSpin: state.time * 2.2, captured: [], spawnProtect: 0,
       }, state.time);
       ctx.restore();
-      if (!afford) { ctx.fillStyle = 'rgba(8,12,20,0.45)'; ctx.fillRect(bx + 1, by + 1, 84, bh - 2); }   // dim preview when unaffordable
-      ctx.strokeStyle = 'rgba(120,224,255,0.25)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(bx + 85, by + 6); ctx.lineTo(bx + 85, by + bh - 6); ctx.stroke();
-      ctx.textAlign = 'left'; ctx.font = '600 12px system-ui, sans-serif'; ctx.fillStyle = afford ? '#eaf6ff' : 'rgba(200,215,230,0.5)';
-      ctx.fillText(`[${i + 1}] ${e.options[i].displayName}`, bx + 96, by + 26); ctx.font = '400 10px system-ui, sans-serif'; ctx.fillStyle = 'rgba(180,205,230,0.7)'; ctx.fillText(EVOLVE_BLURB[e.options[i].id] || '', bx + 96, by + 41);
+      if (!afford) { ctx.fillStyle = 'rgba(5,8,14,0.52)'; ctx.fillRect(bx + 1, by + 1, 92, bh - 2); }
+      ctx.strokeStyle = 'rgba(120,224,255,0.18)'; ctx.beginPath(); ctx.moveTo(bx + 94, by + 10); ctx.lineTo(bx + 94, by + bh - 10); ctx.stroke();
+      ctx.font = '800 9px system-ui, sans-serif'; ctx.fillStyle = afford ? '#72dfff' : 'rgba(140,165,185,.4)'; ctx.fillText(`[${i + 1}]  SELECT FORM`, bx + 108, by + 22);
+      ctx.font = '800 15px system-ui, sans-serif'; ctx.fillStyle = afford ? '#edfaff' : 'rgba(200,215,230,0.46)'; ctx.fillText(e.options[i].displayName.toUpperCase(), bx + 108, by + 43);
+      ctx.font = '500 10px system-ui, sans-serif'; ctx.fillStyle = 'rgba(175,205,228,0.68)';
+      const blurb = EVOLVE_BLURB[e.options[i].id] || ''; ctx.fillText(blurb.length > 34 ? blurb.slice(0, 34) + '…' : blurb, bx + 108, by + 62);
+      ctx.font = '700 9px system-ui, sans-serif'; ctx.fillStyle = afford ? 'rgba(125,230,195,.8)' : 'rgba(255,175,112,.66)'; ctx.fillText(afford ? 'READY TO EVOLVE' : `NEED ${e.cost - Math.floor(p.scrap)} SCRAP`, bx + 108, by + 81);
     }
-    if (!afford) { ctx.textAlign = 'center'; ctx.font = '400 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,180,120,0.8)'; ctx.fillText(`need ${e.cost - Math.floor(p.scrap)} more scrap`, x0 + panelW / 2, y0 + panelH - 8); }
     ctx.textAlign = 'left';
   }
   function drawMinimap() {
-    const ctx = Render.ctx, size = 150, pad = 14, x0 = Render.viewW - size - pad, y0 = Render.viewH - size - pad, sc = size / cfg.arena.width;
-    ctx.fillStyle = 'rgba(8,12,20,0.6)'; ctx.fillRect(x0, y0, size, size); ctx.strokeStyle = 'rgba(80,120,180,0.4)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, size, size);
+    const ctx = Render.ctx, size = cfg.ui.minimapSize, pad = 14, x0 = Render.viewW - size - pad, y0 = Render.viewH - size - pad, sc = size / cfg.arena.width;
+    panel(ctx, x0 - 7, y0 - 24, size + 14, size + 31, 'rgba(95,155,210,.36)');
+    ctx.font = '800 8px system-ui, sans-serif'; ctx.fillStyle = 'rgba(145,190,220,.62)'; ctx.fillText('TACTICAL  /  PULSAR CENTER', x0, y0 - 9);
+    ctx.fillStyle = 'rgba(5,10,19,0.78)'; ctx.fillRect(x0, y0, size, size); ctx.strokeStyle = 'rgba(80,120,180,0.28)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, size, size);
+    ctx.strokeStyle = 'rgba(90,145,190,.12)'; ctx.beginPath(); ctx.moveTo(x0 + size / 2, y0); ctx.lineTo(x0 + size / 2, y0 + size); ctx.moveTo(x0, y0 + size / 2); ctx.lineTo(x0 + size, y0 + size / 2); ctx.stroke();
     const px = x0 + (cfg.arena.width / 2) * sc, py = y0 + (cfg.arena.height / 2) * sc;
-    ctx.fillStyle = '#ffffff'; ctx.beginPath(); ctx.arc(px, py, 2.5 + Math.max(0, Math.sin(state.time * (TAU / cfg.arena.pulsarPulseIntervalSec))), 0, TAU); ctx.fill();
+    // black hole marker: dark core + bright ring that flares on the jet beat
+    const jf = Math.max(0, 1 - ((state.time % cfg.arena.pulsar.jetIntervalSec) / cfg.arena.pulsar.jetIntervalSec) * 6);
+    ctx.fillStyle = '#04060c'; ctx.beginPath(); ctx.arc(px, py, 4, 0, TAU); ctx.fill();
+    ctx.strokeStyle = `rgba(220,240,255,${0.75 + 0.25 * jf})`; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(px, py, 4.8 + jf * 2, 0, TAU); ctx.stroke();
     // titan landmarks — the mountains you navigate by
     ctx.fillStyle = 'rgba(150,165,195,0.7)';
     for (const o of state.objects) if (o.type === 'titan') { ctx.beginPath(); ctx.arc(x0 + o.x * sc, y0 + o.y * sc, 3, 0, TAU); ctx.fill(); }
     // Each ship is a CLASS-COLOURED arrow pointing where it faces (you = cyan + ring, leader = gold rim).
     for (const s of allShips()) {
       if (!s.alive) continue;
-      const mx = x0 + s.x * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 4.6 : 3.4;
+      const mx = x0 + s.x * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 5.2 : (isMe ? 4.2 : 3.5);
       ctx.save(); ctx.translate(mx, my); ctx.rotate(s.aim);
       ctx.fillStyle = isMe ? '#39d0ff' : hueFor(s.classId);
       ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.62); ctx.lineTo(-r * 0.7, -r * 0.62); ctx.closePath(); ctx.fill();
@@ -615,17 +685,21 @@ window.PULSAR = window.PULSAR || {};
       ctx.restore();
       if (isMe) { ctx.strokeStyle = 'rgba(57,208,255,0.7)'; ctx.lineWidth = 1; ctx.beginPath(); ctx.arc(mx, my, r + 2.5, 0, TAU); ctx.stroke(); }
     }
+    // crisp corner brackets make the map read as an instrument, not another world object
+    ctx.strokeStyle = 'rgba(130,210,245,.7)'; ctx.lineWidth = 1.5; const c = 11;
+    ctx.beginPath(); ctx.moveTo(x0, y0 + c); ctx.lineTo(x0, y0); ctx.lineTo(x0 + c, y0); ctx.moveTo(x0 + size - c, y0); ctx.lineTo(x0 + size, y0); ctx.lineTo(x0 + size, y0 + c); ctx.moveTo(x0, y0 + size - c); ctx.lineTo(x0, y0 + size); ctx.lineTo(x0 + c, y0 + size); ctx.moveTo(x0 + size - c, y0 + size); ctx.lineTo(x0 + size, y0 + size); ctx.lineTo(x0 + size, y0 + size - c); ctx.stroke();
   }
   function drawKillFeed() {
-    const ctx = Render.ctx, x = Render.viewW - 16; let y = 132;
-    ctx.textAlign = 'right'; ctx.font = '600 12px system-ui, sans-serif';
+    const ctx = Render.ctx, x = Render.viewW - 16; let y = devOpen && cfg.onboarding.showDevPanel ? 238 : 164;
+    ctx.textAlign = 'right'; ctx.font = '700 10px system-ui, sans-serif';
     for (let i = killFeed.length - 1; i >= 0; i--) {
       const k = killFeed[i], age = state.time - k.t;
       if (age > 6) continue;
       const a = Math.max(0, Math.min(1, (6 - age) / 1.5));
       const txt = k.killer ? `${k.killer}  ⚔  ${k.victim}` : `${k.victim}  ☠`;
+      const tw = ctx.measureText(txt).width; roundRect(ctx, x - tw - 14, y - 12, tw + 12, 18, 5); ctx.fillStyle = `rgba(8,12,20,${0.65 * a})`; ctx.fill();
       ctx.fillStyle = `rgba(${k.leader ? '255,210,120' : '230,160,150'},${0.9 * a})`;
-      ctx.fillText(txt, x, y); y += 16;
+      ctx.fillText(txt, x - 6, y); y += 21;
     }
     ctx.textAlign = 'left';
   }
@@ -639,10 +713,11 @@ window.PULSAR = window.PULSAR || {};
     accumulator += frameTime;
     while (accumulator >= DT) { simulate(DT); accumulator -= DT; }
     fpsAccum += frameTime;
-    // Render ceiling: skip paints past maxRenderFps (sim above already ran — nothing is lost).
-    // The 0.5ms epsilon keeps timer jitter from halving the rate on displays AT the ceiling.
-    if (now - lastRender >= 1000 / cfg.sim.maxRenderFps - 0.5) {
-      lastRender = now;
+    // Render at a stable configured ceiling while carrying timing remainder. Resetting the clock
+    // to `now` quantizes 60fps to 48fps on 144Hz displays; carrying the remainder avoids that.
+    const renderInterval = 1000 / cfg.sim.maxRenderFps, sinceRender = now - lastRender;
+    if (sinceRender >= renderInterval - 0.5) {
+      lastRender = now - (sinceRender % renderInterval);
       render(accumulator / DT);
       fpsFrames++;
     }
@@ -662,6 +737,7 @@ window.PULSAR = window.PULSAR || {};
   PULSAR.startGame = function (name) {
     p.name = (name || '').slice(0, 16).trim() || 'Player';
     gameStarted = true;
+    onboardingStartXp = p.xp; onboardingStartTime = state.time;
     p.spawnProtect = cfg.player.spawnProtectionSec;
     if (PULSAR.MP && PULSAR.MP.AUTH) PULSAR.MP.sendName(p.name);
   };

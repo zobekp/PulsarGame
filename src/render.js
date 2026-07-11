@@ -9,6 +9,7 @@ window.PULSAR = window.PULSAR || {};
 
 window.PULSAR.Render = (function () {
   const cfg = PULSAR.config;
+  const TAU = Math.PI * 2;
   let canvas, ctx;
   let viewW = 0, viewH = 0;
   const camera = { x: 0, y: 0 };       // world point at screen centre
@@ -21,9 +22,9 @@ window.PULSAR.Render = (function () {
   }
 
   function resize() {
-    // Render at device pixel ratio for crisp neon, but cap it: on a retina screen DPR 2 means
-    // 4× the pixels to fill, and additive bloom is fill-rate bound — capping keeps 60fps.
-    const dpr = Math.min(window.devicePixelRatio || 1, 1.5);
+    // Render at device pixel ratio for crisp neon, but cap it from the single tuning surface:
+    // additive bloom is fill-rate bound, and excess supersampling must never cost the 60fps target.
+    const dpr = Math.min(window.devicePixelRatio || 1, cfg.sim.renderDprCap);
     viewW = innerWidth; viewH = innerHeight;
     canvas.width = Math.floor(viewW * dpr);
     canvas.height = Math.floor(viewH * dpr);
@@ -90,39 +91,98 @@ window.PULSAR.Render = (function () {
     ctx.fillRect(0, 0, viewW, viewH);
   }
 
-  // Faint world grid so movement reads in otherwise-empty space. Drawn dim, additive.
-  function drawGrid() {
+  // Gravitational warp: space near the pulsar is dragged toward the singularity and swirled
+  // (frame-drag). Used to bend the grid — returns SCREEN coords for a world point.
+  const PWX = () => cfg.arena.width / 2, PWY = () => cfg.arena.height / 2;
+  function warpR() { return cfg.arena.pulsarRadius * 4.4; }
+  function warpPoint(wx, wy, time) {
+    const px = PWX(), py = PWY();
+    const dx = wx - px, dy = wy - py, d = Math.hypot(dx, dy), R = warpR();
+    if (d > R || d < 0.5) return [sx(wx), sy(wy)];
+    const f = 1 - d / R;                              // 0 at the influence edge, 1 at the core
+    const swirl = f * f * (1.3 + time * 0.5);         // frame-drag — vanishes at the edge (no seam)
+    const compress = 0.55 * f * f;                    // space contracts inward toward the hole
+    const ca = Math.cos(swirl), sa = Math.sin(swirl), s = 1 - compress;
+    const rx = (dx * ca - dy * sa) * s, ry = (dx * sa + dy * ca) * s;
+    return [sx(px + rx), sy(py + ry)];
+  }
+
+  // Faint world grid so movement reads in otherwise-empty space. Drawn dim, additive. Near the
+  // pulsar the grid is WARPED into the singularity (bent + swirled); elsewhere it's straight+fast.
+  function drawGrid(time) {
     const step = 240;
     const x0 = Math.floor((camera.x - viewW / 2) / step) * step;
     const y0 = Math.floor((camera.y - viewH / 2) / step) * step;
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = 'rgba(40,70,110,0.18)';
     ctx.lineWidth = 1;
+    const R = warpR();
+    const warpOnScreen = Math.abs(PWX() - camera.x) < viewW / 2 + R && Math.abs(PWY() - camera.y) < viewH / 2 + R;
     ctx.beginPath();
-    for (let wx = x0; wx < camera.x + viewW / 2 + step; wx += step) {
-      ctx.moveTo(sx(wx), 0); ctx.lineTo(sx(wx), viewH);
-    }
-    for (let wy = y0; wy < camera.y + viewH / 2 + step; wy += step) {
-      ctx.moveTo(0, sy(wy)); ctx.lineTo(viewW, sy(wy));
+    if (!warpOnScreen) {
+      for (let wx = x0; wx < camera.x + viewW / 2 + step; wx += step) { ctx.moveTo(sx(wx), 0); ctx.lineTo(sx(wx), viewH); }
+      for (let wy = y0; wy < camera.y + viewH / 2 + step; wy += step) { ctx.moveTo(0, sy(wy)); ctx.lineTo(viewW, sy(wy)); }
+    } else {
+      const seg = step / 5;                            // subdivide so warped lines curve smoothly
+      const top = camera.y - viewH / 2 - step, bot = camera.y + viewH / 2 + step;
+      const lft = camera.x - viewW / 2 - step, rgt = camera.x + viewW / 2 + step;
+      for (let wx = x0; wx < camera.x + viewW / 2 + step; wx += step) {
+        let first = true;
+        for (let wy = top; wy <= bot; wy += seg) { const [X, Y] = warpPoint(wx, wy, time); first ? (ctx.moveTo(X, Y), first = false) : ctx.lineTo(X, Y); }
+      }
+      for (let wy = y0; wy < camera.y + viewH / 2 + step; wy += step) {
+        let first = true;
+        for (let wx = lft; wx <= rgt; wx += seg) { const [X, Y] = warpPoint(wx, wy, time); first ? (ctx.moveTo(X, Y), first = false) : ctx.lineTo(X, Y); }
+      }
     }
     ctx.stroke();
-    // Arena boundary (so you can see the edge of the 6000² field).
+    // Arena boundary (so you can see the edge of the field).
     ctx.strokeStyle = 'rgba(80,120,180,0.35)';
     ctx.lineWidth = 2;
     ctx.strokeRect(sx(0), sy(0), cfg.arena.width, cfg.arena.height);
   }
 
-  // Decorative pulsar landmark at map centre. VISUAL ONLY in Phase 0 — the functional
-  // honeypot (pulse rhythm, motes, bounty draw) is Phase 2. Kept as an orientation anchor.
+  // The Pulsar as a BLACK HOLE: a dark event horizon rimmed by a thin photon ring and a faint
+  // accretion swirl, firing intermittent bipolar RELATIVISTIC JETS of scrap along a slowly-
+  // rotating axis. Jet timing/axis derive from `time` (matches the sim ⇒ MP-safe). Grid warp
+  // around it is drawn in drawGrid.
   function drawPulsar(time) {
-    const px = cfg.arena.width / 2, py = cfg.arena.height / 2;
-    const pulse = 0.5 + 0.5 * Math.sin(time * (Math.PI * 2) / cfg.arena.pulsarPulseIntervalSec);
-    const rgb = [200, 225, 255];
-    ctx.globalCompositeOperation = 'lighter';
-    glow(sx(px), sy(py), cfg.arena.pulsarRadius * (1.4 + 0.25 * pulse), rgb, 0.18 + 0.10 * pulse);
-    glow(sx(px), sy(py), cfg.arena.pulsarRadius * 0.5, rgb, 0.5);
+    const px = sx(cfg.arena.width / 2), py = sy(cfg.arena.height / 2);
+    const R = cfg.arena.pulsarRadius, P = cfg.arena.pulsar, core = R * 0.42;
+    const jetPhase = (time % P.jetIntervalSec) / P.jetIntervalSec;
+    const jetFlash = Math.max(0, 1 - jetPhase * 6);    // bright flare right after a jet fires
+    const jetBeam = Math.max(0, 1 - jetPhase * 2.1);   // the beams linger while motes streak out
+    const jetAng = time * P.jetAxisDriftRadPerSec;
+    // event horizon: a black core that occludes the warped grid behind it (source-over)
     ctx.globalCompositeOperation = 'source-over';
-    solidCircle(sx(px), sy(py), 10, 'rgba(255,255,255,0.95)');
+    const grad = ctx.createRadialGradient(px, py, core * 0.12, px, py, core);
+    grad.addColorStop(0, '#000000'); grad.addColorStop(0.74, '#010207'); grad.addColorStop(1, 'rgba(8,13,28,0)');
+    ctx.fillStyle = grad; ctx.beginPath(); ctx.arc(px, py, core, 0, TAU); ctx.fill();
+    // additive light around the hole
+    ctx.globalCompositeOperation = 'lighter';
+    // relativistic jets: two fading beams shooting out along the axis (drawn first, under the ring)
+    if (jetBeam > 0.01) {
+      for (const s of [0, Math.PI]) {
+        const a = jetAng + s, len = R * (2.8 + 5.5 * (1 - jetBeam));   // grows as the pulse ages
+        const ex = px + Math.cos(a) * len, ey = py + Math.sin(a) * len;
+        const g = ctx.createLinearGradient(px + Math.cos(a) * core, py + Math.sin(a) * core, ex, ey);
+        g.addColorStop(0, `rgba(205,228,255,${0.55 * jetBeam})`); g.addColorStop(1, 'rgba(150,190,255,0)');
+        ctx.strokeStyle = g; ctx.lineWidth = 2 + R * 0.16 * jetBeam;
+        ctx.beginPath(); ctx.moveTo(px + Math.cos(a) * core, py + Math.sin(a) * core); ctx.lineTo(ex, ey); ctx.stroke();
+      }
+    }
+    // faint accretion swirl (two dim sweeping arcs — the disk, kept subtle)
+    for (let i = 0; i < 2; i++) {
+      const rr = core + R * (0.10 + i * 0.16), a0 = time * (0.9 - i * 0.25) + i * 2.1;
+      ctx.strokeStyle = `rgba(120,160,220,${0.22 - i * 0.07 + 0.2 * jetFlash})`;
+      ctx.lineWidth = Math.max(1.5, R * (0.05 - i * 0.012));
+      ctx.beginPath(); ctx.arc(px, py, rr, a0, a0 + 2.4); ctx.stroke();
+    }
+    // photon ring: thin hot ring hugging the horizon + a soft halo
+    glow(px, py, R * 1.55, [90, 140, 220], 0.09 + 0.22 * jetFlash);
+    ctx.strokeStyle = `rgba(220,235,255,${0.7 + 0.3 * jetFlash})`; ctx.lineWidth = 2.5;
+    ctx.beginPath(); ctx.arc(px, py, core * 1.03, 0, TAU); ctx.stroke();
+    ctx.globalCompositeOperation = 'source-over';
   }
 
   return {

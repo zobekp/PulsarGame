@@ -37,7 +37,8 @@ window.PULSAR.Bots = (function () {
       o.firing = ed > 110 && (bot.ramCharge || 0) < 0.98;          // wind while closing; release near
       o.ability = ed < 170 && rnd() < 0.04;                        // brace occasionally
     } else if (fam === 'grav') {
-      o.firing = !bot.captured || bot.captured.length < 9;          // keep pulling
+      const launch = world.config.gravitor.launchByClass[bot.classId] || world.config.gravitor.launchByClass.gravitor;
+      o.firing = !bot.captured || bot.captured.length < launch.cap; // keep pulling until THIS class's capacity
       o.ability = bot.captured && bot.captured.length > 0;          // hurl held rocks at the enemy
       o.special = (bot.classId === 'eventHorizon') && ed < 380;     // collapse
     } else if (fam === 'flail') {
@@ -61,7 +62,10 @@ window.PULSAR.Bots = (function () {
       else o.firing = (bot.charge || 0) < 0.7;
     }
     else if (fam === 'hammer') o.firing = rd > 90 && (bot.ramCharge || 0) < 0.9;
-    else if (fam === 'grav') { o.firing = !bot.captured || bot.captured.length < 9; o.ability = bot.captured && bot.captured.length > 0; }
+    else if (fam === 'grav') {
+      const launch = PULSAR.config.gravitor.launchByClass[bot.classId] || PULSAR.config.gravitor.launchByClass.gravitor;
+      o.firing = !bot.captured || bot.captured.length < launch.cap; o.ability = bot.captured && bot.captured.length > 0;
+    }
     else if (fam === 'flail') {
       // spin to ~half momentum, then fling at the rock cluster
       const reach = bot.orbState === 'spin' ? PULSAR.config.flailship.orb.maxReach : 0;
@@ -150,7 +154,25 @@ window.PULSAR.Bots = (function () {
         aimAng = swivel(ai, ang(bot, rock) + gauss(C.aimErrorRad * 0.4), turnRate, dt); aimDist = rd;
         if (rd > reachOf(bot, fam) * 0.7) go(rock.x, rock.y);
         fire = farmFire(bot, fam, rd);
-      } else { go(world.arena.width / 2, world.arena.height / 2); }   // drift to the pulsar
+      } else {
+        // hover near the black hole (where the action + jets are) but OUTSIDE its pull, not into it
+        const bcx = world.arena.width / 2, bcy = world.arena.height / 2;
+        const ba = Math.atan2(bot.y - bcy, bot.x - bcx);
+        const safe = (world.arena.pulsar ? world.arena.pulsar.pullRadius : 900) * 0.85;
+        go(bcx + Math.cos(ba) * safe, bcy + Math.sin(ba) * safe);
+      }
+    }
+    // BLACK-HOLE AVOIDANCE: if inside the danger band, blend an outward push into the heading so
+    // bots don't get dragged across the lethal horizon (no feeding the hole).
+    const BH = world.arena.pulsar;
+    if (BH) {
+      const bcx = world.arena.width / 2, bcy = world.arena.height / 2;
+      const bdx = bot.x - bcx, bdy = bot.y - bcy, bd = Math.hypot(bdx, bdy) || 1;
+      if (bd < BH.dangerRadius) {
+        const w = 1 - bd / BH.dangerRadius;                 // stronger the closer to the core
+        mvx += (bdx / bd) * w * 3.0; mvy += (bdy / bd) * w * 3.0;
+        const m = Math.hypot(mvx, mvy); if (m > 1) { mvx /= m; mvy /= m; }
+      }
     }
     return { moveX: mvx, moveY: mvy, aim: aimAng, aimDist, firing: fire.firing, ability: fire.ability, special: fire.special,
       afterburner: ai.state === 'flee' && fam === 'rail',     // rail bots burn to disengage, like a player would

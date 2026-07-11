@@ -26,9 +26,9 @@
   };
   const EVO_GATES = [eco.levelChooseClass, eco.levelChoosePath, eco.levelFinalEvolution];
   const EVO_COSTS = [eco.evolutionCosts.class, eco.evolutionCosts.path, eco.evolutionCosts.final];
-  // Every fresh life starts in the calm outer asteroid band (dense farming, rare PvP) —
-  // random side, random position along it, between spawnEdgeInset and edgeSafeMargin deep.
-  function edgeSpawn() {
+  // Candidate points for the calm outer asteroid band. The world chooses a useful candidate
+  // after its shared field exists — no player receives bespoke/private farm resources.
+  function edgeSpawnCandidate() {
     const A = cfg.arena, inset = A.spawnEdgeInset;
     const depth = inset + Math.random() * (A.edgeSafeMargin - inset);
     switch (Math.floor(Math.random() * 4)) {
@@ -74,9 +74,17 @@
     let nextId = 1;
 
     const state = {
-      time: 0, pulsarTimer: cfg.arena.pulsarPulseIntervalSec,
+      time: 0, pulsarTimer: cfg.arena.pulsar.jetIntervalSec,
       ships: [], projectiles: [], objects: [], motes: [], respawns: [],
     };
+    // Balance instrumentation. It records resolved ship damage (after mitigation), is not sent
+    // over the network, and keeps tuning evidence at the authoritative sim boundary.
+    const telemetry = { damageToShips: Object.create(null), shipHits: Object.create(null) };
+    function recordShipDamage(source, amount) {
+      if (!source || !source.classId || amount <= 0) return;
+      telemetry.damageToShips[source.classId] = (telemetry.damageToShips[source.classId] || 0) + amount;
+      telemetry.shipHits[source.classId] = (telemetry.shipHits[source.classId] || 0) + 1;
+    }
 
     function makeShip(o) {
       return {
@@ -107,11 +115,23 @@
       const node = classNode(s.classId);
       const st = (cfg[node.configKey] && cfg[node.configKey].stats) ? cfg[node.configKey].stats : { hp: 1, speed: 1, sizeMult: 1 };
       s.classStats = st;
-      const tierStep = Math.max(0, node.tier - 1), g = eco.tierGrowth;
-      let r = cfg.player.baseRadius * (st.sizeMult || 1) * (1 + tierStep * g.radius);
-      let hpMax = cfg.player.baseHP * (st.hp || 1) * (1 + tierStep * g.hp);
-      if (s.scaled) { r *= (1 + cfg.leader.hitboxBonus); hpMax *= (1 + cfg.leader.hpBonus); }
+      // PROGRESSION SCALE: bigger hull+hitbox, HP, and damage by rank (starter=0 … final=3),
+      // then a dreadnought bump for dominance-scaled leaders.
+      const sc = cfg.scaling;
+      const rank = Math.min((s.classId === 'starter' ? 0 : node.tier), sc.sizeByRank.length - 1);
+      let r = cfg.player.baseRadius * (st.sizeMult || 1) * sc.sizeByRank[rank];
+      let hpMax = cfg.player.baseHP * (st.hp || 1) * sc.hpByRank[rank];
+      let dmgMult = sc.dmgByRank[rank], rangeMult = sc.rangeByRank[rank];
+      if (s.scaled) { r *= sc.leaderSizeMult; hpMax *= sc.leaderHpMult; dmgMult *= sc.leaderDmgMult; rangeMult *= sc.leaderRangeMult; }
       s.radius = r; s.maxHp = hpMax; s.hp = heal ? hpMax : Math.min(s.hp, hpMax);
+      s.dmgMult = dmgMult; s.rangeMult = rangeMult;
+    }
+    // Maneuver (top-speed + accel) multiplier from hull size: capital ships lumber, fighters dart.
+    // Pure function of radius so single-player and the MP predictor agree with no extra sync.
+    function maneuverFor(radius) {
+      const m = cfg.scaling.maneuver, br = cfg.player.baseRadius;
+      const k = (radius - br) / Math.max(1, m.fullSizeRadius - br);
+      return Math.max(m.minMult, Math.min(1, 1 - (1 - m.minMult) * k));
     }
     function resetClassState(s) {
       s.charge = 0; s.charging = false; s.heat = 0; s.ventTimer = 0; s.chargeFullTimer = 0;
@@ -171,6 +191,18 @@
       const hp = cfg.farming[OBJDEF[type].hp];
       state.objects.push({ type, x, y, px: x, py: y, vx: 0, vy: 0, radius: cfg.farming[OBJDEF[type].radius], hp, maxHp: hp, spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0 });
     }
+    // Pick the best of several valid edge spawns by counting real nearby farmables. This keeps
+    // time-to-fun under ten seconds while respecting the shared, emergent economy.
+    function edgeSpawn() {
+      const sc = cfg.player.spawnFarmSearch;
+      let best = edgeSpawnCandidate(), bestCount = -1;
+      for (let i = 0; i < sc.attempts; i++) {
+        const p = edgeSpawnCandidate(); let count = 0;
+        for (const o of state.objects) if (o.type !== 'titan' && Math.hypot(o.x - p.x, o.y - p.y) <= sc.radius) count++;
+        if (count > bestCount) { best = p; bestCount = count; if (count >= sc.minObjects) break; }
+      }
+      return best;
+    }
     function spawnArenaObject() {
       const cx = cfg.arena.width / 2, cy = cfg.arena.height / 2;
       for (let t = 0; t < 24; t++) { const x = Math.random() * cfg.arena.width, y = Math.random() * cfg.arena.height; if (Math.hypot(x - cx, y - cy) < af.pulsarClearRadius) continue; if (Math.random() <= densityAt(x, y)) { addObject(pickType(), x, y); return; } }
@@ -179,7 +211,13 @@
     function ejectMotes(x, y, count, valueEach, o) {
       o = o || {};
       const speed = o.speed != null ? o.speed : pk.moteDriftSpeed, life = o.life != null ? o.life : pk.moteLifeSec;
-      for (let i = 0; i < count; i++) { const a = o.evenIndex != null ? (i / count) * TAU + Math.random() * 0.3 : Math.random() * TAU; state.motes.push({ x, y, px: x, py: y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life, value: valueEach, pulsar: !!o.pulsar }); }
+      for (let i = 0; i < count; i++) {
+        const a = o.angle != null ? o.angle + (Math.random() - 0.5) * 2 * (o.spread || 0)   // directed cone (jet)
+                : o.evenIndex != null ? (i / count) * TAU + Math.random() * 0.3
+                : Math.random() * TAU;
+        const sp = o.jet ? speed * (0.85 + Math.random() * 0.3) : speed;
+        state.motes.push({ x, y, px: x, py: y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life, value: valueEach, pulsar: !!o.pulsar, jet: !!o.jet });
+      }
     }
 
     // ---- damage ----
@@ -189,7 +227,7 @@
       o.flash = 0.12;
       if (opts.crack) { o.cracked = true; o.crackTimer = Math.max(o.crackTimer, cfg.railship.armorCrack.baseDurationSec); }
       if (opts.knockback && o.type !== 'titan') { o.vx += (opts.dx || 0) * opts.knockback; o.vy += (opts.dy || 0) * opts.knockback; }
-      fx.spawnParticles(o.x, o.y, cfg.fx.hitParticles, OBJDEF[o.type].hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 170 });
+      fx.spawnParticles(o.x, o.y, cfg.fx.objectHitParticles, OBJDEF[o.type].hue, { dir: Math.atan2(opts.dy || 0, opts.dx || 0), spread: 1.5, speed: 190 });
       if (o.hp <= 0) breakObject(o);
     }
     function damageThrownRock(r, dmg, opts) {
@@ -202,13 +240,14 @@
     function breakObject(o) {
       const total = eco[OBJDEF[o.type].scrap], n = cfg.farming.motesPerObject[o.type];
       ejectMotes(o.x, o.y, n, total / n, o.type === 'titan' ? { life: 30, speed: 150, evenIndex: true } : undefined);
-      fx.spawnParticles(o.x, o.y, cfg.fx.breakParticles, OBJDEF[o.type].hue, { speed: 250 });
+      fx.spawnParticles(o.x, o.y, cfg.fx.objectBreakParticles, OBJDEF[o.type].hue, { speed: 290, size: 3.3 });
       const idx = state.objects.indexOf(o); if (idx >= 0) state.objects.splice(idx, 1);
       if (!o.recycled) state.respawns.push(o.type === 'titan' ? { timer: cfg.farming.titans.respawnSec, titan: true } : { timer: cfg.farming.respawnSec });   // fragments are bonus matter, not part of the spawn budget
     }
     function damageShip(t, dmg, opts) {
       opts = opts || {};
       if (!t.alive || t.spawnProtect > 0) return;
+      if (opts.source && opts.source.dmgMult) dmg *= opts.source.dmgMult;   // bigger ships hit harder
       if (t.braceTimer > 0) dmg *= (1 - cfg.hammerhead.brace.damageReduction);
       if (t.cracked) dmg *= (1 + cfg.railship.armorCrack.damageAmp);
       if (FAMILY[t.classId] === 'grav' && t.captured && t.captured.length > 0) {   // Gravitor Orbital Shield
@@ -225,7 +264,7 @@
         }
       }
       if (opts.crack) { t.cracked = true; t.crackTimer = cfg.railship.armorCrack.baseDurationSec; }
-      t.hp -= dmg; t.hitFlash = 0.16;
+      t.hp -= dmg; recordShipDamage(opts.source, dmg); t.combatTimer = cfg.player.regen.delaySec; t.hitFlash = 0.16;
       if (opts.knockback) { t.impX += (opts.dx || 0) * opts.knockback; t.impY += (opts.dy || 0) * opts.knockback; }
       fx.spawnParticles(t.x, t.y, 6, '#ff8a8a', { speed: 150 });
       if (!t.isBot) fx.addShake(7, t.id);
@@ -342,10 +381,11 @@
         s.cruiseDX = intent.moveX; s.cruiseDY = intent.moveY;
       } else s.cruise = Math.max(0, (s.cruise || 0) - cz.decayPerSec * dt);
       speedMul *= 1 + (s.cruise || 0) * (cz.maxMult - 1);
-      const speed = cfg.player.baseSpeed * (s.classStats.speed || 1) * speedMul;
+      const man = maneuverFor(s.radius);   // big hulls lumber (lower top speed + accel)
+      const speed = cfg.player.baseSpeed * (s.classStats.speed || 1) * speedMul * man;
       // Inertia: thrust steers velocity toward the input direction; releasing coasts + drifts.
       const inr = cfg.player.inertia;
-      const accel = inr.accelPerSec * ((s.burnTimer || 0) > 0 ? cfg.railship.afterburner.accelMult : 1);
+      const accel = inr.accelPerSec * man * ((s.burnTimer || 0) > 0 ? cfg.railship.afterburner.accelMult : 1);
       const k = Math.min(1, (thrusting ? accel : inr.coastDampPerSec) * dt);
       s.vx += (intent.moveX * speed - s.vx) * k; s.vy += (intent.moveY * speed - s.vy) * k;
       s.x += (s.vx + s.impX) * dt; s.y += (s.vy + s.impY) * dt;
@@ -381,13 +421,35 @@
       simShip(b, dt, PULSAR.Bots.intent(b, botWorld, dt));
     }
 
-    function pulsarPulse(dt) {
+    // BLACK HOLE. Intermittent bipolar relativistic jet flings scrap far out along a slowly-
+    // rotating axis. Timer is MP-synced (`pt`); axis derives from state.time so it's deterministic.
+    function pulsarStep(dt) {
       state.pulsarTimer -= dt;
       if (state.pulsarTimer > 0) return;
-      state.pulsarTimer += cfg.arena.pulsarPulseIntervalSec;
+      const P = cfg.arena.pulsar;
+      state.pulsarTimer += P.jetIntervalSec;
       const cx = cfg.arena.width / 2, cy = cfg.arena.height / 2;
-      ejectMotes(cx, cy, eco.pulsarMotesPerPulse, eco.pulsarScrapPerMote, { speed: pk.pulsarMoteSpeed, life: pk.pulsarMoteLifeSec, pulsar: true, evenIndex: 0 });
-      fx.spawnParticles(cx, cy, 18, '#dff0ff', { speed: 280 });
+      const ang = state.time * P.jetAxisDriftRadPerSec;
+      const half = Math.floor(P.jetMotes / 2);
+      const opt = { spread: P.jetSpreadRad, speed: P.jetSpeed, life: P.jetLifeSec, pulsar: true, jet: true };
+      ejectMotes(cx, cy, half, P.jetScrapPerMote, Object.assign({ angle: ang }, opt));
+      ejectMotes(cx, cy, P.jetMotes - half, P.jetScrapPerMote, Object.assign({ angle: ang + Math.PI }, opt));
+      fx.spawnParticles(cx, cy, 24, '#cfe4ff', { dir: ang, spread: 0.16, speed: 760, life: 0.5 });
+      fx.spawnParticles(cx, cy, 24, '#cfe4ff', { dir: ang + Math.PI, spread: 0.16, speed: 760, life: 0.5 });
+    }
+    // Gravity well + lethal event horizon, applied per living ship after it moves.
+    function pulsarGravity(s, dt) {
+      const P = cfg.arena.pulsar, cx = cfg.arena.width / 2, cy = cfg.arena.height / 2;
+      const dx = cx - s.x, dy = cy - s.y, d = Math.hypot(dx, dy) || 1;
+      if (d < P.lethalRadius) {                       // crossed the horizon — gone
+        fx.spawnParticles(s.x, s.y, 18, '#9fc2ff', { dir: Math.atan2(dy, dx), spread: 0.5, speed: 240, life: 0.35 });
+        killShip(s, null);
+        return;
+      }
+      if (d > P.pullRadius) return;
+      const f = 1 - d / P.pullRadius;                 // 0 at the edge, 1 at the core
+      const pull = P.pullMaxSpeed * f * f;            // px/sec inward — sharp ramp toward the hole
+      s.x += (dx / d) * pull * dt; s.y += (dy / d) * pull * dt;
     }
     function simulateProjectiles(dt) {
       const harvest = cfg.gravitor.orbitalHarvestBonus;
@@ -449,14 +511,14 @@
           const d = Math.hypot(best.x - m.x, best.y - m.y) || 1;
           if (d <= best.radius + pk.moteRadius) { earn(best, m.value); state.motes.splice(i, 1); continue; }
           m.x += (best.x - m.x) / d * pk.vacuumSpeed * dt; m.y += (best.y - m.y) / d * pk.vacuumSpeed * dt;
-        } else { m.vx *= (1 - 1.6 * dt); m.vy *= (1 - 1.6 * dt); m.x += m.vx * dt; m.y += m.vy * dt; }
+        } else { const drag = m.jet ? pk.jetDrag : 1.6; m.vx *= (1 - drag * dt); m.vy *= (1 - drag * dt); m.x += m.vx * dt; m.y += m.vy * dt; }
         m.life -= dt; if (m.life <= 0) state.motes.splice(i, 1);
       }
     }
 
     function step(dt) {
       state.time += dt;
-      pulsarPulse(dt);
+      pulsarStep(dt);
       for (const s of state.ships) tickTimers(s, dt);
       for (const s of state.ships) {
         if (!s.alive) { s.respawnTimer -= dt; if (s.respawnTimer <= 0) respawnShip(s); continue; }
@@ -466,6 +528,7 @@
           // consume one-shot edges — applied for exactly one tick, never re-triggered
           if (s._intent) s._intent.ability = s._intent.special = s._intent.afterburner = s._intent.altFire = false;
         }
+        if (s.alive) pulsarGravity(s, dt);   // black-hole pull + lethal horizon (after movement)
       }
       updateLeader();
       simulateProjectiles(dt); simulateObjects(dt); simulateMotes(dt);
@@ -501,7 +564,7 @@
     populateField();
 
     return {
-      state, api, config: cfg,
+      state, api, config: cfg, telemetry,
       FAMILY, EVOLVE_BLURB, classNode, hueFor,
       addShip, removeShip, getShip, spawnBots, clearBots,
       setIntent(id, intent) {

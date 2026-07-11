@@ -16,6 +16,13 @@ const world = global.PULSAR.createWorld({ onKill: (v, killer) => kills.push({ vi
 const p = world.addShip({ isBot: false, classId: 'starter' });
 world.spawnBots(cfg.bots.count);
 
+// Incoming damage must suppress passive regen too; otherwise sustained pressure can never finish
+// an idle target even when the combat log says it dealt lethal cumulative damage.
+p.spawnProtect = 0; p.combatTimer = 0;
+world.api.damage(p, 1, { source: world.state.ships.find(s => s.isBot) });
+check('taking damage resets regen delay', p.combatTimer >= cfg.player.regen.delaySec - 0.01, `timer=${p.combatTimer.toFixed(2)}`);
+p.spawnProtect = cfg.player.spawnProtectionSec;
+
 // edge-band spawns: every ship's distance to the nearest wall ∈ [spawnEdgeInset, edgeSafeMargin]
 const A = cfg.arena;
 const wallDist = (s) => Math.min(s.x, s.y, A.width - s.x, A.height - s.y);

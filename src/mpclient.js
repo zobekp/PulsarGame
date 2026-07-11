@@ -139,9 +139,12 @@ window.PULSAR.MP = (function () {
       pred.cruiseDX = intent.moveX; pred.cruiseDY = intent.moveY;
     } else pred.cruise = Math.max(0, pred.cruise - cz.decayPerSec * dt);
     speedMul *= 1 + pred.cruise * (cz.maxMult - 1);
-    const speed = C.player.baseSpeed * (st.speed || 1) * speedMul;
+    // maneuver taper by hull size (matches sim.maneuverFor) so big-ship prediction stays in sync
+    const mn = C.scaling.maneuver, br = C.player.baseRadius;
+    const man = Math.max(mn.minMult, Math.min(1, 1 - (1 - mn.minMult) * (p.radius - br) / Math.max(1, mn.fullSizeRadius - br)));
+    const speed = C.player.baseSpeed * (st.speed || 1) * speedMul * man;
     const inr = C.player.inertia;
-    const accel = inr.accelPerSec * (pred.burnTimer > 0 ? C.railship.afterburner.accelMult : 1);
+    const accel = inr.accelPerSec * man * (pred.burnTimer > 0 ? C.railship.afterburner.accelMult : 1);
     const k = Math.min(1, (thrusting ? accel : inr.coastDampPerSec) * dt);
     pred.vx += (intent.moveX * speed - pred.vx) * k; pred.vy += (intent.moveY * speed - pred.vy) * k;
     pred.x += (pred.vx + pred.impX) * dt; pred.y += (pred.vy + pred.impY) * dt;
