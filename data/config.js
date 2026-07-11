@@ -119,7 +119,8 @@ window.PULSAR.config = {
     dmgByRank:   [1.0, 1.8, 3.0, 4.8],    // bigger guns hit harder (keeps intra-rank TTK reasonable)
     rangeByRank: [1.0, 1.2, 1.45, 1.7],   // bigger weapons REACH further — beams, chain, lunge, grav field
     leaderSizeMult: 1.5,  leaderHpMult: 1.6,  leaderDmgMult: 1.4,  leaderRangeMult: 1.3,  // dominance → dreadnought
-    maneuver: { fullSizeRadius: 62, minMult: 0.62 }, // speed+accel taper: 1.0 at baseRadius → minMult by this size
+    maneuver: { fullSizeRadius: 62, minMult: 0.70 }, // speed+accel taper: 1.0 at baseRadius → minMult by this size
+                                                     // (0.70: eased so big brawlers can still close on kiters — tune in playtest)
   },
 
   // ---- Meta / persistence (Phase 6) ------------------------------------------
@@ -293,6 +294,10 @@ window.PULSAR.config = {
     mawRail: {
       chargeTimeSec: 1.9,             // much slower than the base rail's 1.05 — siege pacing
       minChargeToFire: 0.3,           // release below this fizzles (no beam, no heat)
+      // STARBREAK siege anchor: as the charge fills it plants itself, slowing to a near-standstill
+      // at full charge (a stationary siege platform — big commitment, big payoff). Ramps ∝ charge²
+      // so you can still reposition early in the charge. speedMult = 1 - (1-full)·charge².
+      starbreakAnchorSpeedMult: 0.05, // top-speed multiplier at FULL charge (near standstill)
       minHalfWidth: 10, maxHalfWidth: 34,   // beam half-thickness at min/full charge (hitbox == visual)
       range: 980,
       damageAtMin: 40, damageAtFull: 120,  // ONE instant blast. Deliberately just UNDER a tier-2

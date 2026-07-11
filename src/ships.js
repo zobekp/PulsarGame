@@ -612,9 +612,9 @@ window.PULSAR.Ships = (function () {
     },
 
     // Hammerhead line grows tier by tier: more nacelles, more wings, heavier armor + prow.
-    hammerhead(ctx, r, s, P, t)    { hammerBody(ctx, r, s, P, t, { front: 1.3, span: 1.05, teeth: 0, nacelles: 2, wings: 1, armor: 1 }); },
-    maulbreaker(ctx, r, s, P, t)   { hammerBody(ctx, r, s, P, t, { front: 1.42, span: 1.4, teeth: 4, nacelles: 2, wings: 1, armor: 2 }); },
-    worldsplitter(ctx, r, s, P, t) { hammerBody(ctx, r, s, P, t, { front: 1.5, span: 1.75, teeth: 0, nacelles: 3, wings: 2, armor: 3, ridge: 0.45 }); },
+    hammerhead(ctx, r, s, P, t)    { hammerBody(ctx, r, s, P, t, { front: 1.6, span: 0.86, teeth: 0, nacelles: 2, wings: 1, armor: 1 }); },
+    maulbreaker(ctx, r, s, P, t)   { hammerBody(ctx, r, s, P, t, { front: 1.75, span: 1.04, teeth: 4, nacelles: 2, wings: 1, armor: 2 }); },
+    worldsplitter(ctx, r, s, P, t) { hammerBody(ctx, r, s, P, t, { front: 1.9, span: 1.3, teeth: 0, nacelles: 3, wings: 2, armor: 3, ridge: 0.45 }); },
 
     // Gravitor line: a long carrier that cradles a gravity core out front. Each tier is bigger —
     // more nacelles + windows, bigger core, then the control branch's containment rings/vanes.
@@ -636,10 +636,29 @@ window.PULSAR.Ships = (function () {
     return (v && MODELS[v.silhouette]) || MODELS.dart;
   }
 
+  // Capital-ship point-defense: big hulls bristle with anti-fighter batteries that flicker fire —
+  // a "this thing is a warship" tell that escalates with size (more guns, faster on the biggest).
+  function pointDefense(ctx, r, t) {
+    const n = r > 60 ? 7 : r > 44 ? 5 : 4;
+    ctx.globalCompositeOperation = 'lighter';
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * TAU + i * 1.7 + Math.sin(t * 0.6 + i) * 0.4;    // battery sweeps its arc
+      if (Math.sin(t * 9 + i * 5.1) < 0.25) continue;                     // rapid, staggered bursts
+      const ex = Math.cos(a), ey = Math.sin(a), bx = ex * r * 0.82, by = ey * r * 0.5;   // battery at the hull edge
+      ctx.fillStyle = 'rgba(255,228,150,0.5)'; ctx.beginPath(); ctx.arc(bx, by, Math.max(3, r * 0.075), 0, TAU); ctx.fill();
+      ctx.fillStyle = 'rgba(255,250,215,0.98)'; ctx.beginPath(); ctx.arc(bx, by, Math.max(1.5, r * 0.032), 0, TAU); ctx.fill();
+      const tl = r * (0.3 + 0.45 * ((t * 5 + i) % 1));                     // brief outward tracer
+      ctx.strokeStyle = 'rgba(255,240,185,0.6)'; ctx.lineWidth = Math.max(1, r * 0.016);
+      ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + ex * tl, by + ey * tl * 0.62); ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
   // Entry point. ctx must already be translated to the ship and rotated by aim.
   function draw(ctx, s, time) {
     const hue = PULSAR.weaponHue(s.classId);
     modelFor(s.classId)(ctx, s.radius, s, palette(hue), time);
+    if (s.radius > 34) pointDefense(ctx, s.radius, time);   // tier-2+ hulls get active gun batteries
   }
 
   return { draw };

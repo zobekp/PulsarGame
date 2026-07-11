@@ -353,7 +353,10 @@
       s.aim = intent.aim;
       const fam = FAMILY[s.classId];
       let speedMul = 1;
-      if (fam === 'rail' && s.charging) { const m = cfg.railship.movementWhileCharging; speedMul = s.charge > 1 ? m.overcharge : s.charge <= 0.5 ? m.to50 : s.charge <= 0.9 ? m.to90 : m.to100; }
+      if (fam === 'rail' && s.charging) {
+        if (s.classId === 'starbreak') { const c = Math.min(1, s.charge); speedMul = 1 - (1 - cfg.railship.mawRail.starbreakAnchorSpeedMult) * c * c; }   // siege anchor: near-standstill at full charge
+        else { const m = cfg.railship.movementWhileCharging; speedMul = s.charge > 1 ? m.overcharge : s.charge <= 0.5 ? m.to50 : s.charge <= 0.9 ? m.to90 : m.to100; }
+      }
       else if (fam === 'hammer' && s.ramWinding) speedMul = 0.4;
       if (s.slowTimer > 0) speedMul *= (1 - s.slow);
       const thrusting = intent.moveX !== 0 || intent.moveY !== 0;
@@ -470,7 +473,9 @@
           if (!target) for (const o of state.objects) { const rr = pr.radius + o.radius; if ((pr.x - o.x) ** 2 + (pr.y - o.y) ** 2 <= rr * rr) { target = o; break; } }
           if (target) {
             const d = Math.hypot(pr.vx, pr.vy) || 1;
-            api.damage(target, pr.damage, { dx: pr.vx / d, dy: pr.vy / d, knockback: 40, source: pr.owner });
+            const rockHit = pr.isThrownRock && target.isShip;   // gravitor boulders LAND — heavier knock, shake, debris
+            api.damage(target, pr.damage, { dx: pr.vx / d, dy: pr.vy / d, knockback: rockHit ? 160 : 40, source: pr.owner });
+            if (rockHit) { fx.spawnParticles(pr.x, pr.y, cfg.fx.breakParticles, (OBJDEF[pr.rockType] || OBJDEF.asteroid).hue, { speed: 300, size: 3 }); if (pr.owner && !pr.owner.isBot) fx.addShake(7, pr.owner.id); if (!target.isBot) fx.addShake(6, target.id); }
             if (pr.harvest && !target.isShip && target.hp <= 0 && pr.owner && pr.owner.alive) earn(pr.owner, harvest);
             if (--pr.pierceLeft <= 0) dead = true;
           }

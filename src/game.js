@@ -309,13 +309,22 @@ window.PULSAR = window.PULSAR || {};
     const chargeGlow = s.charging ? 0.4 * Math.min(1.25, s.charge) : 0;
     const tierBoost = (classNode(s.classId).tier - 1) * 0.06;
     const scale = isPlayer ? cfg.readability.yourShipBloomScale : 1.0;
-    R.glow(cx, cy, s.radius * (3.0 + chargeGlow) * scale * threat, hue, (isPlayer ? 0.45 : 0.32) + chargeGlow * 0.4 + tierBoost);
+    // capital-ship presence: a wide, dim power aura that grows with hull size (dreadnoughts loom)
+    const sizeBoost = Math.min(1, (s.radius - cfg.player.baseRadius) / 55);
+    if (sizeBoost > 0.05) R.glow(cx, cy, s.radius * 4.6 * scale, hue, 0.05 + 0.15 * sizeBoost);
+    R.glow(cx, cy, s.radius * (3.0 + chargeGlow) * scale * threat, hue, (isPlayer ? 0.45 : 0.32) + chargeGlow * 0.4 + tierBoost + 0.12 * sizeBoost);
     if (s.heat > cfg.railship.heat.max * 0.6 || s.ventTimer > 0) R.glow(cx, cy, s.radius * 2.4, [255, 120, 60], 0.22 + 0.4 * (s.heat / cfg.railship.heat.max));
     if ((s.burnTimer || 0) > 0) R.glow(cx, cy, s.radius * 3.4, [127, 220, 255], 0.55);   // afterburner flare
   }
   function drawEnemyTag(ctx, s, x, y) {
-    if (s.name) { ctx.textAlign = 'center'; ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = s.isLeader ? '#ffd98a' : 'rgba(220,235,255,0.85)'; ctx.fillText(s.name, x, y - s.radius - 16); ctx.textAlign = 'left'; }
-    if (s.hp < s.maxHp) { const w = s.radius * 2.2, hb = y - s.radius - 12; ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(x - w / 2, hb, w, 3); ctx.fillStyle = s.isLeader ? '#ffd98a' : '#ff8a8a'; ctx.fillRect(x - w / 2, hb, w * Math.max(0, s.hp / s.maxHp), 3); }
+    // Drawn in the world pass (under view zoom): counter-scale so tags + HP bars stay a constant,
+    // readable screen size while sitting a constant gap above the (variably-sized) hull.
+    const z = Render.camera.zoom || 1;
+    ctx.save(); ctx.translate(x, y); ctx.scale(1 / z, 1 / z);
+    const above = s.radius * z + 14;
+    if (s.name) { ctx.textAlign = 'center'; ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = s.isLeader ? '#ffd98a' : 'rgba(220,235,255,0.85)'; ctx.fillText(s.name, 0, -above - 6); ctx.textAlign = 'left'; }
+    if (s.hp < s.maxHp) { const w = Math.max(28, s.radius * 2.2 * z); ctx.fillStyle = 'rgba(255,255,255,0.12)'; ctx.fillRect(-w / 2, -above, w, 3); ctx.fillStyle = s.isLeader ? '#ffd98a' : '#ff8a8a'; ctx.fillRect(-w / 2, -above, w * Math.max(0, s.hp / s.maxHp), 3); }
+    ctx.restore();
   }
 
   // ---- ship silhouettes ------------------------------------------------------

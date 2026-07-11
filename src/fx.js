@@ -132,12 +132,15 @@ window.PULSAR.Fx = (function () {
     // text is crisp, on top
     R.setComposite('source-over');
     ctx.textAlign = 'center';
+    const z = R.camera.zoom || 1;                 // counter-scale so text stays a constant screen size under view zoom
     for (const tx of texts) {
       const t = tx.life / tx.maxLife;
       const rgb = R.hexToRgb(tx.color);
+      ctx.save(); ctx.translate(R.sx(tx.x), R.sy(tx.y)); ctx.scale(1 / z, 1 / z);
       ctx.font = `700 ${tx.size}px system-ui, sans-serif`;
       ctx.fillStyle = `rgba(${rgb[0]},${rgb[1]},${rgb[2]},${Math.min(1, t * 1.6)})`;
-      ctx.fillText(tx.text, R.sx(tx.x), R.sy(tx.y));
+      ctx.fillText(tx.text, 0, 0);
+      ctx.restore();
     }
     ctx.textAlign = 'left';
   }

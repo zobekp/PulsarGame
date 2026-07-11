@@ -71,6 +71,51 @@ against the server with the slice/jitter code — zero errors.
 
 ---
 
+## 2026-07-10 — Grab-bag pass: zoom-UI fix, VFX escalation, melee/bot tuning, juice
+Worked the "what else needs work" list.
+- **Zoom-UI readability (regression fix):** enemy name tags, HP bars (`drawEnemyTag`) and floating
+  combat text (`fx.js`) drew in world space and shrank with the new camera zoom. Both now
+  counter-scale by `1/zoom` so they stay a constant readable screen size while anchored above the
+  (variably-sized) hull.
+- **VFX escalation (Star Wars-ish):** big hulls (r>34) now bristle with **point-defense batteries**
+  that flicker muzzle-flashes + short tracers (`ships.js pointDefense`, more guns on bigger ships),
+  plus a wide size-scaled **power aura** in `shipBloom` so dreadnoughts loom.
+- **Hammer proportions:** narrowed span + extended prow across the line so hammers read LONG, not
+  wide (was the last family still wider-than-long).
+- **MP prediction near the black hole:** predictor now applies the pulsar gravity pull (matches
+  `sim.pulsarGravity`) so big/slow ships stop rubber-banding by the core.
+- **Bots use the new reach:** bot fire/preferred range scale with `rangeMult`, so big hulls
+  actually fight at their longer range.
+- **Melee vs ranged nudge:** maneuver floor `minMult 0.62→0.70` so big brawlers can still close on
+  kiters. Conservative — real melee/ranged balance still needs live playtest.
+- **Gravitor juice:** thrown boulders that hit a ship now land heavy — 4× knockback, debris burst,
+  screen shake. (A deeper Gravitor enjoyability rework is a DESIGN question — deliberately NOT
+  guessed here to avoid another misread; needs your direction.)
+- **Not-bugs confirmed:** the reconnect/reattach feature actually WORKS (a fresh server passes
+  `reattachtest`; the earlier "failure" was a stale server on :8080). Leader/dreadnought scale is
+  reachable (~2440 XP ≈ a few minutes). The earlier weapon-range scaling (a misread of "range") is
+  left in as an on-theme keeper — say the word to revert.
+
+**Files:** `src/game.js`, `src/fx.js`, `src/ships.js`, `src/sim.js`, `src/mpclient.js`,
+`src/bots.js`, `data/config.js`. Render + light sim tuning. sptest/finaltest/predtest/edgetest/
+scaletest all green.
+
+---
+
+## 2026-07-10 — Starbreak siege anchor: slows to a near standstill at full charge
+**What changed:** Starbreak (tier-3 siege maw) now PLANTS itself as it charges — top speed tapers
+to a near-standstill at full charge, turning it into a stationary siege platform (big commitment,
+big payoff; and a fat target for counterplay). Ramps as `speedMult = 1 - (1 - anchor)·charge²`
+(`railship.mawRail.starbreakAnchorSpeedMult 0.05`), so `charge²` keeps it mobile early in the
+1.9s wind-up, then anchors it as the shot completes. Base rail + Star Piercer keep the old
+`movementWhileCharging` curve — this is Starbreak-only.
+
+**Files:** `data/config.js`, `src/sim.js` (charging-speed branch), `src/mpclient.js` (predictor
+match — keeps big-ship prediction in sync). Verified: hold-fire + full thrust → ~200px/s at half
+charge, ~15px/s at full (near standstill); finaltest/sptest/predtest green.
+
+---
+
 ## 2026-07-10 — Camera zooms OUT with hull size (a dreadnought never fills the screen)
 **Why:** with the new dreadnought scaling a big ship took up most of the screen — you couldn't see
 the battle. Now the VIEW zooms out as your hull grows, so you always see the fight around you, and

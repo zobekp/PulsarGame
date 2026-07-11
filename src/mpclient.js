@@ -119,7 +119,10 @@ window.PULSAR.MP = (function () {
     const node = PULSAR.classes[p.classId] || PULSAR.classes.starter;
     const st = (C[node.configKey] && C[node.configKey].stats) || { speed: 1 };
     let speedMul = 1;
-    if (p.charging) { const m = C.railship.movementWhileCharging; speedMul = p.charge > 1 ? m.overcharge : p.charge <= 0.5 ? m.to50 : p.charge <= 0.9 ? m.to90 : m.to100; }
+    if (p.charging) {
+      if (p.classId === 'starbreak') { const c = Math.min(1, p.charge); speedMul = 1 - (1 - C.railship.mawRail.starbreakAnchorSpeedMult) * c * c; }   // siege anchor (matches sim)
+      else { const m = C.railship.movementWhileCharging; speedMul = p.charge > 1 ? m.overcharge : p.charge <= 0.5 ? m.to50 : p.charge <= 0.9 ? m.to90 : m.to100; }
+    }
     else if (p.ramWinding) speedMul = 0.4;
     const thrusting = intent.moveX !== 0 || intent.moveY !== 0;
     if (RAILS.has(p.classId)) {   // afterburner kick + boost are input-driven ⇒ predictable
@@ -148,6 +151,9 @@ window.PULSAR.MP = (function () {
     const k = Math.min(1, (thrusting ? accel : inr.coastDampPerSec) * dt);
     pred.vx += (intent.moveX * speed - pred.vx) * k; pred.vy += (intent.moveY * speed - pred.vy) * k;
     pred.x += (pred.vx + pred.impX) * dt; pred.y += (pred.vy + pred.impY) * dt;
+    // Black-hole pull (matches sim.pulsarGravity) so prediction doesn't fight the server near the core.
+    const P = C.arena.pulsar, gx = C.arena.width / 2 - pred.x, gy = C.arena.height / 2 - pred.y, gd = Math.hypot(gx, gy) || 1;
+    if (gd <= P.pullRadius && gd > P.lethalRadius) { const f = 1 - gd / P.pullRadius, pull = P.pullMaxSpeed * f * f; pred.x += (gx / gd) * pull * dt; pred.y += (gy / gd) * pull * dt; }
     const dampRate = p.ramActive > 0 ? C.hammerhead.lunge.glideDampPerSec : C.player.impulseDampPerSec;
     const damp = Math.max(0, 1 - dampRate * dt); pred.impX *= damp; pred.impY *= damp;
     pred.x = Math.max(p.radius, Math.min(C.arena.width - p.radius, pred.x));

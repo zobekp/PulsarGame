@@ -132,7 +132,8 @@ window.PULSAR.Bots = (function () {
     const turnRate = C.aimTurnRadPerSec * (0.75 + 0.5 * ai.skill);
     // hold fire when the target is past honest range or still being acquired
     // (grav keeps passively pulling rocks; flail keeps its spin-up going — neither is a shot)
-    const gate = (f, d) => { if (d > (C.fireRange[fam] || 700) || ai.acquire > 0) { f.firing = (fam === 'grav' || fam === 'flail') && f.firing; f.ability = false; f.special = false; } return f; };
+    const rm = bot.rangeMult || 1;   // bigger hulls reach + engage further (matches weapon range scaling)
+    const gate = (f, d) => { if (d > (C.fireRange[fam] || 700) * rm || ai.acquire > 0) { f.firing = (fam === 'grav' || fam === 'flail') && f.firing; f.ability = false; f.special = false; } return f; };
 
     if (ai.state === 'flee' && enemy) {
       perceive(bot, ai, enemy, C, dt);
@@ -141,7 +142,7 @@ window.PULSAR.Bots = (function () {
     } else if (ai.state === 'fight' && enemy) {
       perceive(bot, ai, enemy, C, dt);
       aimAng = swivel(ai, ai.seenA, turnRate, dt); aimDist = ai.seenD;
-      const pref = C.preferredRange[fam] || 400;
+      const pref = (C.preferredRange[fam] || 400) * rm;   // big ships hold their fights at longer range
       if (ai.dodge > 0) go(enemy.x, enemy.y, 'side');
       else if (ed > pref * 1.1) go(enemy.x, enemy.y);
       else if (ed < pref * 0.7) go(enemy.x, enemy.y, 'away');
