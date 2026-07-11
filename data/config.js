@@ -16,6 +16,17 @@ window.PULSAR.config = {
     renderDprCap: 1.25,      // bloom is fill-rate bound; avoids 2.25× pixel cost from the old 1.5 cap
   },
 
+  // ---- Camera / view -------------------------------------------------------
+  // The view zooms OUT as your ship grows so a dreadnought never fills the screen — you always
+  // see the battlefield around you. Zoom = min(baseZoom, shipTargetPx / yourRadius), clamped.
+  // Bigger ship ⇒ more zoom-out ⇒ a much larger view (and fighters/enemies keep honest relative
+  // scale: a fighter looks tiny beside a dreadnought, a dreadnought looks huge to a fighter).
+  view: {
+    baseZoom: 0.85,          // everyone sees a bit wider than 1:1 even at the smallest size
+    shipTargetPx: 46,        // your hull is kept ≈ this radius on screen; zoom out to hold it
+    minZoom: 0.32,           // never zoom out further than this (huge leaders)
+  },
+
   // ---- Arena & spatial model -------------------------------------------------
   // Uniform open field. Pulsar honeypot at center = richest scrap + PvP draw.
   // Asteroid density is highest mid-map, thinning toward calm farmable edges.

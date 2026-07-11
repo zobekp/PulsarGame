@@ -71,6 +71,29 @@ against the server with the slice/jitter code — zero errors.
 
 ---
 
+## 2026-07-10 — Camera zooms OUT with hull size (a dreadnought never fills the screen)
+**Why:** with the new dreadnought scaling a big ship took up most of the screen — you couldn't see
+the battle. Now the VIEW zooms out as your hull grows, so you always see the fight around you, and
+bigger ships get a much larger view. (This is the "view range" the range request actually meant;
+the earlier commit's weapon-range scaling was a misread — kept for now, easy to revert.)
+
+**How:** the world pass now draws under a canvas transform (`beginFrame`: centre → `camera.zoom`
+→ camera), so positions AND sizes scale by zoom for free; `sx/sy` became identity (world coords);
+`endWorld()` resets to screen space for the HUD. `drawGrid` rewritten to world extents
+(`viewW/(2·zoom)`) with hairline width held at `1/zoom`; `onScreen` culls against the zoomed
+extent; the onboarding highlight projects to screen itself (it runs post-`endWorld`).
+- `config.view {baseZoom 0.85, shipTargetPx 46, minZoom 0.32}`; per frame
+  `zoom = clamp(min(baseZoom, shipTargetPx / yourRadius), minZoom, baseZoom)`.
+- So a fighter (r16) sees ~0.85; a tier-3 (r47) ~0.85→ still capped; a leader dreadnought (r95)
+  ~0.48 — a much wider battlefield. Relative scale is honest: a fighter sees a dreadnought as
+  huge; a dreadnought sees fighters as ants.
+
+**Files:** `data/config.js`, `src/render.js`, `src/game.js`. Render-only.
+**Verified:** real render.js pipeline runs a full frame with no error (headless); a fighter-POV vs
+dreadnought-POV render shows the zoom-out working with honest relative scale; sim tests green.
+
+---
+
 ## 2026-07-10 — DREADNOUGHT SCALING: ships + hitboxes grow hard with progression
 **Why:** whiffing shots is a barrier to playing on; making ships (and their HITBOXES) grow as you
 evolve means you land more as you invest, AND unlocks the galactic-war fantasy — a maxed ship should

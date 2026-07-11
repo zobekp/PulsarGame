@@ -178,12 +178,18 @@ window.PULSAR = window.PULSAR || {};
   }
 
   // ---- render ----------------------------------------------------------------
-  function onScreen(x, y, pad) { return x > Render.camera.x - Render.viewW / 2 - pad && x < Render.camera.x + Render.viewW / 2 + pad && y > Render.camera.y - Render.viewH / 2 - pad && y < Render.camera.y + Render.viewH / 2 + pad; }
+  function onScreen(x, y, pad) {
+    const hw = Render.viewW / (2 * Render.camera.zoom), hh = Render.viewH / (2 * Render.camera.zoom);
+    return x > Render.camera.x - hw - pad && x < Render.camera.x + hw + pad && y > Render.camera.y - hh - pad && y < Render.camera.y + hh + pad;
+  }
   function render(alpha) {
     const R = Render;
     if (PULSAR.MP && PULSAR.MP.connected) PULSAR.MP.syncState(state, p);   // authoritative: rebuild state from server (real alpha stays — own ship + fx use it for sub-tick smoothness)
     const pxi = lerp(p.px, p.x, alpha), pyi = lerp(p.py, p.y, alpha);
     R.camera.x = (p.alive ? pxi : p.x) + Fx.shakeX(); R.camera.y = (p.alive ? pyi : p.y) + Fx.shakeY();
+    // Zoom OUT as your hull grows so a dreadnought never fills the screen (you always see the fight).
+    const V = cfg.view;
+    R.camera.zoom = Math.max(V.minZoom, Math.min(V.baseZoom, V.shipTargetPx / p.radius));
     R.beginFrame(); R.drawGrid(state.time); R.drawPulsar(state.time);
 
     // BLOOM PASS
@@ -211,6 +217,7 @@ window.PULSAR = window.PULSAR || {};
       if (s !== p) drawEnemyTag(R.ctx, s, sxi, syi);
     }
 
+    R.endWorld();   // <-- leave world/zoom space; everything below is screen-space HUD
     uiButtons = [];
     drawOnboardingGuide();
     drawHud(); drawLeaderboard(); drawKillFeed(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
@@ -542,7 +549,10 @@ window.PULSAR = window.PULSAR || {};
     }
     const ctx = Render.ctx, fade = Math.min(1, (cfg.onboarding.promptSec - (state.time - onboardingStartTime)) / 1.5);
     if (target && onScreen(target.x, target.y, target.radius + 30)) {
-      const x = Render.sx(target.x), y = Render.sy(target.y), ring = target.radius + 12 + Math.sin(state.time * TAU * cfg.onboarding.targetRingPulsePerSec) * 2;
+      // runs in screen space (after endWorld): project the world target through camera + zoom
+      const z = Render.camera.zoom;
+      const x = (target.x - Render.camera.x) * z + Render.viewW / 2, y = (target.y - Render.camera.y) * z + Render.viewH / 2;
+      const ring = (target.radius + 12 + Math.sin(state.time * TAU * cfg.onboarding.targetRingPulsePerSec) * 2) * z;
       Render.setComposite('lighter'); Render.glow(x, y, ring * 2.1, [123, 224, 255], 0.32 * fade); Render.setComposite('source-over');
       ctx.strokeStyle = `rgba(150,235,255,${0.85 * fade})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(x, y, ring, 0, TAU); ctx.stroke();
     }

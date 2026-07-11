@@ -12,7 +12,8 @@ window.PULSAR.Render = (function () {
   const TAU = Math.PI * 2;
   let canvas, ctx;
   let viewW = 0, viewH = 0;
-  const camera = { x: 0, y: 0 };       // world point at screen centre
+  let dpr = 1;                          // device-pixel-ratio base transform (set in resize)
+  const camera = { x: 0, y: 0, zoom: 1 };   // world point at screen centre + view zoom (<1 = wider)
 
   function init(canvasEl) {
     canvas = canvasEl;
@@ -24,7 +25,7 @@ window.PULSAR.Render = (function () {
   function resize() {
     // Render at device pixel ratio for crisp neon, but cap it from the single tuning surface:
     // additive bloom is fill-rate bound, and excess supersampling must never cost the 60fps target.
-    const dpr = Math.min(window.devicePixelRatio || 1, cfg.sim.renderDprCap);
+    dpr = Math.min(window.devicePixelRatio || 1, cfg.sim.renderDprCap);
     viewW = innerWidth; viewH = innerHeight;
     canvas.width = Math.floor(viewW * dpr);
     canvas.height = Math.floor(viewH * dpr);
@@ -80,16 +81,24 @@ window.PULSAR.Render = (function () {
     ctx.fill();
   }
 
-  // world -> screen (camera centred on the view)
-  function sx(wx) { return wx - camera.x + viewW / 2; }
-  function sy(wy) { return wy - camera.y + viewH / 2; }
+  // The WORLD pass draws under a canvas transform (centre → zoom → camera), so both positions
+  // AND sizes scale by camera.zoom for free. sx/sy are therefore identity: pass world coords.
+  function sx(wx) { return wx; }
+  function sy(wy) { return wy; }
 
   // ---- frame scaffolding -----------------------------------------------------
   function beginFrame() {
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);  // screen space for the background
     ctx.globalCompositeOperation = 'source-over';
     ctx.fillStyle = '#05060a';               // near-black, matches index.html
     ctx.fillRect(0, 0, viewW, viewH);
+    // enter WORLD space: centre the camera, apply zoom (huge ships => smaller zoom => wider view)
+    ctx.translate(viewW / 2, viewH / 2);
+    ctx.scale(camera.zoom, camera.zoom);
+    ctx.translate(-camera.x, -camera.y);
   }
+  // Leave world space — back to screen pixels for the HUD/overlays.
+  function endWorld() { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); }
 
   // Gravitational warp: space near the pulsar is dragged toward the singularity and swirled
   // (frame-drag). Used to bend the grid — returns SCREEN coords for a world point.
@@ -111,26 +120,27 @@ window.PULSAR.Render = (function () {
   // pulsar the grid is WARPED into the singularity (bent + swirled); elsewhere it's straight+fast.
   function drawGrid(time) {
     const step = 240;
-    const x0 = Math.floor((camera.x - viewW / 2) / step) * step;
-    const y0 = Math.floor((camera.y - viewH / 2) / step) * step;
+    const hw = viewW / (2 * camera.zoom), hh = viewH / (2 * camera.zoom);   // visible world half-extents
+    const lft = camera.x - hw - step, rgt = camera.x + hw + step;
+    const top = camera.y - hh - step, bot = camera.y + hh + step;
+    const x0 = Math.floor((camera.x - hw) / step) * step;
+    const y0 = Math.floor((camera.y - hh) / step) * step;
     ctx.globalCompositeOperation = 'lighter';
     ctx.strokeStyle = 'rgba(40,70,110,0.18)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 1 / camera.zoom;                  // keep hairline width on screen when zoomed out
     const R = warpR();
-    const warpOnScreen = Math.abs(PWX() - camera.x) < viewW / 2 + R && Math.abs(PWY() - camera.y) < viewH / 2 + R;
+    const warpOnScreen = Math.abs(PWX() - camera.x) < hw + R && Math.abs(PWY() - camera.y) < hh + R;
     ctx.beginPath();
     if (!warpOnScreen) {
-      for (let wx = x0; wx < camera.x + viewW / 2 + step; wx += step) { ctx.moveTo(sx(wx), 0); ctx.lineTo(sx(wx), viewH); }
-      for (let wy = y0; wy < camera.y + viewH / 2 + step; wy += step) { ctx.moveTo(0, sy(wy)); ctx.lineTo(viewW, sy(wy)); }
+      for (let wx = x0; wx < rgt; wx += step) { ctx.moveTo(wx, top); ctx.lineTo(wx, bot); }
+      for (let wy = y0; wy < bot; wy += step) { ctx.moveTo(lft, wy); ctx.lineTo(rgt, wy); }
     } else {
       const seg = step / 5;                            // subdivide so warped lines curve smoothly
-      const top = camera.y - viewH / 2 - step, bot = camera.y + viewH / 2 + step;
-      const lft = camera.x - viewW / 2 - step, rgt = camera.x + viewW / 2 + step;
-      for (let wx = x0; wx < camera.x + viewW / 2 + step; wx += step) {
+      for (let wx = x0; wx < rgt; wx += step) {
         let first = true;
         for (let wy = top; wy <= bot; wy += seg) { const [X, Y] = warpPoint(wx, wy, time); first ? (ctx.moveTo(X, Y), first = false) : ctx.lineTo(X, Y); }
       }
-      for (let wy = y0; wy < camera.y + viewH / 2 + step; wy += step) {
+      for (let wy = y0; wy < bot; wy += step) {
         let first = true;
         for (let wx = lft; wx <= rgt; wx += seg) { const [X, Y] = warpPoint(wx, wy, time); first ? (ctx.moveTo(X, Y), first = false) : ctx.lineTo(X, Y); }
       }
@@ -138,8 +148,8 @@ window.PULSAR.Render = (function () {
     ctx.stroke();
     // Arena boundary (so you can see the edge of the field).
     ctx.strokeStyle = 'rgba(80,120,180,0.35)';
-    ctx.lineWidth = 2;
-    ctx.strokeRect(sx(0), sy(0), cfg.arena.width, cfg.arena.height);
+    ctx.lineWidth = 2 / camera.zoom;
+    ctx.strokeRect(0, 0, cfg.arena.width, cfg.arena.height);
   }
 
   // The Pulsar as a BLACK HOLE: a dark event horizon rimmed by a thin photon ring and a faint
@@ -186,7 +196,7 @@ window.PULSAR.Render = (function () {
   }
 
   return {
-    init, resize, beginFrame, drawGrid, drawPulsar, glow, solidCircle,
+    init, resize, beginFrame, endWorld, drawGrid, drawPulsar, glow, solidCircle,
     hexToRgb,
     setComposite(mode) { ctx.globalCompositeOperation = mode; },
     get ctx() { return ctx; },
