@@ -6,6 +6,25 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-16 — Fix: Titan-plane bots "tweaking" — idle ring-hover replaced with PROWL
+User report: bots on the Titan plane were twitching erratically. Root cause (mine, from the
+plane relocation): with no rocks up there, the no-target idle branch became every Titan bot's
+DEFAULT state — and it steered toward a point on a ring the bot was already standing on, so
+the go-vector degenerated to `atan2(~0,~0)` frame noise = vibrating in place. Worse,
+`engageRange` (700) meant two Titans 800px apart in the empty 6000px rect never even fought.
+- **Titan bots now PROWL** (`bots.js`, plane-1 idle branch): any same-plane foe alive → stride
+  toward the nearest one at ANY range (the normal fight/flee states take over inside
+  engageRange); alone → cruise between random roam waypoints well inside the rect. Aim swivels
+  along the travel direction. Plane-0 idle behavior untouched.
+- **Config:** `bots.titanHunt { roamMargin 800, roamRepick 300 }`.
+**Files:** `src/bots.js`, `data/config.js`, `tools/planetest.js`.
+**How to test:** planetest gained two checks — a lone Titan roams with real displacement
+(maxDisp ~1800px over 8s; in-place jitter nets ~0) and stays in its rect; two Titans placed
+5900px apart (far beyond senseRange) converge to ~2100px. 5× deterministic; all suites green.
+**Known limits:** prowling Titans will also converge on the Dreadnought and each other —
+intended ("hunt other apex Titans"); if the plane turns into one permanent brawl-ball in
+playtest, add a per-bot aggression cooldown or spread spawns further.
+
 ## 2026-07-16 — Titan plane physically relocated (no more invisible rock destruction)
 User report: Titans kept destroying farm rocks, and from the arena the destruction was
 INVISIBLE (rocks popping with no visible cause) — because plane 1 was only a combat/view

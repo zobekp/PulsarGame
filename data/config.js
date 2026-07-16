@@ -190,6 +190,11 @@ window.PULSAR.config = {
   bots: {
     count: 6,
     titanCount: 5,               // Titan-plane apex bots seeded so an ascended player finds a fight up there
+    // ---- Titan-plane idle (the hunt zone has no rocks; bots PROWL instead of farming) ----
+    titanHunt: {
+      roamMargin: 800,           // roam waypoints stay this far inside the Titan rect walls
+      roamRepick: 300,           // waypoint counts as reached within this range -> pick a new one
+    },
     respawnDelaySec: 3.0,
     senseRange: 1150,             // notice enemies within this
     engageRange: 700,             // start fighting within this (~on-screen, no offscreen hunts)

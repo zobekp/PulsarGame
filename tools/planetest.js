@@ -54,22 +54,32 @@ for (let i = 0; i < 300; i++) world.step(DT);
 check('every object stays in the normal arena', world.state.objects.every(o => o.x >= 0 && o.x <= W),
   `objects=${world.state.objects.length}`);
 
-// ---- titan bots ignore rocks: lone titan idles toward its own rect's center ----
+// ---- titan bots ignore rocks + PROWL (no ring-jitter, no rock-chasing) ----
 world.clearBots();
 const lone = world.state.ships.find(s => (s.plane | 0) === 1 && s.isBot);
 check('clearBots left no titan bots', !lone);
 world.spawnTitans(1);
 // isolate ONE apex bot: spawnTitans also seeds dreadnoughts, and a nearby foe would make
-// the bot fight instead of idling — remove everything else on the plane for determinism
+// the bot fight instead of roaming — remove everything else on the plane for determinism
 const tb = world.state.ships.find(s => s.isBot && (s.plane | 0) === 1 && s.classId !== 'dreadnought');
 for (const s of [...world.state.ships]) if (s.isBot && (s.plane | 0) === 1 && s !== tb) world.removeShip(s.id);
 if (tb) {
-  const d0 = Math.hypot(tb.x - (OFF + W / 2), tb.y - H / 2);
-  for (let i = 0; i < 360; i++) world.step(DT);
-  const d1 = Math.hypot(tb.x - (OFF + W / 2), tb.y - H / 2);
-  check('titan bot hunts its own rect (not arena rocks)', inTitanRect(tb) && d1 < d0 - 200,
-    `center-dist ${Math.round(d0)} -> ${Math.round(d1)}`);
-} else check('titan bot spawned for idle test', false);
+  // a lone titan ROAMS its rect: real displacement (in-place jitter nets ~0), never leaves
+  const sx = tb.x, sy = tb.y;
+  let maxDisp = 0, contained = true;
+  for (let i = 0; i < 480; i++) { world.step(DT); maxDisp = Math.max(maxDisp, Math.hypot(tb.x - sx, tb.y - sy)); if (!inTitanRect(tb)) contained = false; }
+  check('lone titan prowls its rect (no in-place jitter)', contained && maxDisp > 400,
+    `maxDisp=${Math.round(maxDisp)}`);
+  // prowl works at ANY range: two titans far beyond senseRange converge to fight
+  const tb2 = world.addShip({ classId: 'juggernaut', isBot: true, plane: 1, x: OFF + W - 900, y: H - 900 });
+  tb2.level = 30;
+  tb.x = tb.px = OFF + 900; tb.y = tb.py = 900;
+  const sep0 = Math.hypot(tb2.x - tb.x, tb2.y - tb.y);
+  for (let i = 0; i < 480; i++) world.step(DT);
+  const sep1 = Math.hypot(tb2.x - tb.x, tb2.y - tb.y);
+  check('distant titans converge to hunt each other', sep1 < sep0 - 800,
+    `sep ${Math.round(sep0)} -> ${Math.round(sep1)}`);
+} else check('titan bot spawned for prowl test', false);
 
 // ---- a fallen Titan respawns as a Scout back in the NORMAL arena ----
 world.api.damage(p, 999999, { source: tb || null });

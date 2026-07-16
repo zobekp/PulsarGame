@@ -170,11 +170,27 @@ window.PULSAR.Bots = (function () {
         aimAng = swivel(ai, ang(bot, rock) + gauss(C.aimErrorRad * 0.4), turnRate, dt); aimDist = rd;
         if (rd > reachOf(bot, fam) * 0.7) go(rock.x, rock.y);
         fire = farmFire(bot, fam, rd);
+      } else if ((bot.plane | 0) === 1) {
+        // TITAN PLANE: no rocks to farm — PROWL. Stride toward the nearest Titan anywhere on
+        // the plane (the normal fight state takes over inside engageRange); alone, cruise
+        // between roam waypoints so the plane feels patrolled. (The old center-ring hover made
+        // lone Titans jitter in place: the go-target degenerated to their own position.)
+        const TH = C.titanHunt || {};
+        if (enemy) {
+          aimAng = swivel(ai, ang(bot, enemy), turnRate, dt); aimDist = ed;
+          go(enemy.x, enemy.y);
+        } else {
+          const m = TH.roamMargin || 800;
+          const off = world.config.titanPlane ? world.config.titanPlane.offsetX : 0;
+          if (!ai.roam || Math.hypot(ai.roam.x - bot.x, ai.roam.y - bot.y) < (TH.roamRepick || 300))
+            ai.roam = { x: off + m + rnd() * (world.arena.width - m * 2), y: m + rnd() * (world.arena.height - m * 2) };
+          aimAng = swivel(ai, ang(bot, ai.roam), turnRate, dt);
+          go(ai.roam.x, ai.roam.y);
+        }
       } else {
-        // hover near the heart of OUR plane's rect: plane 0 = just outside the black hole's pull
-        // (where the action + jets are); plane 1 = the Titan rect's center (the hunting ground).
-        const zoneOff = ((bot.plane | 0) === 1 && world.config.titanPlane) ? world.config.titanPlane.offsetX : 0;
-        const bcx = zoneOff + world.arena.width / 2, bcy = world.arena.height / 2;
+        // plane 0: hover near the black hole (where the action + jets are) but OUTSIDE its
+        // pull, not into it. Rocks are plentiful down here, so this branch is rarely idle-held.
+        const bcx = world.arena.width / 2, bcy = world.arena.height / 2;
         const ba = Math.atan2(bot.y - bcy, bot.x - bcx);
         const safe = (world.arena.pulsar ? world.arena.pulsar.pullRadius : 900) * 0.85;
         go(bcx + Math.cos(ba) * safe, bcy + Math.sin(ba) * safe);
