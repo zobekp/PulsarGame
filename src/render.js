@@ -150,6 +150,13 @@ window.PULSAR.Render = (function () {
     ctx.strokeStyle = 'rgba(80,120,180,0.35)';
     ctx.lineWidth = 2 / camera.zoom;
     ctx.strokeRect(0, 0, cfg.arena.width, cfg.arena.height);
+    // Titan-rect boundary: the Titan plane is a separate arena far along +X. Both borders are
+    // cheap to draw and 8000px apart — only one is ever on screen. Gold-tinted so the Titan
+    // plane reads as somewhere ELSE the moment you arrive.
+    if (cfg.titanPlane) {
+      ctx.strokeStyle = 'rgba(214,178,90,0.32)';
+      ctx.strokeRect(cfg.titanPlane.offsetX, 0, cfg.arena.width, cfg.arena.height);
+    }
   }
 
   // The Pulsar as a BLACK HOLE: a dark event horizon rimmed by a thin photon ring and a faint

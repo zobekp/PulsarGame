@@ -6,6 +6,40 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-16 — Titan plane physically relocated (no more invisible rock destruction)
+User report: Titans kept destroying farm rocks, and from the arena the destruction was
+INVISIBLE (rocks popping with no visible cause) — because plane 1 was only a combat/view
+FILTER over the same coordinates. Objects have no plane, so Titan fights consumed plane-0
+rocks. Fix: **the Titan plane is now a physically separate rect** — same size, shifted
+`config.titanPlane.offsetX` (14000) along +X, an 8000px void between the planes. Distance
+now does what filters can't: nothing up there can touch the farm field, by construction.
+- **sim.js:** `planeOffX(plane)` resolves every spatial rule per plane — `edgeSpawn(plane)`
+  (Titan spawns land in the Titan rect; no farm-density search up there), movement clamps
+  to the plane's own walls, projectile bounds per-plane (plane-1 bolts used to die instantly
+  at `x > arena.width`), shatter-fragments reseed plane 0 only, `pulsarGravity` skips plane 1
+  (no hole up there — Titans previously ate pull + lethal horizon from a hole they couldn't
+  see). **Ascension teleports**: apex evolve adds the offset (px/py synced so MP interpolation
+  doesn't streak the jump; arrive at a dead stop — matches the warp cinematic). Fallen
+  Titans respawn plane-0 via the same path; bot respawns stay on their own plane.
+- **bots.js:** rock targeting is plane-0-only (Titan bots used to pick a main-arena rock as
+  their farm target — now unreachable by construction, they'd have wall-hugged); idle anchor
+  is per-plane (Titans hover their own rect's center); black-hole avoidance plane-0-only.
+- **render/game.js:** Titan rect gets its own gold-tinted boundary; minimap maps your plane's
+  rect into the square (gold "TACTICAL / TITAN PLANE" header up there; hole + mountain
+  landmarks drawn on plane 0 only).
+**Files:** `data/config.js`, `src/sim.js`, `src/bots.js`, `src/render.js`, `src/game.js`,
+`tools/planetest.js` (new). **Config:** `titanPlane.offsetX 14000`.
+**How to test:** `node tools/planetest.js` — 12 checks: seeds/dreadnoughts spawn in the rect,
+apex evolution teleports there at a dead stop, no pull at the rect center, plane-1 projectiles
+fly within the rect, objects never leave the arena, an isolated Titan bot hunts its own rect
+(not arena rocks), fallen Titan respawns plane-0. Plus sptest/finaltest/skintest/edgetest/
+predtest/reattachtest ALL PASS.
+**Known limits:** the solo-mode [L] admin cheat doesn't respond to synthetic (untrusted)
+keyboard events in an unfocused tab — PRE-EXISTING (reproduced on the unmodified build),
+unrelated to this change; MP admin works. Cross-plane fx are already plane-stamped; the
+ascension cinematic hides the coordinate jump (background switches at jump start — acceptable
+under the blackout).
+
 ## 2026-07-16 — Full cosmetics section: hull LIVERIES (14 skins, tiers, animated legendaries)
 The old cosmetics were 7 accent colors that drew a ring. Skins are now full hull liveries — the
 pre-launch monetization lever, still strictly options-only (VISUAL_SPEC readability channels are

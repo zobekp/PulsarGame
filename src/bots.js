@@ -109,7 +109,9 @@ window.PULSAR.Bots = (function () {
 
     let enemy = null, ed = 1e9, rock = null, rd = 1e9;
     for (const s of world.ships) if (s !== bot && s.alive && s.team !== bot.team && (s.plane | 0) === (bot.plane | 0)) { const d = dist(bot, s); if (d < ed) { ed = d; enemy = s; } }
-    for (const o of world.objects) { if (o.type === 'titan') continue; const d = dist(bot, o); if (d < rd) { rd = d; rock = o; } }   // bots farm rocks, not mountains
+    // bots farm rocks, not mountains — and only on plane 0: every object lives in the normal
+    // arena's rect, so Titan-plane bots must never chase (or path toward) rocks they can't reach.
+    if ((bot.plane | 0) === 0) for (const o of world.objects) { if (o.type === 'titan') continue; const d = dist(bot, o); if (d < rd) { rd = d; rock = o; } }
 
     // DREADNOUGHT boss: no farming/strafing/fleeing. Ponderously turn to face the nearest foe and
     // creep toward it, holding a standoff. Its turrets aim + fire on their own (see dreadnoughtGuns).
@@ -169,16 +171,19 @@ window.PULSAR.Bots = (function () {
         if (rd > reachOf(bot, fam) * 0.7) go(rock.x, rock.y);
         fire = farmFire(bot, fam, rd);
       } else {
-        // hover near the black hole (where the action + jets are) but OUTSIDE its pull, not into it
-        const bcx = world.arena.width / 2, bcy = world.arena.height / 2;
+        // hover near the heart of OUR plane's rect: plane 0 = just outside the black hole's pull
+        // (where the action + jets are); plane 1 = the Titan rect's center (the hunting ground).
+        const zoneOff = ((bot.plane | 0) === 1 && world.config.titanPlane) ? world.config.titanPlane.offsetX : 0;
+        const bcx = zoneOff + world.arena.width / 2, bcy = world.arena.height / 2;
         const ba = Math.atan2(bot.y - bcy, bot.x - bcx);
         const safe = (world.arena.pulsar ? world.arena.pulsar.pullRadius : 900) * 0.85;
         go(bcx + Math.cos(ba) * safe, bcy + Math.sin(ba) * safe);
       }
     }
     // BLACK-HOLE AVOIDANCE: if inside the danger band, blend an outward push into the heading so
-    // bots don't get dragged across the lethal horizon (no feeding the hole).
-    const BH = world.arena.pulsar;
+    // bots don't get dragged across the lethal horizon (no feeding the hole). Plane 0 only —
+    // the Titan rect has no hole.
+    const BH = (bot.plane | 0) === 0 ? world.arena.pulsar : null;
     if (BH) {
       const bcx = world.arena.width / 2, bcy = world.arena.height / 2;
       const bdx = bot.x - bcx, bdy = bot.y - bcy, bd = Math.hypot(bdx, bdy) || 1;

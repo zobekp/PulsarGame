@@ -126,6 +126,15 @@ window.PULSAR.config = {
                                                      // (0.70: eased so big brawlers can still close on kiters — tune in playtest)
   },
 
+  // ---- Titan plane (tier-4 apexes) --------------------------------------------
+  // The Titan plane is a PHYSICALLY separate arena: same size as the main one, shifted
+  // far along +X. Nothing up there shares space with the farm field anymore — Titans
+  // can't (visibly or invisibly) destroy the rocks players farm, and no weapon/aura can
+  // reach across the void between the two rects.
+  titanPlane: {
+    offsetX: 14000,   // left edge of the Titan rect (arena is 6000 wide -> an 8000px void between planes)
+  },
+
   // ---- Meta / persistence (Phase 6) ------------------------------------------
   // At end-of-life a share of the scrap you EARNED that run converts to permanent "cores",
   // banked to your local profile and spent on COSMETIC-ONLY unlocks (no power creep).

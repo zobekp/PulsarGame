@@ -38,6 +38,10 @@
       default: return { x: A.width - depth, y: inset + Math.random() * (A.height - inset * 2) };
     }
   }
+  // The Titan plane (plane 1) is a physically separate rect shifted +X by config.titanPlane.offsetX
+  // (same size as the arena). Everything spatial resolves through this: spawns, clamps, projectile
+  // bounds. Plane 0 = the normal arena at the origin.
+  function planeOffX(plane) { return (plane | 0) === 1 ? cfg.titanPlane.offsetX : 0; }
   const IMPLEMENTED = new Set(['starter', 'railship', 'helion', 'starPiercer', 'supernova', 'starbreak',
     'hammerhead', 'maulbreaker', 'worldsplitter', 'gravitor', 'meteorist', 'starfall',
     'singularity', 'eventHorizon', 'flailship', 'twinmaul', 'binaryStar',
@@ -164,6 +168,11 @@
       if (!s.isBot) fx.addShake(11, s.id);
       if (ascends) {
         s.plane = 1; s.spawnProtect = Math.max(s.spawnProtect, cfg.player.spawnProtectionSec);
+        // The hyperspace jump is now a REAL jump: the Titan plane is a physically separate
+        // rect far along +X, so relocate the hull there (same relative position). px/py sync
+        // stops MP interpolation from streaking the ship across the void.
+        s.x += planeOffX(1); s.px = s.x; s.py = s.y;
+        s.vx = s.vy = s.impX = s.impY = 0;   // arrive at a dead stop (matches the warp cinematic)
         if (!s.isBot) { fx.spawnText(s.x, s.y - 78, 'ASCENDED → THE TITAN PLANE', '#ffe08a', { size: 18 }); fx.addShake(20, s.id); }
       }
     }
@@ -211,7 +220,10 @@
     }
     // Pick the best of several valid edge spawns by counting real nearby farmables. This keeps
     // time-to-fun under ten seconds while respecting the shared, emergent economy.
-    function edgeSpawn() {
+    function edgeSpawn(plane) {
+      // Titan-plane spawns: same edge band, shifted into the Titan rect. No farm-density search
+      // up there — the Titan plane has no rocks (that's the point).
+      if ((plane | 0) === 1) { const p = edgeSpawnCandidate(); p.x += planeOffX(1); return p; }
       const sc = cfg.player.spawnFarmSearch;
       let best = edgeSpawnCandidate(), bestCount = -1;
       for (let i = 0; i < sc.attempts; i++) {
@@ -333,7 +345,9 @@
     }
     function respawnShip(v) {
       v.alive = true;
-      const s = edgeSpawn();
+      // Bots respawn on their own plane (Titans return to the Titan rect); a dead PLAYER
+      // always falls back to the normal arena (plane reset below), so spawn plane 0.
+      const s = edgeSpawn(v.isBot ? v.plane : 0);
       v.x = s.x; v.y = s.y; v.px = v.x; v.py = v.y; v.vx = v.vy = v.impX = v.impY = 0;
       v.spawnProtect = cfg.player.spawnProtectionSec;
       if (!v.isBot) {
@@ -443,7 +457,8 @@
       s.x += (s.vx + s.impX) * dt; s.y += (s.vy + s.impY) * dt;
       const dampRate = s.ramActive > 0 ? cfg.hammerhead.lunge.glideDampPerSec : cfg.player.impulseDampPerSec;
       const damp = Math.max(0, 1 - dampRate * dt); s.impX *= damp; s.impY *= damp;
-      s.x = Math.max(s.radius, Math.min(cfg.arena.width - s.radius, s.x));
+      const wallX = planeOffX(s.plane);   // each plane's rect has its own walls
+      s.x = Math.max(wallX + s.radius, Math.min(wallX + cfg.arena.width - s.radius, s.x));
       s.y = Math.max(s.radius, Math.min(cfg.arena.height - s.radius, s.y));
 
       if (intent.firing || intent.ability || intent.special) s.combatTimer = cfg.player.regen.delaySec;
@@ -492,6 +507,7 @@
     }
     // Gravity well + lethal event horizon, applied per living ship after it moves.
     function pulsarGravity(s, dt) {
+      if ((s.plane | 0) !== 0) return;   // the pulsar lives in the normal arena; the Titan rect has no hole
       const P = cfg.arena.pulsar, cx = cfg.arena.width / 2, cy = cfg.arena.height / 2;
       const dx = cx - s.x, dy = cy - s.y, d = Math.hypot(dx, dy) || 1;
       if (d < P.lethalRadius) {                       // crossed the horizon — gone
@@ -542,14 +558,16 @@
             if (--pr.pierceLeft <= 0) dead = true;
           }
         }
-        if (!dead && (pr.x < 0 || pr.y < 0 || pr.x > cfg.arena.width || pr.y > cfg.arena.height)) dead = true;
+        const prOff = planeOffX(pr.plane);   // projectiles live within their plane's rect
+        if (!dead && (pr.x < prOff || pr.y < 0 || pr.x > prOff + cfg.arena.width || pr.y > cfg.arena.height)) dead = true;
         if (dead) {
           if (pr.isThrownRock) {
             fx.spawnParticles(pr.x, pr.y, cfg.fx.breakParticles, (OBJDEF[pr.rockType] || OBJDEF.asteroid).hue, { speed: 240 });
             // SHATTER RECYCLING: dying rocks sometimes leave a real capturable fragment —
             // the gravitor's volleys reseed the battlefield (for everyone). Pebbles don't.
             const rc = cfg.gravitor.recycle;
-            if (pr.rockType !== 'pebble' && state.objects.length < rc.maxWorldObjects && Math.random() < rc.fragmentChance
+            if (pr.rockType !== 'pebble' && (pr.plane | 0) === 0   // fragments only reseed the normal arena (objects are plane-0 world content)
+                && state.objects.length < rc.maxWorldObjects && Math.random() < rc.fragmentChance
                 && pr.x > 60 && pr.y > 60 && pr.x < cfg.arena.width - 60 && pr.y < cfg.arena.height - 60) {
               const fr = Math.max(10, (pr.radius || 20) * rc.fragmentRadiusMult);
               state.objects.push({ type: 'debris', x: pr.x, y: pr.y, px: pr.x, py: pr.y, vx: pr.vx * 0.1, vy: pr.vy * 0.1,
@@ -604,7 +622,7 @@
 
     // ---- public API ----
     function getShip(id) { for (const s of state.ships) if (s.id === id) return s; return null; }
-    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn() : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim, plane: o.plane, skin: o.skin }); applyClassStats(s, true); state.ships.push(s); return s; }
+    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn(o.plane) : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim, plane: o.plane, skin: o.skin }); applyClassStats(s, true); state.ships.push(s); return s; }
     function removeShip(id) { for (let i = 0; i < state.ships.length; i++) if (state.ships[i].id === id) { state.ships.splice(i, 1); return; } }
     // Some bots spawn wearing a random livery (advertises the shop; render-only, no stats).
     function randomBotSkin() {
@@ -668,7 +686,7 @@
 
     return {
       state, api, config: cfg, telemetry,
-      FAMILY, EVOLVE_BLURB, classNode, hueFor,
+      FAMILY, EVOLVE_BLURB, classNode, hueFor, planeOffX,
       addShip, removeShip, getShip, spawnBots, spawnTitans, becomeDreadnought, clearBots,
       setIntent(id, intent) {
         const s = getShip(id); if (!s) return;

@@ -887,23 +887,29 @@ window.PULSAR = window.PULSAR || {};
   }
   function drawMinimap() {
     const ctx = Render.ctx, size = cfg.ui.minimapSize, pad = 14, x0 = Render.viewW - size - pad, y0 = Render.viewH - size - pad, sc = size / cfg.arena.width;
-    panel(ctx, x0 - 7, y0 - 24, size + 14, size + 31, 'rgba(95,155,210,.36)');
-    ctx.font = '800 8px system-ui, sans-serif'; ctx.fillStyle = 'rgba(145,190,220,.62)'; ctx.fillText('TACTICAL  /  PULSAR CENTER', x0, y0 - 9);
+    // The minimap shows YOUR plane's rect: plane 1 lives at +titanPlane.offsetX in world
+    // space, so subtract the zone offset to map it into the same square.
+    const mmPlane = p.plane | 0;
+    const mmOff = (mmPlane === 1 && cfg.titanPlane) ? cfg.titanPlane.offsetX : 0;
+    panel(ctx, x0 - 7, y0 - 24, size + 14, size + 31, mmPlane === 1 ? 'rgba(214,178,90,.4)' : 'rgba(95,155,210,.36)');
+    ctx.font = '800 8px system-ui, sans-serif'; ctx.fillStyle = mmPlane === 1 ? 'rgba(222,190,120,.72)' : 'rgba(145,190,220,.62)';
+    ctx.fillText(mmPlane === 1 ? 'TACTICAL  /  TITAN PLANE' : 'TACTICAL  /  PULSAR CENTER', x0, y0 - 9);
     ctx.fillStyle = 'rgba(5,10,19,0.78)'; ctx.fillRect(x0, y0, size, size); ctx.strokeStyle = 'rgba(80,120,180,0.28)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, size, size);
     ctx.strokeStyle = 'rgba(90,145,190,.12)'; ctx.beginPath(); ctx.moveTo(x0 + size / 2, y0); ctx.lineTo(x0 + size / 2, y0 + size); ctx.moveTo(x0, y0 + size / 2); ctx.lineTo(x0 + size, y0 + size / 2); ctx.stroke();
-    const px = x0 + (cfg.arena.width / 2) * sc, py = y0 + (cfg.arena.height / 2) * sc;
-    // black hole marker: dark core + bright ring that flares on the jet beat
-    const jf = Math.max(0, 1 - ((state.time % cfg.arena.pulsar.jetIntervalSec) / cfg.arena.pulsar.jetIntervalSec) * 6);
-    ctx.fillStyle = '#04060c'; ctx.beginPath(); ctx.arc(px, py, 4, 0, TAU); ctx.fill();
-    ctx.strokeStyle = `rgba(220,240,255,${0.75 + 0.25 * jf})`; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(px, py, 4.8 + jf * 2, 0, TAU); ctx.stroke();
-    // titan landmarks — the mountains you navigate by
-    ctx.fillStyle = 'rgba(150,165,195,0.7)';
-    for (const o of state.objects) if (o.type === 'titan') { ctx.beginPath(); ctx.arc(x0 + o.x * sc, y0 + o.y * sc, 3, 0, TAU); ctx.fill(); }
+    if (mmPlane === 0) {   // the hole + the mountains are normal-arena landmarks — plane 0 only
+      const px = x0 + (cfg.arena.width / 2) * sc, py = y0 + (cfg.arena.height / 2) * sc;
+      // black hole marker: dark core + bright ring that flares on the jet beat
+      const jf = Math.max(0, 1 - ((state.time % cfg.arena.pulsar.jetIntervalSec) / cfg.arena.pulsar.jetIntervalSec) * 6);
+      ctx.fillStyle = '#04060c'; ctx.beginPath(); ctx.arc(px, py, 4, 0, TAU); ctx.fill();
+      ctx.strokeStyle = `rgba(220,240,255,${0.75 + 0.25 * jf})`; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(px, py, 4.8 + jf * 2, 0, TAU); ctx.stroke();
+      // titan landmarks — the mountains you navigate by
+      ctx.fillStyle = 'rgba(150,165,195,0.7)';
+      for (const o of state.objects) if (o.type === 'titan') { ctx.beginPath(); ctx.arc(x0 + o.x * sc, y0 + o.y * sc, 3, 0, TAU); ctx.fill(); }
+    }
     // Each ship is a CLASS-COLOURED arrow pointing where it faces (you = cyan + ring, leader = gold rim).
-    const mmPlane = p.plane | 0;
     for (const s of allShips()) {
       if (!s.alive || (s.plane | 0) !== mmPlane) continue;
-      const mx = x0 + s.x * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 5.2 : (isMe ? 4.2 : 3.5);
+      const mx = x0 + (s.x - mmOff) * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 5.2 : (isMe ? 4.2 : 3.5);
       ctx.save(); ctx.translate(mx, my); ctx.rotate(s.aim);
       ctx.fillStyle = isMe ? '#39d0ff' : hueFor(s.classId);
       ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.62); ctx.lineTo(-r * 0.7, -r * 0.62); ctx.closePath(); ctx.fill();
