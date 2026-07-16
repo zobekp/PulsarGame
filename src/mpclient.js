@@ -46,7 +46,7 @@ window.PULSAR.MP = (function () {
   function makeView(id) {
     return {
       isShip: true, isRemote: true, netId: id, id, team: id,
-      classId: 'starter', name: '', x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, impX: 0, impY: 0,
+      classId: 'starter', name: '', skin: null, x: 0, y: 0, px: 0, py: 0, vx: 0, vy: 0, impX: 0, impY: 0,
       aim: 0, radius: 16, hp: 100, maxHp: 100, scrap: 0, xp: 0, level: 1, kills: 0,
       alive: true, isLeader: false, scaled: false, spawnProtect: 0, hitFlash: 0,
       charge: 0, charging: false, chargeFullTimer: 0, heat: 0, ventTimer: 0,
@@ -195,10 +195,12 @@ window.PULSAR.MP = (function () {
 
   // ---- network ---------------------------------------------------------------
   function send(obj) { if (connected) try { ws.send(JSON.stringify(obj)); } catch (e) {} }
+  // Equipped cosmetic livery rides the join so other pilots see it (server validates the id).
+  function mySkin() { return (window.PULSAR && PULSAR.Profile) ? (PULSAR.Profile.get().skin || '') : ''; }
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws`);
-    ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '', tk: TOKEN }); };
+    ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '', tk: TOKEN, skin: mySkin() }); };
     ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); objView.clear(); lastSyncAt = 0; clockOff = null; jitterMs = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -309,7 +311,7 @@ window.PULSAR.MP = (function () {
       v.orbX2 = s.ox2 != null ? lerp(p0.ox2 != null ? p0.ox2 : s.ox2, s.ox2, t) : null;
       v.orbY2 = s.oy2 != null ? lerp(p0.oy2 != null ? p0.oy2 : s.oy2, s.oy2, t) : null;
       if (mine) v.isRemote = false;                   // own ship drives the camera/HUD; keep local name
-      else { v.name = s.nm || ''; remotes.push(v); }
+      else { v.name = s.nm || ''; v.skin = s.sk || null; remotes.push(v); }
     }
     // drop view-ships that left
     for (const id of [...byId.keys()]) if (!seen.has(id)) byId.delete(id);
@@ -394,7 +396,7 @@ window.PULSAR.MP = (function () {
     },
     sendEvolve(i) { send({ t: 'evolve', i: i | 0 }); },
     sendCommandeer() { send({ t: 'cmdr' }); },
-    sendName(name) { myName = name || ''; send({ t: 'join', name: myName, tk: TOKEN }); },
+    sendName(name) { myName = name || ''; send({ t: 'join', name: myName, tk: TOKEN, skin: mySkin() }); },
     sendAdmin(action) { send({ t: 'admin', a: action }); },   // dev cheats — server honors unless PULSAR_ADMIN=0
   };
 })();

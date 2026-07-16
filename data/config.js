@@ -131,6 +131,11 @@ window.PULSAR.config = {
   // banked to your local profile and spent on COSMETIC-ONLY unlocks (no power creep).
   meta: { coreRate: 0.10 },
 
+  // ---- Cosmetics (options-only; render layer, zero stat effect) ---------------
+  cosmetics: {
+    botSkinChance: 0.35,   // chance a bot spawns wearing a random livery — the arena advertises the shop
+  },
+
   // ---- Leader / David-vs-Goliath brake --------------------------------------
   // Leaders get power AND vulnerability. Avoid flat unfair multipliers; hitbox &
   // visibility do most of the balancing work.

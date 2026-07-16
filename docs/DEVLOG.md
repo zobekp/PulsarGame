@@ -6,6 +6,42 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-16 — Full cosmetics section: hull LIVERIES (14 skins, tiers, animated legendaries)
+The old cosmetics were 7 accent colors that drew a ring. Skins are now full hull liveries — the
+pre-launch monetization lever, still strictly options-only (VISUAL_SPEC readability channels are
+untouchable: silhouette, shared rim, white YOU-core, and threat bloom survive every livery).
+- **Catalog (`data/cosmetics.js`):** 14 skins across 4 rarity tiers (4 common / 4 rare / 4 epic /
+  2 legendary), each a data row: `hull` retints the
+  plating (body/plate shades derived), `accent` recolors greebles/running lights, `engine`
+  recolors the flame, `fx` names an animated layer, `blurb` for the card. Existing 7 ids kept
+  (profiles with old unlocks stay valid); `tiers` map exposes UI colors.
+- **Renderer (`src/ships.js`):** `skinPalette(classHex, sk, time)` beside `palette()` — same
+  cached-shades pipeline fed by the livery; `engine()` takes `P.engineRgb`. Animated legendaries
+  rotate the hull hue (Prismatic = full cycle, Aurora = teal↔violet roll), quantized so the
+  palette cache stays bounded. `Ships.draw` resolves `s.skin` → livery.
+- **FX layers (`src/game.js` `drawSkinFx`):** ember = live sparks shed aft · void = dark
+  breathing aura · chrome = specular glint sweep · aurora = twin offset-hue rings. Additive,
+  dimmer than the rim, per-ship phase offset. Old accent ring removed (the hull IS the skin now).
+- **Everyone sees your livery:** ships carry `skin` in the sim (`makeShip`/`addShip`); MP join
+  sends the equipped id, the server VALIDATES it against the catalog (no client trust), and
+  snapshots carry `sk` → remotes render it. Bots spawn wearing random liveries at
+  `config.cosmetics.botSkinChance` (0.35) — the arena advertises the shop.
+- **Hangar UI (`index.html`):** title-screen shop rebuilt — live animated hull previews (the real
+  procedural renderer drawing a skinned railship on a per-card canvas, DPR-aware), tier-colored
+  cards + labels, blurb tooltips, locked cards dimmed, can't-afford shake, unlock→equip flow on
+  the existing cores wallet.
+**Files:** `data/cosmetics.js`, `data/config.js`, `src/ships.js`, `src/game.js`, `src/sim.js`,
+`src/mpclient.js`, `mpserver.js`, `index.html`, `tools/skintest.js` (new).
+**Config:** `cosmetics.botSkinChance 0.35`. Costs live in the catalog rows (0→900 cores).
+**How to test:** `node tools/skintest.js` (catalog integrity, unlock/equip flow, every class ×
+skin draws clean — 336 combos, palette actually retints + animates, bot livery gating) + sptest +
+finaltest. Verified in-browser: hangar renders 14 live previews, unlock spends cores, equipped
+Aurora shows in-game with its rings; no console errors.
+**Known limits / TODO:** per-class preview in the hangar (always shows a railship); fx layers
+don't render inside the preview cards (palette animation does); pricing is a first guess — tune
+against real core-earn rates; a "buy cores" IAP hook is deliberately NOT built (needs a human
+decision on payments).
+
 ## 2026-07-11 — Commandeered Dreadnought fires at will (player input, not autofire)
 The AI boss auto-fires; a player who commandeers the hull should choose when to shoot. `dreadnoughtGuns`
 now takes `ctx` and gates on `ship.isBot || <input>`: **LMB (firing) → turret guns, RMB (altFire) →

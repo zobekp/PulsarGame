@@ -481,19 +481,56 @@ window.PULSAR = window.PULSAR || {};
 
   // ---- ship silhouettes ------------------------------------------------------
   // Hull models live in src/ships.js (one per class, keyed by visuals.js silhouette).
-  // This wrapper keeps the readability overlays: spawn shield, white YOU core,
-  // cosmetic skin ring, leader crown.
+  // This wrapper keeps the readability overlays: spawn shield, white YOU core, leader crown.
+  // Skins (data/cosmetics.js) retint the hull inside Ships.draw and may add an FX layer here —
+  // they never touch the readability channels (silhouette / rim / white core / threat bloom).
   function drawShip(ctx, x, y, s, isPlayer) {
     const r = s.radius;
+    if (isPlayer && PULSAR.Profile) s.skin = PULSAR.Profile.get().skin;   // your equipped livery (SP ship + MP own view-ship)
+    const sk = (s.skin && PULSAR.cosmetics) ? PULSAR.cosmetics.skin(s.skin) : null;
     ctx.save(); ctx.translate(x, y); ctx.rotate(s.aim);
     if (s.spawnProtect > 0) { ctx.beginPath(); ctx.arc(0, 0, r * 2.0, 0, TAU); ctx.strokeStyle = `rgba(190,233,255,${0.25 + 0.2 * Math.sin(state.time * 18)})`; ctx.lineWidth = 2; ctx.stroke(); }
     PULSAR.Ships.draw(ctx, s, state.time);
+    if (sk && sk.fx) drawSkinFx(ctx, s, sk.fx);            // cosmetic flair, dimmer than the rim
     ctx.restore();
     if (isPlayer) {
       ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, TAU); ctx.fillStyle = '#ffffff'; ctx.fill();   // white core = you (readability)
-      if (PULSAR.Profile && PULSAR.cosmetics) { const sk = PULSAR.cosmetics.skin(PULSAR.Profile.get().skin); if (sk && sk.id !== 'default') { ctx.beginPath(); ctx.arc(x, y, r * 1.75, 0, TAU); ctx.strokeStyle = sk.accent; ctx.globalAlpha = 0.75; ctx.lineWidth = 2; ctx.stroke(); ctx.globalAlpha = 1; } }   // cosmetic skin accent (no power)
     }
     if (s.isLeader) drawCrown(ctx, x, y, r);
+  }
+
+  // ---- cosmetic skin FX layers — additive flair around the hull (render-only). Drawn inside
+  // the rotated ship frame (+x = nose). Per-ship phase so a lobby of same-skin ships won't sync.
+  function drawSkinFx(ctx, s, fx) {
+    const r = s.radius, t = state.time, ph = (s.id || 0) * 0.61;
+    ctx.globalCompositeOperation = 'lighter';
+    if (fx === 'ember') {                    // live sparks shed off the stern, drifting aft
+      for (let i = 0; i < 5; i++) {
+        const f = (t * (0.55 + 0.11 * i) + ph + i * 0.37) % 1;
+        const a = (1 - f) * 0.55, sway = Math.sin(t * 3 + i * 2.1) * r * 0.3;
+        ctx.fillStyle = `rgba(255,${150 + i * 18},60,${a})`;
+        ctx.beginPath(); ctx.arc(-r * (0.7 + f * 1.6), sway, Math.max(0.8, r * 0.055 * (1 - f)), 0, TAU); ctx.fill();
+      }
+    } else if (fx === 'void') {              // dark breathing aura
+      const b = 0.16 + 0.1 * Math.sin(t * 2.2 + ph);
+      ctx.strokeStyle = `rgba(150,70,255,${b})`; ctx.lineWidth = r * 0.22;
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.45, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = `rgba(60,20,110,${b * 1.6})`; ctx.lineWidth = r * 0.1;
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.7 + Math.sin(t * 2.2 + ph) * r * 0.12, 0, TAU); ctx.stroke();
+    } else if (fx === 'chrome') {            // specular glint sweeping the hull
+      ctx.save(); ctx.rotate((t * 0.8 + ph) % TAU);
+      const g = ctx.createLinearGradient(-r, 0, r, 0);
+      g.addColorStop(0.42, 'rgba(255,255,255,0)'); g.addColorStop(0.5, 'rgba(255,255,255,0.22)'); g.addColorStop(0.58, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g; ctx.fillRect(-r, -r, r * 2, r * 2);
+      ctx.restore();
+    } else if (fx === 'aurora') {            // twin polar rings, offset hues
+      const hue = 205 + 65 * Math.sin(t * 0.85);
+      ctx.strokeStyle = `hsla(${hue},85%,70%,0.20)`; ctx.lineWidth = r * 0.16;
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.4, 0, TAU); ctx.stroke();
+      ctx.strokeStyle = `hsla(${hue + 90},85%,72%,0.14)`; ctx.lineWidth = r * 0.1;
+      ctx.beginPath(); ctx.arc(0, 0, r * 1.65, 0, TAU); ctx.stroke();
+    }
+    ctx.globalCompositeOperation = 'source-over';
   }
   function drawCrown(ctx, x, y, r) { const w = r * 1.3, h = r * 0.8, top = y - r * 2.4; ctx.fillStyle = '#ffd98a'; ctx.beginPath(); ctx.moveTo(x - w, top + h); ctx.lineTo(x - w, top); ctx.lineTo(x - w * 0.4, top + h * 0.55); ctx.lineTo(x, top - h * 0.35); ctx.lineTo(x + w * 0.4, top + h * 0.55); ctx.lineTo(x + w, top); ctx.lineTo(x + w, top + h); ctx.closePath(); ctx.fill(); }
 

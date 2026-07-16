@@ -100,6 +100,7 @@
       return {
         id: o.id != null ? o.id : nextId++,
         isShip: true, isBot: !!o.isBot, team: o.team, classId: o.classId || 'starter',
+        skin: o.skin || null,  // cosmetic livery id (data/cosmetics.js) — render-only, zero stat effect
         plane: o.plane || 0,   // 0 = normal arena, 1 = Titan plane (tier-4 apexes). Combat/view partition only.
         x: o.x, y: o.y, px: o.x, py: o.y, vx: 0, vy: 0, impX: 0, impY: 0,
         aim: o.aim != null ? o.aim : -Math.PI / 2,
@@ -603,11 +604,17 @@
 
     // ---- public API ----
     function getShip(id) { for (const s of state.ships) if (s.id === id) return s; return null; }
-    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn() : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim, plane: o.plane }); applyClassStats(s, true); state.ships.push(s); return s; }
+    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn() : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim, plane: o.plane, skin: o.skin }); applyClassStats(s, true); state.ships.push(s); return s; }
     function removeShip(id) { for (let i = 0; i < state.ships.length; i++) if (state.ships[i].id === id) { state.ships.splice(i, 1); return; } }
+    // Some bots spawn wearing a random livery (advertises the shop; render-only, no stats).
+    function randomBotSkin() {
+      const cos = window.PULSAR.cosmetics;
+      if (!cos || Math.random() >= ((cfg.cosmetics && cfg.cosmetics.botSkinChance) || 0)) return null;
+      return cos.skins[1 + Math.floor(Math.random() * (cos.skins.length - 1))].id;   // any non-default
+    }
     function spawnBots(n) {
       n = n != null ? n : cfg.bots.count;
-      for (let i = 0; i < n; i++) { const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)]; addShip({ classId: cls, isBot: true, aim: Math.random() * TAU }); }
+      for (let i = 0; i < n; i++) { const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)]; addShip({ classId: cls, isBot: true, aim: Math.random() * TAU, skin: randomBotSkin() }); }
     }
     // Seed the Titan plane so an ascending player finds dreadnoughts already fighting up there.
     const APEX_IDS = ['zenith', 'prism', 'juggernaut', 'cataclysm', 'devourer', 'constellation'];
@@ -615,7 +622,7 @@
       n = n != null ? n : (cfg.bots.titanCount || 0);
       for (let i = 0; i < n; i++) {
         const cls = APEX_IDS[Math.floor(Math.random() * APEX_IDS.length)];
-        const s = addShip({ classId: cls, isBot: true, plane: 1, aim: Math.random() * TAU });
+        const s = addShip({ classId: cls, isBot: true, plane: 1, aim: Math.random() * TAU, skin: randomBotSkin() });
         s.level = eco.levelApex || 30; s.scrap = 400 + Math.floor(Math.random() * 400); s.xp = xpForLevel(s.level);
       }
       for (let i = 0; i < (cfg.dreadnought.count || 0); i++) spawnDreadnought();

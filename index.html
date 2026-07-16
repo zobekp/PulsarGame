@@ -34,23 +34,28 @@
   #title button:hover { transform: translateY(-1px); box-shadow: 0 0 34px rgba(57,208,255,0.9); }
   #title .hint { color: rgba(150,180,210,0.55); font-size: 12px; letter-spacing: 1px; margin-top: 6px; }
   @keyframes pulse { 0%,100% { filter: brightness(1); } 50% { filter: brightness(1.25); } }
-  /* ---- cosmetics shop ---- */
+  /* ---- cosmetics hangar (live hull previews; tier-colored cards) ---- */
   #shop { display: flex; flex-direction: column; align-items: center; gap: 9px; margin-top: 1px; padding: 11px 13px 13px;
     background: rgba(7,12,22,.62); border: 1px solid rgba(90,145,195,.18); border-radius: 12px; }
   #shop .cores { color: #8fe9ff; font-size: 11px; letter-spacing: 2px; text-shadow: 0 0 10px rgba(143,233,255,0.5); }
-  #skins { display: flex; gap: 7px; flex-wrap: wrap; justify-content: center; max-width: 590px; }
-  #title .skin { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 72px; padding: 8px 4px 6px; cursor: pointer;
-    background: rgba(11,19,32,0.92); border: 1px solid rgba(80,110,150,0.32); border-radius: 8px; color: rgba(190,210,230,0.76);
-    box-shadow: none; letter-spacing: 0;
-    font-size: 11px; transition: border-color .15s, transform .08s; }
-  #title .skin:hover { transform: translateY(-2px); border-color: rgba(120,224,255,0.52); box-shadow: 0 8px 20px rgba(0,0,0,.25); }
-  .skin .sw { width: 26px; height: 26px; border-radius: 50%; background: var(--accent);
-    box-shadow: 0 0 12px var(--accent), inset 0 0 6px rgba(255,255,255,0.5); }
-  .skin .nm { font-weight: 600; }
+  #skins { display: grid; grid-template-columns: repeat(5, 118px); gap: 8px; justify-content: center; }
+  @media (max-width: 700px) { #skins { grid-template-columns: repeat(3, 118px); } }
+  #title .skin { display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 7px 5px 6px; cursor: pointer;
+    background: rgba(11,19,32,0.92); border: 1px solid rgba(80,110,150,0.32); border-radius: 9px; color: rgba(190,210,230,0.8);
+    font-size: 11px; letter-spacing: 0; box-shadow: none; transition: border-color .15s, transform .08s; }
+  #title .skin:hover { transform: translateY(-2px); border-color: var(--tier); box-shadow: 0 8px 20px rgba(0,0,0,.3); }
+  .skin canvas.pv { width: 100px; height: 54px; border-radius: 6px;
+    background: radial-gradient(ellipse at 50% 45%, rgba(24,42,66,0.55), rgba(5,8,14,0.9)); }
+  .skin.locked canvas.pv { filter: grayscale(.55) brightness(.6); }
+  .skin .nm { font-weight: 650; white-space: nowrap; }
+  .skin .tr { font-size: 8.5px; letter-spacing: 2px; color: var(--tier); font-weight: 800; }
   .skin .st { font-size: 10px; color: rgba(150,180,210,0.7); }
   .skin.owned .st { color: #7be0ff; }
-  #title .skin.eq { background: rgba(18,31,48,.96); border-color: var(--accent); box-shadow: 0 0 15px rgba(57,208,255,0.22), inset 0 0 16px rgba(90,180,230,.06); }
+  #title .skin.eq { background: rgba(18,31,48,.96); border-color: var(--tier);
+    box-shadow: 0 0 16px rgba(57,208,255,0.22), inset 0 0 16px rgba(90,180,230,.06); }
   .skin.eq .st { color: #eaf6ff; font-weight: 700; }
+  .skin.deny { animation: deny .32s; }
+  @keyframes deny { 0%,100% { transform: translateX(0); } 25% { transform: translateX(-4px); } 75% { transform: translateX(4px); } }
 </style>
 </head>
 <body>
@@ -121,26 +126,65 @@
     var P = window.PULSAR && PULSAR.Profile, C = window.PULSAR && PULSAR.cosmetics;
     if (P) inp.value = P.get().name || '';
 
+    // ---- hangar: live hull previews (the real procedural renderer, skinned) ----
+    var previews = [];                       // repainted every frame while the title is up
+    var PV_W = 100, PV_H = 54;
+    function paintPreview(pv, time) {
+      var ctx = pv.ctx;
+      ctx.clearRect(0, 0, PV_W, PV_H);
+      ctx.save();
+      ctx.translate(PV_W * 0.52, PV_H * 0.56);
+      ctx.rotate(-0.38);
+      // A minimal ship stub with every field the hull models read; vx>0 lights the engines.
+      var s = { classId: 'railship', radius: 12.5, skin: pv.id, vx: 170, vy: 0, aim: 0, alive: true,
+                charge: 0, charging: false, chargeFullTimer: 0, heat: 0, ventTimer: 0, hitFlash: 0,
+                captured: [], level: 1, id: 0 };
+      try { PULSAR.Ships.draw(ctx, s, time); }
+      catch (e) { ctx.restore(); ctx.fillStyle = pv.accent; ctx.beginPath(); ctx.arc(PV_W / 2, PV_H / 2, 10, 0, 6.2832); ctx.fill(); return; }
+      ctx.restore();
+    }
+    function paintAll(ts) {
+      if (t.style.display === 'none') return;              // title closed → stop the loop
+      for (var i = 0; i < previews.length; i++) paintPreview(previews[i], ts / 1000);
+      requestAnimationFrame(paintAll);
+    }
+
     function renderShop() {
       if (!P || !C) return;
       document.getElementById('corebal').textContent = P.get().cores;
       var wrap = document.getElementById('skins'); wrap.innerHTML = '';
+      previews = [];
       C.skins.forEach(function (sk) {
         var owned = P.isUnlocked(sk.id), equipped = P.get().skin === sk.id;
+        var tier = (C.tiers && C.tiers[sk.tier]) || { name: '', color: '#9fb3c8' };
         var b = document.createElement('button');
-        b.className = 'skin' + (equipped ? ' eq' : '') + (owned ? ' owned' : '');
-        b.style.setProperty('--accent', sk.accent);
-        b.innerHTML = '<span class="sw"></span><span class="nm">' + sk.name + '</span><span class="st">' +
-          (equipped ? 'EQUIPPED' : owned ? 'equip' : '◆ ' + sk.cost) + '</span>';
+        b.className = 'skin' + (equipped ? ' eq' : '') + (owned ? ' owned' : ' locked');
+        b.style.setProperty('--tier', tier.color);
+        b.title = sk.blurb || '';
+        var cv = document.createElement('canvas');
+        cv.className = 'pv';
+        var dpr = window.devicePixelRatio || 1;
+        cv.width = PV_W * dpr; cv.height = PV_H * dpr;
+        var cctx = cv.getContext('2d'); cctx.scale(dpr, dpr);
+        b.appendChild(cv);
+        previews.push({ ctx: cctx, id: sk.id, accent: sk.accent });
+        b.insertAdjacentHTML('beforeend',
+          '<span class="nm">' + sk.name + '</span>' +
+          '<span class="tr">' + tier.name.toUpperCase() + '</span>' +
+          '<span class="st">' + (equipped ? 'EQUIPPED' : owned ? 'equip' : '◆ ' + sk.cost) + '</span>');
         b.addEventListener('click', function () {
           if (owned) P.equip(sk.id);
-          else if (P.unlock(sk.id, sk.cost)) P.equip(sk.id);
+          else if (!P.unlock(sk.id, sk.cost)) {            // can't afford: shake, keep state
+            b.classList.add('deny'); setTimeout(function () { b.classList.remove('deny'); }, 340);
+            return;
+          } else P.equip(sk.id);
           renderShop();
         });
         wrap.appendChild(b);
       });
     }
     renderShop();
+    requestAnimationFrame(paintAll);
 
     function go() {
       var n = (inp.value || '').trim();

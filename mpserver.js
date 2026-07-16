@@ -16,6 +16,7 @@ const crypto = require('crypto');
 // ---- load the sim headlessly (shim the browser globals the modules expect) ----
 global.window = global;
 require('./data/config.js'); require('./data/classes.js'); require('./data/farming.js'); require('./data/visuals.js');
+require('./data/cosmetics.js');   // skin catalog: validates client-sent skin ids + lets bots wear liveries
 require('./src/weapons.js'); require('./src/bots.js'); require('./src/sim.js');
 
 const cfg = global.PULSAR.config;
@@ -58,7 +59,7 @@ world.spawnTitans(cfg.bots.titanCount);   // seed the Titan plane so an ascended
 
 // ---- snapshots ----
 function shipSnap(s) {
-  return { id: s.id, c: s.classId, nm: s.name || '', bt: s.isBot ? 1 : 0, x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
+  return { id: s.id, c: s.classId, nm: s.name || '', sk: s.skin || '', bt: s.isBot ? 1 : 0, x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
     vx: Math.round(s.vx || 0), vy: Math.round(s.vy || 0), ix: Math.round(s.impX || 0), iy: Math.round(s.impY || 0),
     hp: Math.round(s.hp), mh: Math.round(s.maxHp), scr: Math.round(s.scrap), xp: Math.round(s.xp || 0), lvl: s.level, k: s.kills || 0, team: s.team,
     al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, sp: s.spawnProtect > 0 ? 1 : 0, hf: s.hitFlash > 0 ? 1 : 0, pl: s.plane || 0,
@@ -198,7 +199,13 @@ server.on('upgrade', (req, socket) => {
           c.token = tk;
           wsSend(socket, { t: 'welcome', id: c.shipId, hz: SNAP_HZ, arena: { w: cfg.arena.width, h: cfg.arena.height } });
         }
-        const sh = world.getShip(c.shipId); if (sh) sh.name = String(msg.name || '').slice(0, 16);
+        const sh = world.getShip(c.shipId);
+        if (sh) {
+          sh.name = String(msg.name || '').slice(0, 16);
+          // Cosmetic livery: accept only ids that exist in the catalog (no client trust).
+          const skid = String(msg.skin || '').slice(0, 24);
+          sh.skin = (skid && global.PULSAR.cosmetics && global.PULSAR.cosmetics.skins.some(k => k.id === skid)) ? skid : null;
+        }
       }
       else if (msg.t === 'admin' && ALLOW_ADMIN) {   // dev panel cheats, applied by the authority
         const c = clients.get(socket); if (!c) continue;

@@ -15,20 +15,57 @@ window.PULSAR.Ships = (function () {
 
   // ---- palette: derive body/plate/accent shades from the class hue, cached ----
   const palCache = new Map();
+  function hexRgb(hex) { const h = hex.replace('#', ''); return [parseInt(h.slice(0, 2), 16), parseInt(h.slice(2, 4), 16), parseInt(h.slice(4, 6), 16)]; }
+  function shades(hullRgb, accentRgb, engineRgb) {
+    const [r, g, b] = hullRgb, [ar, ag, ab] = accentRgb;
+    return {
+      rgb: accentRgb,                                     // running lights / lit tips follow accent
+      body: `rgba(${Math.round(r * 0.30 + 10)},${Math.round(g * 0.30 + 12)},${Math.round(b * 0.30 + 18)},0.96)`,
+      plate: `rgba(${Math.round(r * 0.58 + 6)},${Math.round(g * 0.58 + 6)},${Math.round(b * 0.58 + 10)},0.96)`,
+      accent: `rgba(${ar},${ag},${ab},0.95)`,
+      dim: `rgba(${ar},${ag},${ab},0.38)`,
+      glow: `rgba(${ar},${ag},${ab},0.20)`,
+      engineRgb: engineRgb,                               // null = engine() falls back to rgb
+    };
+  }
   function palette(hex) {
     let P = palCache.get(hex);
     if (P) return P;
-    const h = hex.replace('#', '');
-    const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16);
-    P = {
-      rgb: [r, g, b],
-      body: `rgba(${Math.round(r * 0.30 + 10)},${Math.round(g * 0.30 + 12)},${Math.round(b * 0.30 + 18)},0.96)`,
-      plate: `rgba(${Math.round(r * 0.58 + 6)},${Math.round(g * 0.58 + 6)},${Math.round(b * 0.58 + 10)},0.96)`,
-      accent: `rgba(${r},${g},${b},0.95)`,
-      dim: `rgba(${r},${g},${b},0.38)`,
-      glow: `rgba(${r},${g},${b},0.20)`,
-    };
+    const rgb = hexRgb(hex);
+    P = shades(rgb, rgb, null);
     palCache.set(hex, P);
+    return P;
+  }
+
+  // ---- skin livery palette (data/cosmetics.js) --------------------------------
+  // hull retints the plating, accent recolors greebles/lights, engine recolors the
+  // flame. Animated legendaries (prism/aurora) rotate the hull hue — quantized so the
+  // cache stays bounded. Silhouette / shared RIM / white YOU-core are untouched
+  // (VISUAL_SPEC readability channels survive every livery).
+  function hslRgb(h, s, l) {
+    h = (((h % 360) + 360) % 360) / 360;
+    const q = l < 0.5 ? l * (1 + s) : l + s - l * s, p = 2 * l - q;
+    const f = (t) => { t = ((t % 1) + 1) % 1; if (t < 1 / 6) return p + (q - p) * 6 * t; if (t < 1 / 2) return q; if (t < 2 / 3) return p + (q - p) * (2 / 3 - t) * 6; return p; };
+    return [Math.round(f(h + 1 / 3) * 255), Math.round(f(h) * 255), Math.round(f(h - 1 / 3) * 255)];
+  }
+  function skinPalette(classHex, sk, time) {
+    let key, hullRgb, accentRgb;
+    if (sk.fx === 'prism') {                              // full slow hue cycle
+      const hue = Math.floor(((time * 36) % 360) / 6) * 6;
+      key = 'prism|' + hue;
+      hullRgb = hslRgb(hue, 0.75, 0.52); accentRgb = hslRgb(hue, 0.9, 0.72);
+    } else if (sk.fx === 'aurora') {                      // polar roll: teal <-> violet
+      const hue = Math.floor((205 + 65 * Math.sin(time * 0.85)) / 4) * 4;
+      key = 'aurora|' + hue;
+      hullRgb = hslRgb(hue, 0.65, 0.5); accentRgb = hslRgb(hue, 0.85, 0.74);
+    } else {
+      key = classHex + '|' + sk.id;
+      hullRgb = hexRgb(sk.hull || classHex); accentRgb = hexRgb(sk.accent || classHex);
+    }
+    let P = palCache.get(key);
+    if (P) return P;
+    P = shades(hullRgb, accentRgb, sk.engine ? hexRgb(sk.engine) : accentRgb);
+    palCache.set(key, P);
     return P;
   }
   const FLASH = { body: 'rgba(255,120,120,0.95)', plate: 'rgba(255,150,150,0.95)' };  // hit feedback overrides
@@ -51,8 +88,9 @@ window.PULSAR.Ships = (function () {
     const len = w * (1.1 + 2.6 * sp) * flick;
     ctx.save(); ctx.translate(x, y);
     ctx.globalCompositeOperation = 'lighter';
+    const ER = P.engineRgb || P.rgb;                      // skins can recolor the flame
     poly(ctx, [[0, -w * 0.5], [0, w * 0.5], [-len, 0]]);
-    ctx.fillStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},${0.30 + 0.45 * sp})`; ctx.fill();
+    ctx.fillStyle = `rgba(${ER[0]},${ER[1]},${ER[2]},${0.30 + 0.45 * sp})`; ctx.fill();
     poly(ctx, [[0, -w * 0.26], [0, w * 0.26], [-len * 0.55, 0]]);
     ctx.fillStyle = `rgba(255,255,255,${0.25 + 0.45 * sp})`; ctx.fill();
     ctx.restore();
@@ -748,7 +786,9 @@ window.PULSAR.Ships = (function () {
   // Entry point. ctx must already be translated to the ship and rotated by aim.
   function draw(ctx, s, time) {
     const hue = PULSAR.weaponHue(s.classId);
-    modelFor(s.classId)(ctx, s.radius, s, palette(hue), time);
+    const sk = (s.skin && window.PULSAR.cosmetics) ? PULSAR.cosmetics.skin(s.skin) : null;
+    const P = (sk && sk.id !== 'default') ? skinPalette(hue, sk, time) : palette(hue);
+    modelFor(s.classId)(ctx, s.radius, s, P, time);
     if (s.radius > 34) pointDefense(ctx, s.radius, time);   // tier-2+ hulls get active gun batteries
   }
 
