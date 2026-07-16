@@ -147,16 +147,16 @@ window.PULSAR.classes = {
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
   },
-  // FINAL (lvl 15): BINARY STAR — the two maces become energized SWORDS (faster, longer reach,
+  // FINAL (lvl 15): BINARY STAR — the two heads become BIGGER SPIKED MACES (faster, longer reach,
   // heavier hits; still block shots) linked by a live energy tether. Anything crossing the line
   // between the heads takes ticking damage and is dragged onto it; a synced (RMB) throw turns the
-  // tether into a GARROTE mid-flight. Fence space. Catch people. Cut them.
+  // tether into a GARROTE mid-flight. Fence space. Catch people. Crush them.
   binaryStar: {
     id: "binaryStar", displayName: "Binary Star", tier: 3, parentId: "twinmaul",
     configKey: "flailship", branchOf: "flailship",
     weapon: "wreckingOrb", ability: "swingControl", passive: "momentumHit",
     special: "staticLash",
-    note: "Twin swords on live tethers — the blades AND the space between them are the weapon.",
+    note: "Twin big spiked maces on live tethers — the maces AND the space between them are the weapon.",
   },
 
   // ===== TIER-4 TITAN-CLASS APEXES (lvl 30) — one per final, the true dreadnoughts ==========
@@ -199,13 +199,22 @@ window.PULSAR.classes = {
     weapon: "devourerWell", ability: "launchAsteroid", passive: "tidalDrag", special: "collapse",
     note: "A walking black hole — pull enemies in; the core is lethal.",
   },
-  // CONSTELLATION ← Binary Star: BLADE WEB — a ring of tethered blades that shreds anything inside;
-  // cast the web outward as an ensnaring net.
+  // CONSTELLATION ← Binary Star: FOUR SPIKED MACES on four chains — a whirling cage of momentum
+  // that walls off space around the hull. The heaviest flail.
   constellation: {
     id: "constellation", displayName: "Constellation", tier: 4, parentId: "binaryStar",
     configKey: "flailship", branchOf: "flailship",
     weapon: "constellation", ability: "swingControl", passive: "momentumHit", special: "staticLash",
-    note: "A ring of tethered blades — a lethal web you can cast as an ensnaring net.",
+    note: "Four big spiked maces on four chains — a whirling cage of momentum.",
+  },
+
+  // ===== TITAN-PLANE WORLD BOSS (off the evolution tree — no parentId, never an evolve option) =====
+  // A colossal Star Destroyer that patrols the Titan plane. Not evolvable/chooseable; the sim seeds it.
+  dreadnought: {
+    id: "dreadnought", displayName: "Dreadnought", tier: 4, parentId: null,
+    configKey: "dreadnought",
+    weapon: "dreadnoughtGuns", ability: null, passive: null, special: null,
+    note: "Titan-plane world boss: enormous, slow, low damage, monstrously tanky. Huge kill bounty.",
   },
 };
 

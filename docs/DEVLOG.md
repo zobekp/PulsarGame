@@ -6,6 +6,234 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-11 — Commandeered Dreadnought fires at will (player input, not autofire)
+The AI boss auto-fires; a player who commandeers the hull should choose when to shoot. `dreadnoughtGuns`
+now takes `ctx` and gates on `ship.isBot || <input>`: **LMB (firing) → turret guns, RMB (altFire) →
+homing missiles**. Turrets still auto-track the nearest foe; for a player they fire immediately (no
+telegraph — `tel = 0.001` vs the bot's `telegraphSec`, which keeps the boss readable). Bots are
+unchanged (`ship.isBot` short-circuits both gates). Takeover prompt now shows the control hint.
+**Files:** `src/weapons.js`, `src/game.js`. **Verified:** headless — player idle fires nothing, LMB
+fires only guns, RMB fires only missiles, the AI boss still autofires both; sptest + finaltest green.
+## 2026-07-11 — Hammerhead ram: crowd-control, not an execute (no more one-shot)
+The ram could flat one-shot (base impact × the rank `dmgMult` up to 6.5× blew past HP pools). Reworked
+it into a hard CC hit: **high damage + strong knockback + a STUN, but capped so it can't oneshot a
+healthy target.**
+- **Anti-oneshot cap:** `damageShip` gained an `opts.capFrac` — the final post-mitigation hull damage
+  can't exceed `capFrac × maxHp`. Applies to ships only (rocks route through `damageObject`, so the
+  hammer still plows the field). A ram on a full-HP target now takes ~55%, never a kill; a *wounded*
+  target (below the cap) can still be finished.
+- **Stun + harder knock:** the ram `smash`, the body-check, and both worldsplitter shockwaves now set
+  `t.stunTimer` (frozen controls, via the existing Static-Lash stun path) and knock via a new
+  `ram.knockbackMult` (2.2×). Config `hammerhead.ram`: `stunSec 0.6`, `maxHpCapFrac 0.55`,
+  `knockbackMult 2.2`, `bodyCheckStunSec 0.22`. Covers the whole family (hammerhead → maulbreaker →
+  worldsplitter → juggernaut, which all delegate to `hammerRam`).
+
+**Files:** `src/sim.js`, `src/weapons.js`, `data/config.js`. **Verified:** headless — a full
+worldsplitter ram deals exactly 55% max HP (victim survives), stuns, and knocks (impulse ~272); a 30%
+target still dies; rocks unaffected; sptest + finaltest green.
+## 2026-07-11 — Commandeer the Dreadnought (press Y) + real boosters & hull detail
+- **Take it over:** land the killing blow on the Dreadnought and a **"press [Y] to COMMANDEER its
+  hull"** prompt flashes (7s window). Y turns your ship INTO a playable dreadnought — full 7000
+  shield, six auto-tracking telegraph turrets, homing-missile pods, huge hull. You drive + aim; the
+  turrets/missiles auto-engage the nearest foe (a walking fortress). Sim: `world.becomeDreadnought(id)`
+  = `switchClass('dreadnought')` (stays on plane 1 — the slayer's already a Titan) + shield setup +
+  FX. Wired: `onKill` arms `takeover` when the local player kills the boss; `[Y]` edge → SP
+  `becomeDreadnought`, MP `sendCommandeer`. MP is authoritative — the server marks the slayer eligible
+  for 7s in its `onKill` and only honours `cmdr` within that window (no client trust).
+- **Real boosters:** the stern's four static "engine banks" are now live thrusters — a hot throat +
+  a flame that ROARS longer with velocity (scaled to the boss's slow top speed so it actually shows).
+- **More detail:** hangar-bay slit (recessed, faint interior glow), forward panel hatching, bow
+  sensor masts with lit tips, a row of keel running lights, longitudinal armor strips.
+
+**Files:** `src/sim.js`, `src/game.js`, `src/ships.js`, `src/mpclient.js`, `mpserver.js`.
+**Verified:** headless — killing the boss fires `onKill` with the right killer; `becomeDreadnought`
+turns a zenith into a dreadnought (302px, 7000 shield, hp 26k) whose turrets + missiles then fire;
+model renders idle vs full-thrust boosters + the new greebles; sptest + finaltest green.
+## 2026-07-11 — Dreadnought: deflector shield + homing missiles + polish
+Made the boss a real fight: a shield you must break before it can die, homing missiles, and pretty VFX.
+- **Deflector shield** (`dreadnought.shield` max 7000, regen 900/s after a 4.5s lull): a generic
+  `shield`/`shieldMax`/`shieldRegen*`/`shieldHitTimer`/`shieldFlash` on every ship (0 unless set).
+  In `damageShip`, while `shield > 0` the hull takes **zero** damage — every hit only bleeds the
+  shield (with a cyan spark + `shieldFlash`); at 0 it breaks (burst + "SHIELD DOWN" text) and the hull
+  becomes killable. Regen only stalls on damage, so you must **commit and burst it down** or it comes
+  back. Regen ticked in `tickTimers`; set in `spawnDreadnought` + restored on respawn. The boss is now
+  **immune to asteroid contact** (a Star Destroyer plows through rocks — also stops rocks nibbling the
+  shield). MP: `shd`/`shm`/`shf` in the snapshot, hydrated client-side.
+- **Homing missiles** (`dreadnought.missiles`): volleys of 3 slow-turning trackers on a 4.5s cadence.
+  Generic projectile `homing` flag — the sim's projectile step steers `vx/vy` toward the nearest
+  same-plane enemy at a capped `turnRate` (juke-able) and lays an exhaust trail.
+- **Pretty:** `drawShield` (hex-shimmer bubble, faint fill, rim that flares white on a hit, brightness
+  ∝ charge) drawn for any `shieldMax > 0` ship; `drawMissile` (oriented warhead + licking flame,
+  velocity-oriented with a px→x fallback for MP). Bloom/particles carry the rest.
+
+**Files:** `data/config.js`, `src/sim.js`, `src/weapons.js`, `src/game.js`, `mpserver.js`,
+`src/mpclient.js`. **Verified:** headless — hull invulnerable while shielded (2000 dmg → 0 hull),
+breaks at 7000 then hull takes damage, regens 900/s after a lull; 3 homing missiles that steer;
+turret telegraph intact; models render (shield bubble + missiles); sptest + finaltest green.
+## 2026-07-11 — Zenith point-defense → slow bolts (not hitscan); Devourer bolts far more dangerous
+- **Zenith autoaim point-defense** was instant hitscan (`api.damage` + a beam streak). Now it fires a
+  **slow cyan BOLT** (a real projectile, dodgeable) at the nearest foe. Config `railship.zenith.
+  pointDefense` gained `projectileSpeed 340` / `projectileRadius 6` / `projectileLifeSec 2.2`, damage
+  6→8, cadence 0.17s→0.34s (fewer, slower, dodgeable bolts). Verified: 6 bolts in flight, land on a
+  stationary target (~364 dmg/3s), and a moving target dodges them.
+- **Dreadnought bolts far more dangerous:** turret bolt damage `dreadnought.guns.damage` 2.4→16
+  (≈16→104 per bolt after rank-4 dmgMult) + radius 11→12. They're telegraphed by the 0.9s red laser
+  sight, so eating one should hurt — dodge the sight.
+
+**Files:** `src/weapons.js`, `data/config.js`. **Verified:** headless — PD bolts are projectiles at
+340px/s that hit & chip; Dreadnought bolt ≈104 (1495 dmg/10s to a stationary dummy); sptest +
+finaltest green.
+
+## 2026-07-11 — Fix: tier-4 apexes missing from game.js FAMILY (invisible maces/chains, dead controls)
+**Bug:** Constellation's maces + chains didn't render on the Titan plane — and neither did any other
+apex's class-extras. Root cause: `game.js` keeps its OWN `FAMILY` map (separate from `sim.js`'s) and
+it was never updated for the six tier-4 apexes. So `FAMILY['constellation']` was `undefined`,
+`drawClassExtras`'s `else if (fam === 'flail')` branch silently no-op'd (same for rail beam charge on
+zenith/prism and the grav core on cataclysm/devourer), and grav-apex controls (`isGrav`) + the
+family HUD bar were dead too.
+**Fix:** added the apexes to `game.js` `FAMILY` (`zenith/prism→rail, juggernaut→hammer,
+cataclysm/devourer→grav, constellation→flail`, plus `dreadnought`). One line, mirrors `sim.js`.
+
+**Ascension cinematic reworked (per feedback):** dropped the Star-Wars radial star-streaks / white
+lines. `drawWarp` is now CHARGE (engine glow + a soft plume swell behind the ship) → BLAST (fade to
+black) → HOLD → FADE-IN, dur 1.9s. **Then reworked again (further feedback):** now draws the player's
+ACTUAL hull — CHARGE boosters rev → **BLAST OFF** (the ship rockets off-heading with a hard engine
+plume) → fade to black → **EXIT HYPERSPACE** (the ship streaks in with a drop-out flash and
+DECELERATES to a dead stop at centre, motion-blur trail collapsing as it slows). Helpers
+`drawWarpShip` (real hull, engines roaring via a temporary high velocity, scaled by camera zoom) +
+`warpEngineTrail` (soft plume, not a hard line). The world render skips the player once the jump
+starts (`warpHideMe`, t≥0.6) so the cinematic owns the hull; input locked for the whole cinematic and
+held to the jump heading so the hand-off back to live control is seamless.
+**Files:** `src/game.js`. **Verified:** mapping resolves for all six; syntax OK; sptest/finaltest
+unaffected (render-only). The earlier chain-contrast change was real but couldn't show while the
+whole flail branch was being skipped.
+
+## 2026-07-11 — Dreadnought world-boss raster sprite
+**What changed:** Created `DreadnoughtSprite.png`, a transparent top-down raster asset for the Titan-plane world boss. It follows the established boss spec: right-facing dagger hull, readable charcoal-steel plate ribs, red bridge/keel/edge lights, four blue stern engine banks, and exactly six large turret domes in three mirrored pairs.
+
+**Asset:** `DreadnoughtSprite.png` — 1939×811 RGBA PNG (~2 MB), with transparent exterior and enough hull contrast to remain readable over the game's `#05060a` arena black. Generated on a flat chroma background, locally keyed to alpha, and validated by compositing over the real game background.
+
+**Prompt intent:** polished hand-painted top-down sci-fi boss sprite; one ship only; orthographic; nose +X/right; no text, projectiles, beams, shadows, stars, or other ships.
+
+**Known limit / TODO:** the current game still renders the Dreadnought procedurally in `src/ships.js`; this session creates the approved sprite asset only and does not replace or wire the runtime model.
+
+---
+
+## 2026-07-11 — Flail chains + ascension "jump to lightspeed" cinematic + Titan-plane briefing
+- **Constellation chains:** the 4 maces *were* chained, but the chain (thin gold, α0.5) vanished on a
+  big zoomed-out Titan under the huge hull. Now every flail chain draws a dark outline + bright gold
+  core so it always reads (helps all flail classes).
+- **Ascension cinematic (`game.js`):** crossing onto the Titan plane (detected via `p.plane` 0→1) now
+  plays a ~1.7s "jump to lightspeed": **REV** (boosters spool — swelling engine bloom + converging
+  speed lines) → **JUMP** (radial hyperspace streaks + a bright ship-lance rocketing off-heading +
+  whiteout) → **ARRIVE** (whiteout bleeds off to reveal the Titan plane). Input is locked during
+  REV+JUMP. Frame-rate-independent (shared `frameDt`, reused by the zoom easing).
+- **Titan-plane briefing:** on arrival, a one-time panel explains the plane — only Titans fight here,
+  hunt other apex Titans, slay the Dreadnought for a big bounty (watch its red laser sights), and
+  dying drops you back to the arena as a Scout. Click to dismiss (game runs behind); cleared if you
+  fall back to plane 0. Triggers only after `gameStarted`; re-arms on each fresh ascension.
+
+**Files:** `src/game.js` only (render/UI). **Verified:** headless — chains now high-contrast;
+warp phases (REV/JUMP/ARRIVE) + the briefing panel render as intended; sptest + finaltest green;
+flail head counts unchanged (constellation still 4, dmg 6.5×). Sim untouched ⇒ MP authority unaffected;
+the cinematic + guide are local-view only.
+
+## 2026-07-11 — Flail rework (2/4 spiked maces) + Dreadnought turrets & telegraph + zoom easing
+Three asks: the tier-4 flail was weak & dull, Binary Star's swords should revert to bigger spiked
+balls, and the Dreadnought needed readable AI + obvious telegraphing turrets. Plus: ease the camera
+zoom instead of snapping.
+
+**Flail:**
+- **Constellation (apex)** was delegating to `wreckingOrb` but the twin-gate excluded it ⇒ it played
+  as a *single base mace at tier 4* (why it sucked). Now it swings **FOUR spiked maces**: generalised
+  `wreckingOrb`'s head count (`HEADS = {twinmaul:2, binaryStar:2, constellation:4}`) + a per-class
+  multiplier profile (`flailship.constellation.mace`). Full tier-4 scaling verified (dmgMult 6.5,
+  rangeMult 2.0). Model gets **4 stern chain hardpoints** (`flailBody` `quad`).
+- **Binary Star:** swords → **bigger spiked balls**. Removed the sword-draw branch; all flail heads
+  now draw as spiked mace balls scaled by a per-class `headScale` (binaryStar 1.6, constellation 1.2).
+  Config `binaryStar.blade` → `binaryStar.mace` (kept the stat multipliers; tether unchanged).
+- Renamed all "sword/blade" copy across classes/visuals/blurbs to maces.
+
+**Dreadnought:**
+- **AI (was weird):** dedicated branch in `bots.js` — no farm/strafe/flee; it ponderously `swivel`s
+  to face the nearest foe and creeps to a standoff, holding. Turrets fire on their own.
+- **Turrets + telegraph:** `dreadnoughtGuns` rebuilt as **six independently-tracking turrets**
+  (`dreadnought.turrets`: mounts/range/slew/cooldown/telegraphSec). Each slews its barrel onto the
+  nearest foe, paints a **RED LASER SIGHT** for `telegraphSec` (0.9s dodge window) that brightens
+  toward the shot, then fires one slow low-damage bolt down that line. Turret state (`ship.turrets`
+  angle/tel/mount) drives the model, which draws obvious turret domes + barrels + the laser sights.
+  Verified: 6 turrets track (531/600 frames on-target), telegraph cycles, ~18 staggered bolts/10s.
+
+**Zoom easing:** `game.js` eases `camera.zoom` to its target with an exp time-constant
+(`view.zoomSmoothTau` 0.07s, frame-rate-independent, dt-clamped) instead of snapping — a ~0.2s glide
+on evolve/growth. First frame snaps so boot doesn't animate from 0.
+
+**Files:** `src/weapons.js`, `src/ships.js`, `src/bots.js`, `src/game.js`, `src/sim.js`,
+`data/config.js`, `data/classes.js`, `data/visuals.js`. **Verified:** headless — flail head counts
+(1/2/2/4) + scaling; turret tracking/telegraph/fire; sptest + finaltest green; models render
+(binaryStar 2 big balls, constellation 4 balls, dreadnought turrets + red sights). **Known limit:**
+turret aim & the 4th+ mace only sync locally — remote MP dreadnoughts/constellations show a
+simplified head/turret set. Not playtested live.
+
+## 2026-07-11 — Titan-plane fx leak fix + the Dreadnought world boss
+**Two asks:** (1) on the Titan plane you saw arena ships' *attacks* (beams/sparks/text) but not their
+hulls; (2) add a scary Star-Destroyer dreadnought boss.
+
+**FX plane leak (bug):** particles/beams/text are a single global pool drawn regardless of plane, so
+an arena ship's rail beam/muzzle flash showed on the Titan plane even though its hull was correctly
+plane-filtered. Fix: each fx entity is now **plane-stamped**. `Fx.stampPlane(p)` sets the attribution;
+the sim stamps `s.plane` around each ship's update (`simShip`) and `pr.plane` around each projectile,
+resetting to `-1` (environmental / all-planes) in between. `Fx.draw(R,α,lerp,viewPlane)` skips fx not
+on the viewer's plane (−1 always shows). Sim calls go through a guarded `fxStamp` so older fx stubs
+(test harnesses, `NULL_FX`) are unaffected. Screen shake was already `!isBot`-gated ⇒ no shake leak.
+
+**Dreadnought (feature):** a colossal Star-Destroyer world boss that patrols the Titan plane.
+- **Stats** (`config.dreadnought`): ≈200px radius (dwarfs a ≈62px apex), ≈14.7k HP (monstrously
+  tanky), ≈30px/s crawl (`speed 0.16`), guns ≈15.6 dmg/bolt after scaling (deliberately weak).
+- **Reward:** slaying it pays a flat **2500** XP+scrap bounty to the killer plus a mote shower from
+  its 1200 carried scrap; **90s** respawn (an event, not fodder). Handled in `killShip`.
+- **Model** (`ships.js` `dreadnought`): dark steel dagger hull, widening plate ribs, decks of lit
+  windows, hunched command tower with a pulsing red bridge + twin sensor domes, blue engine banks,
+  red edge-lights + underglow. The existing `pointDefense` addon (radius>34) gives it flak batteries.
+- **Wiring:** off the evolution tree (no `parentId` ⇒ never an evolve option, not in `IMPLEMENTED`);
+  `class` def + `visuals` row + `dreadnoughtGuns` weapon (auto-fires a slow broadside at same-plane
+  foes). Seeded by `spawnDreadnought()` from `spawnTitans` (SP + MP server), `cfg.dreadnought.count`.
+
+**Files:** `src/fx.js`, `src/sim.js`, `src/weapons.js`, `src/ships.js`, `src/game.js`,
+`data/config.js`, `data/classes.js`, `data/visuals.js`. **Verified:** headless — boss spawns on
+plane 1 at r=202/16.4k HP, dies to sustained fire paying +3100 XP with a 90s respawn, gun bolts do
+15.6 vs a 995-HP apex; model renders as a menacing Star Destroyer dwarfing the fleet; sptest +
+finaltest green. **Known limit:** in MP the fx replay path stamps environmental (−1), so an *ascended*
+MP player could still see cross-plane fx — SP (the reported case) is fully fixed.
+
+## 2026-07-11 — Titan plane: apexes ascend to their own playing field
+**Why:** the tier-4 apexes are game-breakingly OP for the normal arena (that's by design — 4.2× size,
+6.5× dmg). Rather than nerf them, the user wanted them to "exist on another playing field." So evolving
+to an apex now **ascends** you out of the normal arena onto a **Titan plane** — dreadnoughts fight
+dreadnoughts, and small ships never see or fight a Titan.
+- **Model:** every ship carries `plane` (0 = arena, 1 = Titan). Asteroids/pulsar/scrap stay **shared
+  environment** (a Titan farming an invisible rock is astronomically rare in a 6000² arena — not worth
+  a second world). Only **ship-vs-ship combat + ship/projectile rendering + ladders** partition by plane.
+- **Combat partition:** `enemiesOf` and the bot target loop filter same-plane; projectile-vs-ship
+  collision (+ orb block, thrown-rock-as-target) checks `pr.plane` (tagged from the shooter at the two
+  `projectiles.push` sites); leader crown is computed **per plane**.
+- **Ascension:** `switchClass` to a tier-4 class sets `plane = 1` + an "ASCENDED → THE TITAN PLANE"
+  cue + shake + fresh spawn-protection. **Death drops you back:** player respawn resets `plane = 0`
+  (a fallen Titan starts over in the normal arena as a Scout). Bots keep their class+plane on respawn.
+- **Seeding:** `world.spawnTitans(n)` seeds `cfg.bots.titanCount` (5) apex bots on plane 1 so an
+  ascending player finds a fight already underway. Called in SP setup (game.js) + on the MP server.
+- **View:** game.js render/leaderboard/minimap filter by the local player's plane (`myPlane`).
+- **MP:** `plane` flows in the snapshot (`pl` on full + far ship packs, and on projectiles); mpclient
+  hydrates it onto remotes and the local ship, so ascension syncs. Default 0 ⇒ existing MP unchanged.
+
+**Files:** `src/sim.js`, `src/weapons.js`, `src/bots.js`, `src/game.js`, `src/mpclient.js`,
+`mpserver.js`, `data/config.js`. **New config:** `bots.titanCount`.
+**Verified:** headless run — 5 apex bots seed on plane 1, Starbreak→Zenith flips the player to plane 1,
+600 steps of two planes fighting run finite, crown is per-plane; sptest + finaltest green.
+**Known limits:** shared farm means a small-ship player *could* rarely see a rock break "on its own"
+(invisible Titan) — unnoticeable in practice. Not playtested live. 3 apex verbs still delegate to
+parents (Juggernaut/Cataclysm/Constellation).
+
 ## 2026-07-06 — SERVER-CLOCK interpolation ("the jitteriness is unplayable")
 The remaining tunnel jitter was a real interp defect: the client timed playback off packet
 ARRIVAL times, and proxies (HTTP/2/QUIC edges) deliver our 60Hz frames in CLUMPS — two frames

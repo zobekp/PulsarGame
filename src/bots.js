@@ -108,8 +108,21 @@ window.PULSAR.Bots = (function () {
     ai.t -= dt;
 
     let enemy = null, ed = 1e9, rock = null, rd = 1e9;
-    for (const s of world.ships) if (s !== bot && s.alive && s.team !== bot.team) { const d = dist(bot, s); if (d < ed) { ed = d; enemy = s; } }
+    for (const s of world.ships) if (s !== bot && s.alive && s.team !== bot.team && (s.plane | 0) === (bot.plane | 0)) { const d = dist(bot, s); if (d < ed) { ed = d; enemy = s; } }
     for (const o of world.objects) { if (o.type === 'titan') continue; const d = dist(bot, o); if (d < rd) { rd = d; rock = o; } }   // bots farm rocks, not mountains
+
+    // DREADNOUGHT boss: no farming/strafing/fleeing. Ponderously turn to face the nearest foe and
+    // creep toward it, holding a standoff. Its turrets aim + fire on their own (see dreadnoughtGuns).
+    if (bot.classId === 'dreadnought') {
+      if (enemy) {
+        const want = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
+        const aim = swivel(ai, want, 0.5, dt);                 // slow, heavy rotation
+        const approach = ed > bot.radius * 2.6 ? 1 : 0;        // close to a standoff, then hold
+        return { moveX: Math.cos(want) * approach, moveY: Math.sin(want) * approach, aim, aimDist: 1, firing: false };
+      }
+      ai.aimCur = bot.aim;
+      return { moveX: 0, moveY: 0, aim: bot.aim, aimDist: 1, firing: false };
+    }
 
     if (ai.t <= 0) {
       ai.t = C.decisionSec; ai.strafeDir = rnd() < 0.5 ? 1 : -1;

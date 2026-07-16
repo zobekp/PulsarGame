@@ -50,16 +50,19 @@ const world = global.PULSAR.createWorld({
   onKill(v, killer) {
     const nm = (s) => s ? (s.name || (global.PULSAR.classes[s.classId] || {}).displayName || 'Ship') : null;
     broadcast({ t: 'kill', kn: killer && killer !== v ? nm(killer) : null, vn: nm(v), ld: v.isLeader ? 1 : 0 });
+    if (v.classId === 'dreadnought' && killer) for (const c of clients.values()) if (c.shipId === killer.id) { c.commandeerUntil = Date.now() + 7000; break; }   // slayer may seize the hull
   },
 });
 world.spawnBots(cfg.bots.count);     // bots fill the world until/with players; tune as desired
+world.spawnTitans(cfg.bots.titanCount);   // seed the Titan plane so an ascended player finds a fight
 
 // ---- snapshots ----
 function shipSnap(s) {
   return { id: s.id, c: s.classId, nm: s.name || '', bt: s.isBot ? 1 : 0, x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(3), r: Math.round(s.radius),
     vx: Math.round(s.vx || 0), vy: Math.round(s.vy || 0), ix: Math.round(s.impX || 0), iy: Math.round(s.impY || 0),
     hp: Math.round(s.hp), mh: Math.round(s.maxHp), scr: Math.round(s.scrap), xp: Math.round(s.xp || 0), lvl: s.level, k: s.kills || 0, team: s.team,
-    al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, sp: s.spawnProtect > 0 ? 1 : 0, hf: s.hitFlash > 0 ? 1 : 0,
+    al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, sp: s.spawnProtect > 0 ? 1 : 0, hf: s.hitFlash > 0 ? 1 : 0, pl: s.plane || 0,
+    shd: Math.round(s.shield || 0), shm: Math.round(s.shieldMax || 0), shf: s.shieldFlash > 0 ? 1 : 0,
     cg: s.charging ? 1 : 0, ch: +s.charge.toFixed(2), cft: +(s.chargeFullTimer || 0).toFixed(2), ht: Math.round(s.heat), vt: +(s.ventTimer || 0).toFixed(2),
     br: +(s.beamRamp || 0).toFixed(2), bt: s.beamTimer > 0 ? 1 : 0, bp: +(s.beamPower || 0).toFixed(2),
     ox: Math.round(s.orbX || s.x), oy: Math.round(s.orbY || s.y), orad: Math.round(s.orbRadius || 0), oa: +(s.orbAngle || 0).toFixed(2), osp: +(s.orbSpin || 0).toFixed(2),
@@ -72,7 +75,7 @@ function shipSnap(s) {
 function shipSnapFar(s) {
   return { id: s.id, c: s.classId, nm: s.name || '', bt: s.isBot ? 1 : 0, team: s.team,
     x: Math.round(s.x), y: Math.round(s.y), a: +s.aim.toFixed(2), r: Math.round(s.radius),
-    al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, scr: Math.round(s.scrap) };
+    al: s.alive ? 1 : 0, ld: s.isLeader ? 1 : 0, scr: Math.round(s.scrap), pl: s.plane || 0 };
 }
 let snapN = 0, nextNid = 1;          // entity ids let the client interpolate between snapshots
 const nid = (e) => e._nid || (e._nid = nextNid++);
@@ -89,7 +92,7 @@ function snapshotFor(c) {
     sh: st.ships.map(s => (s.id === c.shipId || near(s.x, s.y, me, CULL)) ? shipSnap(s) : shipSnapFar(s)),
     pr: [], mo: [], ev: [] };
   for (const p of st.projectiles) if (near(p.x, p.y, me, CULL))
-    snap.pr.push({ id: nid(p), x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '', rt: p.rockType || '' });
+    snap.pr.push({ id: nid(p), x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '', rt: p.rockType || '', pl: p.plane || 0 });
   for (const m of st.motes) if (near(m.x, m.y, me, CULL))
     snap.mo.push({ id: nid(m), x: Math.round(m.x), y: Math.round(m.y), p: m.pulsar ? 1 : 0 });
   for (const e of fxEvents) {
@@ -178,6 +181,7 @@ server.on('upgrade', (req, socket) => {
       let msg; try { msg = JSON.parse(payload.toString('utf8')); } catch (e) { continue; }
       if (msg.t === 'in') { const c = clients.get(socket); if (c) { world.setIntent(c.shipId, msg.i); if (msg.q != null) c.lastSeq = msg.q >>> 0; } }   // INPUT INTENT (+ prediction seq)
       else if (msg.t === 'evolve') { const c = clients.get(socket); if (c && c.shipId != null) world.chooseEvolution(world.getShip(c.shipId), msg.i | 0); }
+      else if (msg.t === 'cmdr') { const c = clients.get(socket); if (c && c.shipId != null && c.commandeerUntil && Date.now() < c.commandeerUntil) { world.becomeDreadnought(c.shipId); c.commandeerUntil = 0; } }
       else if (msg.t === 'join') {
         const c = clients.get(socket); if (!c) continue;
         if (c.shipId == null) {                                    // first join on this socket: create or reattach

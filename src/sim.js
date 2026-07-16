@@ -67,7 +67,7 @@
     juggernaut: 'OVERRUN — spool up and plow THROUGH everything in a corridor',
     cataclysm: 'ORBITAL BARRAGE — call down a meteor rain on a marked area',
     devourer: 'BECOME A BLACK HOLE — pull enemies in; the core kills',
-    constellation: 'BLADE WEB — a ring of tethered blades; cast it as an ensnaring net',
+    constellation: 'FOUR SPIKED MACES — a whirling cage of momentum on four chains',
   };
 
   function classNode(id) { return PULSAR.classes[id]; }
@@ -79,6 +79,7 @@
   PULSAR.createWorld = function (opts) {
     opts = opts || {};
     const fx = opts.fx || NULL_FX;
+    const fxStamp = typeof fx.stampPlane === 'function' ? fx.stampPlane.bind(fx) : function () {};   // plane attribution (no-op if the fx impl predates it, e.g. test stubs)
     const onKill = opts.onKill || null;   // (victim, killer) — fired at kill time, scrap/leader still intact
     let nextId = 1;
 
@@ -99,6 +100,7 @@
       return {
         id: o.id != null ? o.id : nextId++,
         isShip: true, isBot: !!o.isBot, team: o.team, classId: o.classId || 'starter',
+        plane: o.plane || 0,   // 0 = normal arena, 1 = Titan plane (tier-4 apexes). Combat/view partition only.
         x: o.x, y: o.y, px: o.x, py: o.y, vx: 0, vy: 0, impX: 0, impY: 0,
         aim: o.aim != null ? o.aim : -Math.PI / 2,
         radius: cfg.player.baseRadius, maxHp: cfg.player.baseHP, hp: cfg.player.baseHP,
@@ -107,6 +109,7 @@
         isLeader: false, scaled: false, kills: 0,
         spawnProtect: cfg.player.spawnProtectionSec, hitFlash: 0, contactCd: 0, abilityCd: 0, specialCd: 0,
         slow: 0, slowTimer: 0, alive: true, respawnTimer: 0,
+        shield: 0, shieldMax: 0, shieldRegenDelay: 0, shieldRegenRate: 0, shieldHitTimer: 0, shieldFlash: 0,   // deflector (dreadnought)
         charge: 0, charging: false, heat: 0, ventTimer: 0, chargeFullTimer: 0,
         ramWinding: false, ramCharge: 0, ramActive: 0, ramHitList: [], ramHitBase: 0, ramFull: false, ramSlammed: false,
         captured: [], orbSpin: 0, orbAngle: 0, orbRadius: null, orbX: o.x, orbY: o.y, orbState: 'trail', orbCd: 0,
@@ -117,7 +120,7 @@
       };
     }
 
-    const enemiesOf = (ship) => { const out = []; for (const s of state.ships) if (s !== ship && s.alive && s.team !== ship.team) out.push(s); return out; };
+    const enemiesOf = (ship) => { const out = []; for (const s of state.ships) if (s !== ship && s.alive && s.team !== ship.team && (s.plane | 0) === (ship.plane | 0)) out.push(s); return out; };
 
     // ---- class identity / stats ----
     function applyClassStats(s, heal) {
@@ -152,11 +155,16 @@
       s.rifts = null; s.tetherTouch = null;   // tier-3 state (Starbreak scars / Binary Star tether)
     }
     function switchClass(s, id) {
+      const ascends = classNode(id).tier >= 4 && (s.plane | 0) === 0;   // apex evolution lifts you onto the Titan plane
       s.classId = id; resetClassState(s); applyClassStats(s, true);
       fx.spawnText(s.x, s.y - 52, (s.isBot ? '' : 'EVOLVED → ') + classNode(id).displayName, '#7be0ff', { size: s.isBot ? 13 : 19 });
       if (!s.isBot && EVOLVE_BLURB[id]) fx.spawnText(s.x, s.y - 32, EVOLVE_BLURB[id], '#cfeaff', { size: 12 });
       fx.spawnParticles(s.x, s.y, 30, hueFor(id), { speed: 320 });
       if (!s.isBot) fx.addShake(11, s.id);
+      if (ascends) {
+        s.plane = 1; s.spawnProtect = Math.max(s.spawnProtect, cfg.player.spawnProtectionSec);
+        if (!s.isBot) { fx.spawnText(s.x, s.y - 78, 'ASCENDED → THE TITAN PLANE', '#ffe08a', { size: 18 }); fx.addShake(20, s.id); }
+      }
     }
 
     // ---- progression ----
@@ -273,6 +281,21 @@
         }
       }
       if (opts.crack) { t.cracked = true; t.crackTimer = cfg.railship.armorCrack.baseDurationSec; }
+      if (opts.capFrac && t.maxHp > 0) dmg = Math.min(dmg, t.maxHp * opts.capFrac);   // anti-oneshot: a single hit can't exceed this share of max HP
+      // DEFLECTOR SHIELD: while it holds, the hull takes NO damage — every hit only bleeds the shield.
+      if (t.shieldMax > 0 && t.shield > 0) {
+        t.shield -= dmg; t.shieldHitTimer = t.shieldRegenDelay; t.shieldFlash = 0.14;
+        recordShipDamage(opts.source, dmg); t.hitFlash = 0.16;
+        const d = Math.hypot(opts.dx || 0, opts.dy || 0) || 1, ex = t.x + (opts.dx || 0) / d * t.radius, ey = t.y + (opts.dy || 0) / d * t.radius;
+        fx.spawnParticles(ex, ey, 6, '#8fe3ff', { dir: Math.atan2(-(opts.dy || 0), -(opts.dx || 0)), spread: 1.4, speed: 220 });
+        if (t.shield <= 0) {   // SHIELD DOWN — now it can actually be killed
+          t.shield = 0; t.shieldFlash = 0.6;
+          fx.spawnParticles(t.x, t.y, 46, '#bfefff', { speed: 420, size: 3.2 });
+          fx.spawnText(t.x, t.y - t.radius - 20, 'SHIELD DOWN', '#bfefff', { size: t.isBot ? 15 : 20 });
+        }
+        return;
+      }
+      if (t.shieldMax > 0) t.shieldHitTimer = t.shieldRegenDelay;   // hull hits also stall the recharge
       t.hp -= dmg; recordShipDamage(opts.source, dmg); t.combatTimer = cfg.player.regen.delaySec; t.hitFlash = 0.16;
       if (opts.knockback) { t.impX += (opts.dx || 0) * opts.knockback; t.impY += (opts.dy || 0) * opts.knockback; }
       fx.spawnParticles(t.x, t.y, 6, '#ff8a8a', { speed: 150 });
@@ -296,6 +319,16 @@
       }
       if (!v.isBot) fx.addShake(cfg.fx.screenShakeMax, v.id);
       v.respawnTimer = v.isBot ? cfg.bots.respawnDelaySec : cfg.player.respawnDelaySec;
+      if (v.classId === 'dreadnought') {   // world boss: fat flat bounty + a long, event-paced respawn
+        const D = cfg.dreadnought;
+        if (killer && killer !== v && killer.alive) {
+          earn(killer, D.bounty);
+          fx.spawnText(killer.x, killer.y - 54, 'DREADNOUGHT SLAIN +' + D.bounty, '#ffe08a', { size: killer.isBot ? 14 : 22 });
+        }
+        v.respawnTimer = D.respawnSec;
+        v.scrap = D.spawnScrap;   // it comes back a full pinata, not a stripped hull
+        v.shield = v.shieldMax;   // and with its deflector back up
+      }
     }
     function respawnShip(v) {
       v.alive = true;
@@ -303,7 +336,7 @@
       v.x = s.x; v.y = s.y; v.px = v.x; v.py = v.y; v.vx = v.vy = v.impX = v.impY = 0;
       v.spawnProtect = cfg.player.spawnProtectionSec;
       if (!v.isBot) {
-        v.classId = 'starter';
+        v.classId = 'starter'; v.plane = 0;   // death drops a fallen Titan back into the normal arena
         v.scrap = cfg.player.scrapTrickleOnSpawn; v.xp = cfg.player.scrapTrickleOnSpawn;
         v.level = 1; v.scaled = false; v.isLeader = false;
         resetClassState(v);
@@ -329,16 +362,16 @@
       hittables(ship) {
         const a = state.objects.concat();
         const en = enemiesOf(ship); for (const e of en) a.push(e);
-        for (const pr of state.projectiles) if (pr.isThrownRock && !pr._broken && pr.team !== ship.team) a.push(pr);
+        for (const pr of state.projectiles) if (pr.isThrownRock && !pr._broken && pr.team !== ship.team && (pr.plane | 0) === (ship.plane | 0)) a.push(pr);
         return a;
       },
       applyImpulse(s, vx, vy) { s.impX += vx; s.impY += vy; },
     };
 
     function updateLeader() {
-      let best = null;
-      for (const s of state.ships) if (s.alive && (!best || s.scrap > best.scrap)) best = s;
-      for (const s of state.ships) s.isLeader = (s === best && best.scrap >= cfg.leader.minScrapToCrown);
+      const bestByPlane = {};   // each plane crowns its own leader
+      for (const s of state.ships) { if (!s.alive) continue; const pl = s.plane | 0; if (!bestByPlane[pl] || s.scrap > bestByPlane[pl].scrap) bestByPlane[pl] = s; }
+      for (const s of state.ships) { const b = bestByPlane[s.plane | 0]; s.isLeader = (s === b && b && b.scrap >= cfg.leader.minScrapToCrown); }
     }
 
     function tickTimers(s, dt) {
@@ -347,6 +380,11 @@
       if (s.specialCd > 0) s.specialCd -= dt; if (s.contactCd > 0) s.contactCd -= dt;
       if (s.braceTimer > 0) s.braceTimer -= dt; if (s.ramActive > 0) s.ramActive -= dt;
       if (s.orbBurstTimer > 0) s.orbBurstTimer -= dt;
+      if (s.shieldFlash > 0) s.shieldFlash -= dt;
+      if (s.shieldMax > 0) {   // deflector recharges only after a lull — you must burst it down
+        if (s.shieldHitTimer > 0) s.shieldHitTimer -= dt;
+        else if (s.shield < s.shieldMax) s.shield = Math.min(s.shieldMax, s.shield + s.shieldRegenRate * dt);
+      }
             if (s.slowTimer > 0) { s.slowTimer -= dt; if (s.slowTimer <= 0) s.slow = 0; }
       s.heat = Math.max(0, s.heat - cfg.railship.heat.decayPerSec * dt);
       if (s.cracked) { s.crackTimer -= dt; if (s.crackTimer <= 0) s.cracked = false; }
@@ -356,6 +394,7 @@
     }
 
     function simShip(s, dt, intent) {
+      fxStamp(s.plane);   // attribute this ship's fx (beams/sparks/text) to its plane
       s.px = s.x; s.py = s.y;
       // Static Lash stun: frozen controls — no thrust, no fire, aim locked — until it wears off
       if ((s.stunTimer || 0) > 0) { s.stunTimer -= dt; intent = { moveX: 0, moveY: 0, aim: s.aim, aimDist: intent.aimDist || 1, firing: false, ability: false, special: false }; }
@@ -411,7 +450,7 @@
       if (intent.special && s.specialCd <= 0) s.specialCd = PULSAR.resolveSpecial(classNode(s.classId).special).activate(api, s) || 0;
       PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing, altFire: intent.altFire, aimDist: intent.aimDist });
 
-      if (s.spawnProtect <= 0 && s.contactCd <= 0) {
+      if (s.spawnProtect <= 0 && s.contactCd <= 0 && s.classId !== 'dreadnought') {   // the boss plows through rocks; only combat bleeds its shield
         for (const o of state.objects) {
           const dx = s.x - o.x, dy = s.y - o.y, rr = s.radius + o.radius;
           if (dx * dx + dy * dy > rr * rr) continue;
@@ -423,6 +462,7 @@
           break;
         }
       }
+      fxStamp(-1);   // back to environmental attribution for anything outside a ship's update
     }
 
     const IDLE = { moveX: 0, moveY: 0, aim: 0, aimDist: 0, firing: false, ability: false, special: false };
@@ -467,18 +507,30 @@
       const harvest = cfg.gravitor.orbitalHarvestBonus;
       for (let i = state.projectiles.length - 1; i >= 0; i--) {
         const pr = state.projectiles[i];
+        fxStamp(pr.plane);   // hit sparks / break fx belong to the projectile's plane
+        if (pr.homing) {   // HOMING MISSILE: steer toward the nearest same-plane enemy at a capped turn rate
+          let tgt = null, td = 1e9;
+          for (const s of state.ships) { if (!s.alive || s.team === pr.team || (s.plane | 0) !== (pr.plane | 0) || s.spawnProtect > 0) continue; const dd = (s.x - pr.x) ** 2 + (s.y - pr.y) ** 2; if (dd < td) { td = dd; tgt = s; } }
+          if (tgt) {
+            const want = Math.atan2(tgt.y - pr.y, tgt.x - pr.x); let cur = Math.atan2(pr.vy, pr.vx);
+            let da = want - cur; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+            const turn = (pr.turnRate || 2) * dt; cur += Math.max(-turn, Math.min(turn, da));
+            const sp = pr.speed || Math.hypot(pr.vx, pr.vy); pr.vx = Math.cos(cur) * sp; pr.vy = Math.sin(cur) * sp;
+          }
+          fx.spawnParticles(pr.x, pr.y, 1, pr.color, { speed: 24, spread: Math.PI, life: 0.3, size: 3 });   // exhaust trail
+        }
         pr.px = pr.x; pr.py = pr.y; pr.x += pr.vx * dt; pr.y += pr.vy * dt; pr.life -= dt;
         let dead = pr.life <= 0 || pr._broken;
         if (!dead) {
           for (const s of state.ships) {
-            if (!s.alive || !s.orbActive || s.team === pr.team) continue;
+            if (!s.alive || !s.orbActive || s.team === pr.team || (s.plane | 0) !== (pr.plane | 0)) continue;
             const rr = pr.radius + s.orbBlockRadius;
             if ((pr.x - s.orbX) ** 2 + (pr.y - s.orbY) ** 2 <= rr * rr) { fx.spawnParticles(pr.x, pr.y, 6, '#ffe6a8', { speed: 160, life: 0.3 }); dead = true; break; }
           }
         }
         if (!dead) {
           let target = null;
-          for (const s of state.ships) { if (!s.alive || s.team === pr.team || s.spawnProtect > 0) continue; const rr = pr.radius + s.radius; if ((pr.x - s.x) ** 2 + (pr.y - s.y) ** 2 <= rr * rr) { target = s; break; } }
+          for (const s of state.ships) { if (!s.alive || s.team === pr.team || s.spawnProtect > 0 || (s.plane | 0) !== (pr.plane | 0)) continue; const rr = pr.radius + s.radius; if ((pr.x - s.x) ** 2 + (pr.y - s.y) ** 2 <= rr * rr) { target = s; break; } }
           if (!target) for (const o of state.objects) { const rr = pr.radius + o.radius; if ((pr.x - o.x) ** 2 + (pr.y - o.y) ** 2 <= rr * rr) { target = o; break; } }
           if (target) {
             const d = Math.hypot(pr.vx, pr.vy) || 1;
@@ -507,6 +559,7 @@
           state.projectiles.splice(i, 1);
         }
       }
+      fxStamp(-1);
     }
     function simulateObjects(dt) {
       for (const o of state.objects) {
@@ -550,11 +603,40 @@
 
     // ---- public API ----
     function getShip(id) { for (const s of state.ships) if (s.id === id) return s; return null; }
-    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn() : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim }); applyClassStats(s, true); state.ships.push(s); return s; }
+    function addShip(o) { o = o || {}; const sp = o.x == null ? edgeSpawn() : { x: o.x, y: o.y }; const s = makeShip({ id: o.id, isBot: o.isBot, team: o.team != null ? o.team : nextId, classId: o.classId, x: sp.x, y: sp.y, aim: o.aim, plane: o.plane }); applyClassStats(s, true); state.ships.push(s); return s; }
     function removeShip(id) { for (let i = 0; i < state.ships.length; i++) if (state.ships[i].id === id) { state.ships.splice(i, 1); return; } }
     function spawnBots(n) {
       n = n != null ? n : cfg.bots.count;
       for (let i = 0; i < n; i++) { const cls = ['railship', 'hammerhead', 'gravitor', 'flailship'][Math.floor(Math.random() * 4)]; addShip({ classId: cls, isBot: true, aim: Math.random() * TAU }); }
+    }
+    // Seed the Titan plane so an ascending player finds dreadnoughts already fighting up there.
+    const APEX_IDS = ['zenith', 'prism', 'juggernaut', 'cataclysm', 'devourer', 'constellation'];
+    function spawnTitans(n) {
+      n = n != null ? n : (cfg.bots.titanCount || 0);
+      for (let i = 0; i < n; i++) {
+        const cls = APEX_IDS[Math.floor(Math.random() * APEX_IDS.length)];
+        const s = addShip({ classId: cls, isBot: true, plane: 1, aim: Math.random() * TAU });
+        s.level = eco.levelApex || 30; s.scrap = 400 + Math.floor(Math.random() * 400); s.xp = xpForLevel(s.level);
+      }
+      for (let i = 0; i < (cfg.dreadnought.count || 0); i++) spawnDreadnought();
+    }
+    function spawnDreadnought() {
+      const d = addShip({ classId: 'dreadnought', isBot: true, plane: 1, aim: Math.random() * TAU });
+      d.level = eco.levelApex || 30; d.scrap = cfg.dreadnought.spawnScrap; d.xp = xpForLevel(d.level);
+      const sh = cfg.dreadnought.shield;
+      d.shieldMax = sh.max; d.shield = sh.max; d.shieldRegenDelay = sh.regenDelaySec; d.shieldRegenRate = sh.regenPerSec;
+      return d;
+    }
+    // Commandeer: a player who slays the Dreadnought can seize its hull and pilot it (shield + all).
+    function becomeDreadnought(id) {
+      const s = getShip(id); if (!s || !s.alive) return;
+      switchClass(s, 'dreadnought');   // stays on plane 1 (the slayer is already a Titan up there)
+      const sh = cfg.dreadnought.shield;
+      s.shieldMax = sh.max; s.shield = sh.max; s.shieldRegenDelay = sh.regenDelaySec; s.shieldRegenRate = sh.regenPerSec;
+      s.spawnProtect = Math.max(s.spawnProtect, cfg.player.spawnProtectionSec);
+      fx.spawnText(s.x, s.y - s.radius - 24, 'COMMANDEERED', '#ffe08a', { size: s.isBot ? 14 : 22 });
+      fx.spawnParticles(s.x, s.y, 44, '#bfefff', { speed: 400 });
+      if (!s.isBot) fx.addShake(16, s.id);
     }
     function clearBots() { for (let i = state.ships.length - 1; i >= 0; i--) if (state.ships[i].isBot) state.ships.splice(i, 1); }
     function populateField() { for (let i = 0; i < af.count; i++) spawnArenaObject(); for (let i = 0; i < cfg.farming.titans.count; i++) spawnTitan(); }
@@ -580,7 +662,7 @@
     return {
       state, api, config: cfg, telemetry,
       FAMILY, EVOLVE_BLURB, classNode, hueFor,
-      addShip, removeShip, getShip, spawnBots, clearBots,
+      addShip, removeShip, getShip, spawnBots, spawnTitans, becomeDreadnought, clearBots,
       setIntent(id, intent) {
         const s = getShip(id); if (!s) return;
         // One-shot edge flags LATCH until a sim tick consumes them (see step). A 60Hz sender can

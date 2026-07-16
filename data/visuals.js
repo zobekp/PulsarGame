@@ -85,12 +85,12 @@ window.PULSAR.classVisuals = {
                  cues: ["two chained maces, opposite phase", "LMB volley staggers, RMB both at once",
                         "STATIC LASH stun flash around the heads"] },
   binaryStar:  { inherits: "flailship", silhouette: "binaryStar",
-                 note: "Twinmaul's drums bridged by an energized tether manifold; the maces are " +
-                       "now energized SWORDS — faster, longer reach, heavier hits (still block " +
-                       "shots). The blades AND the space between them are the weapon.",
-                 cues: ["twin SWORDS (was mace heads), blades point outward on their chains",
-                        "steel whitens + edges glow as they swing faster",
-                        "live crackling TETHER between the two swords",
+                 note: "Twinmaul's drums bridged by an energized tether manifold; the two heads are " +
+                       "now BIGGER SPIKED MACES — faster, longer reach, heavier hits (still block " +
+                       "shots). The maces AND the space between them are the weapon.",
+                 cues: ["twin BIG SPIKED MACES on their chains",
+                        "heads whiten + glow as they swing faster",
+                        "live crackling TETHER between the two maces",
                         "tether burns hotter during a synced throw (the garrote)",
                         "enemies dragged onto the wire"] },
 
@@ -111,8 +111,15 @@ window.PULSAR.classVisuals = {
                   note: "A walking black hole — void core pulls enemies in; the core is lethal.",
                   cues: ["void core + containment rings", "inward gravity aura pulls foes to the lethal centre"] },
   constellation:{ inherits: "flailship", silhouette: "constellation",
-                  note: "A ring of tethered blades — a lethal web you cast as an ensnaring net.",
-                  cues: ["twin swords + tether (ring/web WIP)"] },
+                  note: "FOUR spiked maces on four chains — a whirling cage of momentum.",
+                  cues: ["four big spiked maces, evenly phased around the hull",
+                         "four stern chain hardpoints", "heads whiten as they spin faster"] },
+
+  // ===== TITAN-PLANE WORLD BOSS =====
+  dreadnought:  { hue: "#9aa7bd", silhouette: "dreadnought",
+                  note: "A colossal Star Destroyer: dark steel dagger hull, hunched command tower with a " +
+                        "glowing red bridge, blue engine banks, flak batteries, ominous red underglow.",
+                  cues: ["dwarfs every other ship", "red bridge + hull lights pulse", "bristles with point-defense flak"] },
 };
 
 // Leader/crowned overlay (David-vs-Goliath legibility): bigger body, crown glyph,

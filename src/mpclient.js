@@ -61,8 +61,9 @@ window.PULSAR.MP = (function () {
   // Copy the discrete (boolean/step) fields from a snapshot ship `s` onto a view-ship `v`.
   function applyDiscrete(v, s) {
     v.classId = s.c; v.radius = s.r; v.hp = s.hp; v.maxHp = s.mh; v.scrap = s.scr; v.xp = s.xp || 0;
-    v.level = s.lvl; v.kills = s.k || 0; v.team = s.team; v.alive = s.al !== 0; v.isLeader = !!s.ld; v.isBot = !!s.bt;
+    v.level = s.lvl; v.kills = s.k || 0; v.team = s.team; v.alive = s.al !== 0; v.isLeader = !!s.ld; v.isBot = !!s.bt; v.plane = s.pl || 0;
     v.spawnProtect = s.sp ? 1 : 0; v.hitFlash = s.hf ? 0.16 : 0;
+    v.shield = s.shd || 0; v.shieldMax = s.shm || 0; v.shieldFlash = s.shf ? 0.14 : 0;
     v.charging = !!s.cg; v.beamTimer = s.bt ? 0.1 : 0;
     v.orbState = s.os || 'trail';
     v.ramWinding = !!s.rw; v.ramActive = s.ra ? 1 : 0;
@@ -320,7 +321,7 @@ window.PULSAR.MP = (function () {
     for (const q of disp.pr) {
       const q0 = (q.id != null && prevPr.get(q.id)) || q;
       const x = lerp(q0.x, q.x, t), y = lerp(q0.y, q.y, t);
-      state.projectiles.push({ x, y, px: x, py: y, radius: q.r, color: q.c, kind: q.k || '', rockType: q.rt || 'asteroid', spin: state.time * 2.4, damage: 0, pierceLeft: 1, team: -1 });
+      state.projectiles.push({ x, y, px: x, py: y, radius: q.r, color: q.c, kind: q.k || '', rockType: q.rt || 'asteroid', spin: state.time * 2.4, damage: 0, pierceLeft: 1, team: -1, plane: q.pl || 0 });
     }
     // motes: same id-matched lerp (the vacuum curves read smoothly)
     const prevMo = new Map();
@@ -392,6 +393,7 @@ window.PULSAR.MP = (function () {
       }
     },
     sendEvolve(i) { send({ t: 'evolve', i: i | 0 }); },
+    sendCommandeer() { send({ t: 'cmdr' }); },
     sendName(name) { myName = name || ''; send({ t: 'join', name: myName, tk: TOKEN }); },
     sendAdmin(action) { send({ t: 'admin', a: action }); },   // dev cheats — server honors unless PULSAR_ADMIN=0
   };

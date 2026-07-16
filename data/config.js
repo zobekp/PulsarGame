@@ -25,6 +25,8 @@ window.PULSAR.config = {
     baseZoom: 0.85,          // everyone sees a bit wider than 1:1 even at the smallest size
     shipTargetPx: 46,        // your hull is kept ≈ this radius on screen; zoom out to hold it
     minZoom: 0.32,           // never zoom out further than this (huge leaders)
+    zoomSmoothTau: 0.07,     // camera eases to the target zoom with this time constant (sec) — a
+                             // quick, non-instant glide on evolve/growth (~0.2s to settle), not a snap
   },
 
   // ---- Arena & spatial model -------------------------------------------------
@@ -145,8 +147,35 @@ window.PULSAR.config = {
   // ---- Bots (Phase 4 — the prove-it opponents) -------------------------------
   // Free-for-all AI ships that farm, fight, contest the pulsar, dodge telegraphs, and
   // evolve. They drive the SAME data weapons as the player via a synthesized input intent.
+  // DREADNOUGHT — a Star-Destroyer world boss that haunts the Titan plane. Enormous, crawling
+  // slow, low damage, monstrously tanky; slaying it pays a huge XP/scrap bounty. A group objective.
+  dreadnought: {
+    count: 1,                    // world bosses alive at once on the Titan plane
+    respawnSec: 90,              // long respawn — it's an event, not cannon fodder
+    bounty: 2500,                // flat XP+scrap awarded to whoever lands the killing blow
+    spawnScrap: 1200,            // carried scrap => a mote shower on death for everyone who helped
+    stats: { hp: 14, speed: 0.16, sizeMult: 3.0 },   // ≈14.7k HP, ≈200px radius, ≈30px/s crawl
+    // Bolts are telegraphed (0.9s red laser sight) so they SHOULD hurt if you eat one — dodge the sight.
+    guns: { damage: 16, projectileSpeed: 300, projectileRadius: 12, projectileLifeSec: 3.0, color: '#ff5a3c' },
+    // Six visible turrets that independently track the nearest foe, paint a RED LASER SIGHT for
+    // `telegraphSec`, THEN fire a bolt down that line. Obvious tells; the boss is readable, not weird.
+    turrets: {
+      mounts: [[0.62, 0.3], [0.62, -0.3], [0.1, 0.52], [0.1, -0.52], [-0.42, 0.72], [-0.42, -0.72]],  // local (x,y) in radii
+      range: 720,              // start tracking/firing when the nearest enemy is within this
+      slewRadPerSec: 1.3,      // how fast a barrel swings onto target (slow, ponderous)
+      cooldownSec: 2.4,        // rest between a turret's shots
+      telegraphSec: 0.9,       // red laser-sight warning BEFORE the bolt releases (dodge window)
+    },
+    // DEFLECTOR SHIELD — a hex bubble that eats ALL hull damage until it's burst. It can't be killed
+    // while the shield holds; back off and it recharges, so you must commit and break it in one push.
+    shield: { max: 7000, regenDelaySec: 4.5, regenPerSec: 900 },
+    // HOMING MISSILE pods — slow-turning trackers you can juke, launched in volleys on a long cadence.
+    missiles: { count: 3, cooldownSec: 4.5, damage: 11, speed: 300, turnRate: 2.2, radius: 8, lifeSec: 6, spreadRad: 0.7, color: '#ffb24a' },
+  },
+
   bots: {
     count: 6,
+    titanCount: 5,               // Titan-plane apex bots seeded so an ascended player finds a fight up there
     respawnDelaySec: 3.0,
     senseRange: 1150,             // notice enemies within this
     engageRange: 700,             // start fighting within this (~on-screen, no offscreen hunts)
@@ -290,7 +319,8 @@ window.PULSAR.config = {
     evolveMods: {},   // tier-2 rails now have their OWN weapons (helionBeam / mawRail) — no stat-mod evolutions
     brokenCoreMarkSec: 2.0,   // Star Piercer special: weak-point mark duration on cracked leaders
     // ZENITH (tier-4): always-on autoaim point-defense batteries — chip the nearest enemy while you charge.
-    zenith: { pointDefense: { range: 520, damage: 6, cooldownSec: 0.17 } },
+    // Autoaim point-defense: SLOW cyan BOLTS (projectile, dodgeable), not hitscan. Light chip damage.
+    zenith: { pointDefense: { range: 560, damage: 8, cooldownSec: 0.34, projectileSpeed: 340, projectileRadius: 6, projectileLifeSec: 2.2 } },
     // Star Piercer siege maw (branch B weapon). Charging OPENS the cannon — beam width IS
     // maw width. Release fires ONE instantaneous blast: all the damage lands the frame you
     // let go, along the aim you committed to. Fired, not steered — miss = recycle wasted.
@@ -326,6 +356,10 @@ window.PULSAR.config = {
       tapBashDamage: 10, chargedDamage: 34, overcommitDamage: 60,
       momentumMultiplier: 0.12,   // impactDamage = base + lunge-speed * this
       windupSec: 0.6, missRecoverySec: 0.9, turnRateDuringCharge: 0.42,
+      // The ram is CROWD CONTROL, not an execute: it knocks HARD, STUNS, and hits high — but a single
+      // ram can never take more than `maxHpCapFrac` of a target's max HP, so it can't flat oneshot.
+      stunSec: 0.6, maxHpCapFrac: 0.55, knockbackMult: 2.2,
+      bodyCheckStunSec: 0.22,
     },
     // Hold fire to wind up, release to LUNGE forward; contact during the lunge is the hit.
     // While lunging you shrug off rocks (you're the aggressor) — the farming style is "plow".
@@ -472,11 +506,15 @@ window.PULSAR.config = {
     binaryStar: {
       tether: { halfWidth: 16, damage: 10, rehitSec: 0.35, pull: 220,
                 thrownPullMult: 2.4, thrownDmgMult: 1.7 },
-      // Tier-3 final: the two maces become BLADES — they swing FASTER, reach FURTHER, and hit
-      // HARDER than the Twinmaul heads. Applied as multipliers over F.orb. They still block
-      // projectiles (the block radius scales up with the blade size). Tune in playtest.
-      blade: { spinMult: 1.4, reachMult: 1.35, dmgMult: 1.4, sizeMult: 1.3 },
+      // Tier-3 final: the two heads are BIGGER SPIKED MACES — they swing FASTER, reach FURTHER, and
+      // hit HARDER than the Twinmaul heads. Applied as multipliers over F.orb. They still block
+      // projectiles (the block radius scales up with the head size). Tune in playtest.
+      mace: { spinMult: 1.4, reachMult: 1.35, dmgMult: 1.4, sizeMult: 1.6 },
     },
+    // CONSTELLATION (tier-4 apex): FOUR spiked maces on four chains, evenly phased — a whirling
+    // cage of momentum. Per-head damage trimmed (four of them) but the wall of heads + tier-4
+    // scaling makes it the heaviest flail. No tether; the four maces ARE the threat.
+    constellation: { heads: 4, mace: { spinMult: 1.2, reachMult: 1.3, dmgMult: 0.9, sizeMult: 1.2 } },
     // Orb Parry — if the orb is positioned between you and a charging attacker, it softens the ram
     // and bleeds the attacker's momentum. Position-based: the orb must be near the incoming hull.
     orbParry: { ramDamageReduction: 0.55, attackerVelocityReduction: 0.6, attackerSlow: 0.4, attackerSlowSec: 0.45, reach: 18 },

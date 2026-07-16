@@ -42,10 +42,15 @@ window.PULSAR = window.PULSAR || {};
           for (const e of api.enemiesOf(ship)) { if (e.spawnProtect > 0) continue; const d = Math.hypot(e.x - ship.x, e.y - ship.y); if (d < bd) { bd = d; best = e; } }
           if (best) {
             ship._pdCd = pd.cooldownSec;
+            // fire a SLOW cyan BOLT (projectile, dodgeable) toward the target — not hitscan
             const a = Math.atan2(best.y - ship.y, best.x - ship.x), dx = Math.cos(a), dy = Math.sin(a);
-            api.damage(best, pd.damage, { dx, dy, knockback: 12, source: ship });
-            api.fx.spawnBeam(ship.x + dx * ship.radius, ship.y + dy * ship.radius, best.x, best.y, '#9fe8ff', 2, 0.09, 0.3);
-            api.fx.spawnParticles(best.x, best.y, 3, '#9fe8ff', { speed: 130, life: 0.2 });
+            const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
+            api.state.projectiles.push({
+              x: ox, y: oy, px: ox, py: oy, vx: dx * pd.projectileSpeed, vy: dy * pd.projectileSpeed,
+              radius: pd.projectileRadius, damage: pd.damage, pierceLeft: 1, life: pd.projectileLifeSec,
+              color: '#9fe8ff', team: ship.team, owner: ship, plane: ship.plane | 0,
+            });
+            api.fx.spawnParticles(ox, oy, 3, '#9fe8ff', { dir: a, spread: 0.3, speed: 150 });
           }
         }
       },
@@ -86,7 +91,7 @@ window.PULSAR = window.PULSAR || {};
         }
       },
     },
-    // CONSTELLATION: the twin-blade orbit for now. TODO: a full ring of tethered blades + cast-net.
+    // CONSTELLATION: FOUR spiked maces (wreckingOrb reads classId for head count + the heavy profile).
     constellation: { update(api, ship, dt, ctx) { weapons.wreckingOrb.update(api, ship, dt, ctx); } },
 
     popgun: {
@@ -99,9 +104,70 @@ window.PULSAR = window.PULSAR || {};
           px: ship.x + Math.cos(ship.aim) * nose, py: ship.y + Math.sin(ship.aim) * nose,
           vx: Math.cos(ship.aim) * c.projectileSpeed, vy: Math.sin(ship.aim) * c.projectileSpeed,
           radius: c.projectileRadius, damage: c.damage, pierceLeft: c.pierce,
-          life: c.projectileLifeSec, color: c.color, team: ship.team, owner: ship,
+          life: c.projectileLifeSec, color: c.color, team: ship.team, owner: ship, plane: ship.plane | 0,
         });
         ship.fireTimer = c.fireCooldownSec;
+      },
+    },
+
+    // DREADNOUGHT world boss — SIX independently-tracking turrets. Each swings its barrel onto the
+    // nearest foe, paints a RED LASER SIGHT for telegraphSec (the dodge window), THEN fires one slow
+    // low-damage bolt down that line. Turret state (angle/telegraph) lives on the ship for the model.
+    dreadnoughtGuns: {
+      update(api, ship, dt, ctx) {
+        const D = api.config.dreadnought, T = D.turrets, g = D.guns, TAU = Math.PI * 2;
+        // The AI boss fires on its own; a PLAYER who commandeered the hull fires at will —
+        // guns on LMB (firing), missiles on RMB (altFire). Turrets still auto-track the nearest foe.
+        const canFire = ship.isBot || (ctx && ctx.firing);
+        const canMissile = ship.isBot || (ctx && ctx.altFire);
+        if (!ship.turrets || ship.turrets.length !== T.mounts.length) {
+          ship.turrets = T.mounts.map((m, i) => ({ angle: ship.aim, cd: T.cooldownSec * (i / T.mounts.length), tel: 0, mx: ship.x, my: ship.y }));
+        }
+        let e = null, ed = 1e9;
+        for (const en of api.enemiesOf(ship)) { if (en.spawnProtect > 0) continue; const d = Math.hypot(en.x - ship.x, en.y - ship.y); if (d < ed) { ed = d; e = en; } }
+        const inRange = e && ed < T.range * (ship.rangeMult || 1);
+        const ca = Math.cos(ship.aim), sa = Math.sin(ship.aim), step = T.slewRadPerSec * dt;
+        for (let i = 0; i < ship.turrets.length; i++) {
+          const tur = ship.turrets[i], m = T.mounts[i];
+          tur.mx = ship.x + (m[0] * ca - m[1] * sa) * ship.radius;   // world mount (hull rotates by aim)
+          tur.my = ship.y + (m[0] * sa + m[1] * ca) * ship.radius;
+          const want = inRange ? Math.atan2(e.y - tur.my, e.x - tur.mx) : ship.aim;
+          let da = want - tur.angle; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
+          tur.angle += Math.max(-step, Math.min(step, da));
+          if (!inRange) { tur.tel = 0; if (tur.cd > 0) tur.cd -= dt; continue; }
+          if (tur.tel > 0) {
+            tur.tel -= dt;                                          // painting the laser sight
+            if (tur.tel <= 0) {                                    // release the bolt down the line
+              const ox = tur.mx + Math.cos(tur.angle) * ship.radius * 0.18, oy = tur.my + Math.sin(tur.angle) * ship.radius * 0.18;
+              api.state.projectiles.push({
+                x: ox, y: oy, px: ox, py: oy, vx: Math.cos(tur.angle) * g.projectileSpeed, vy: Math.sin(tur.angle) * g.projectileSpeed,
+                radius: g.projectileRadius, damage: g.damage, pierceLeft: 1, life: g.projectileLifeSec,
+                color: g.color, team: ship.team, owner: ship, plane: ship.plane | 0,
+              });
+              api.fx.spawnParticles(ox, oy, 7, g.color, { dir: tur.angle, spread: 0.35, speed: 260 });
+              tur.cd = T.cooldownSec;
+            }
+          } else if (tur.cd <= 0 && Math.abs(da) < 0.12 && canFire) {
+            tur.tel = ship.isBot ? T.telegraphSec : 0.001;         // bot telegraphs (readable boss); player fires at will
+          } else if (tur.cd > 0) tur.cd -= dt;
+        }
+        // HOMING MISSILE volley on a cadence — bot autofires; player triggers on RMB
+        ship._missileCd = (ship._missileCd || 0) - dt;
+        if (inRange && canMissile && ship._missileCd <= 0) {
+          const M = D.missiles; ship._missileCd = M.cooldownSec;
+          const base = Math.atan2(e.y - ship.y, e.x - ship.x);
+          for (let i = 0; i < M.count; i++) {
+            const a = base + (i - (M.count - 1) / 2) * M.spreadRad;
+            const ox = ship.x + Math.cos(a) * ship.radius * 0.7, oy = ship.y + Math.sin(a) * ship.radius * 0.7;
+            api.state.projectiles.push({
+              x: ox, y: oy, px: ox, py: oy, vx: Math.cos(a) * M.speed, vy: Math.sin(a) * M.speed,
+              radius: M.radius, damage: M.damage, pierceLeft: 1, life: M.lifeSec, color: M.color,
+              kind: 'missile', homing: true, turnRate: M.turnRate, speed: M.speed,
+              team: ship.team, owner: ship, plane: ship.plane | 0,
+            });
+            api.fx.spawnParticles(ox, oy, 6, M.color, { dir: a, spread: 0.4, speed: 200 });
+          }
+        }
       },
     },
 
@@ -363,7 +429,8 @@ window.PULSAR = window.PULSAR || {};
           const dx = e.x - ship.x, dy = e.y - ship.y, rr = ship.radius + e.radius;
           if (dx * dx + dy * dy > rr * rr) continue;
           const d = Math.hypot(dx, dy) || 1;
-          api.damage(e, bc.damage, { dx: dx / d, dy: dy / d, knockback: bc.knockback, source: ship });
+          api.damage(e, bc.damage, { dx: dx / d, dy: dy / d, knockback: bc.knockback, source: ship, capFrac: H.ram.maxHpCapFrac });
+          if (H.ram.bodyCheckStunSec) e.stunTimer = Math.max(e.stunTimer || 0, H.ram.bodyCheckStunSec);
           api.fx.spawnParticles(ship.x + dx * 0.5, ship.y + dy * 0.5, 6, hueFor(ship.classId), { speed: 140 });
           ship.bodyCheckCd = bc.cooldownSec;
           break;
@@ -387,7 +454,7 @@ window.PULSAR = window.PULSAR || {};
         const heavy = (ship.classId === 'maulbreaker' || ship.classId === 'worldsplitter');
         const reach = ship.radius * (heavy ? H.maulbreaker.frontHitboxMult : H.lunge.hitboxMult);
         const impact = ship.ramHitBase + Math.hypot(ship.impX, ship.impY) * H.ram.momentumMultiplier;
-        const kb = api.config.combat.knockbackBase * (heavy ? H.maulbreaker.knockbackMult : 1);
+        const kb = api.config.combat.knockbackBase * (H.ram.knockbackMult || 1) * (heavy ? H.maulbreaker.knockbackMult : 1);
         for (const t of api.hittables(ship)) {
           const rr = reach + t.radius;
           // Swept circle from the previous to current fixed-tick position. At full speed the ram
@@ -399,7 +466,9 @@ window.PULSAR = window.PULSAR || {};
           if (ship.ramHitList.indexOf(t) >= 0) continue;
           ship.ramHitList.push(t);
           const d = Math.hypot(ship.x - t.x, ship.y - t.y) || 1;
-          api.damage(t, impact, { dx: (t.x - ship.x) / d, dy: (t.y - ship.y) / d, knockback: kb, source: ship });
+          // High damage, hard knock, STUN — but capped so it can't flat oneshot a healthy target.
+          api.damage(t, impact, { dx: (t.x - ship.x) / d, dy: (t.y - ship.y) / d, knockback: kb, source: ship, capFrac: H.ram.maxHpCapFrac });
+          if (t.isShip && H.ram.stunSec) t.stunTimer = Math.max(t.stunTimer || 0, H.ram.stunSec);
           if (ship.classId === 'worldsplitter' && ship.ramFull && !ship.ramSlammed) { ship.ramSlammed = true; this.shockwave(api, ship, H); }
         }
       },
@@ -408,7 +477,8 @@ window.PULSAR = window.PULSAR || {};
         for (const t of api.hittables(ship)) {
           const d = Math.hypot(t.x - ship.x, t.y - ship.y);
           if (d > s.radius) continue;
-          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship });
+          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship, capFrac: H.ram.maxHpCapFrac });
+          if (t.isShip && H.ram.stunSec) t.stunTimer = Math.max(t.stunTimer || 0, H.ram.stunSec);
         }
         api.fx.spawnParticles(ship.x, ship.y, 28, hueFor(ship.classId), { speed: 360 });
         if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);
@@ -500,23 +570,27 @@ window.PULSAR = window.PULSAR || {};
     wreckingOrb: {
       update(api, ship, dt, ctx) {
         const F = api.config.flailship;
-        // Binary Star (final): maces are BLADES — swing faster, reach further, hit harder, and a
-        // bigger block radius. Derive an orb config with the blade multipliers over F.orb.
+        // Heavier finals carry BIGGER SPIKED MACES via a multiplier profile over F.orb: Binary Star
+        // (2 heavy heads) and Constellation (4 heads). They still block projectiles (block radius
+        // scales with head size).
         let O = F.orb;
-        const b = ship.classId === 'binaryStar' && F.binaryStar && F.binaryStar.blade;
-        if (b) O = Object.assign({}, F.orb, {
-          spinSpeedMin: F.orb.spinSpeedMin * b.spinMult, spinSpeedMax: F.orb.spinSpeedMax * b.spinMult,
-          releaseSweepRadPerSec: F.orb.releaseSweepRadPerSec * b.spinMult,
-          spinRadius: F.orb.spinRadius * b.reachMult, maxReach: F.orb.maxReach * b.reachMult,
-          spinDamageMin: F.orb.spinDamageMin * b.dmgMult, spinDamageMax: F.orb.spinDamageMax * b.dmgMult,
-          flingDamageMin: F.orb.flingDamageMin * b.dmgMult, flingDamageMax: F.orb.flingDamageMax * b.dmgMult,
-          trailDamage: F.orb.trailDamage * b.dmgMult, tipRadius: F.orb.tipRadius * b.sizeMult,
+        const prof = ship.classId === 'binaryStar' ? (F.binaryStar && F.binaryStar.mace)
+                   : ship.classId === 'constellation' ? (F.constellation && F.constellation.mace)
+                   : null;
+        if (prof) O = Object.assign({}, F.orb, {
+          spinSpeedMin: F.orb.spinSpeedMin * prof.spinMult, spinSpeedMax: F.orb.spinSpeedMax * prof.spinMult,
+          releaseSweepRadPerSec: F.orb.releaseSweepRadPerSec * prof.spinMult,
+          spinRadius: F.orb.spinRadius * prof.reachMult, maxReach: F.orb.maxReach * prof.reachMult,
+          spinDamageMin: F.orb.spinDamageMin * prof.dmgMult, spinDamageMax: F.orb.spinDamageMax * prof.dmgMult,
+          flingDamageMin: F.orb.flingDamageMin * prof.dmgMult, flingDamageMax: F.orb.flingDamageMax * prof.dmgMult,
+          trailDamage: F.orb.trailDamage * prof.dmgMult, tipRadius: F.orb.tipRadius * prof.sizeMult,
         });
-        // bigger hull => longer chain: the mace/blade reaches + swings wider as the ship grows
+        // bigger hull => longer chain: the maces reach + swing wider as the ship grows
         const rm = ship.rangeMult || 1;
         if (rm !== 1) O = Object.assign({}, O, { maxReach: O.maxReach * rm, spinRadius: O.spinRadius * rm, trailDistance: O.trailDistance * rm });
-        const twin = ship.classId === 'twinmaul' || ship.classId === 'binaryStar';
-        const nHeads = twin ? 2 : 1;
+        const HEADS = { twinmaul: 2, binaryStar: 2, constellation: 4 };
+        const nHeads = HEADS[ship.classId] || 1;
+        const twin = nHeads > 1;
         const dmgMult = twin ? F.twin.dmgMult : 1;
         if (!ship.maces || ship.maces.length !== nHeads) {
           ship.maces = [];
@@ -693,7 +767,7 @@ window.PULSAR = window.PULSAR || {};
     const hpKey = { asteroid: 'asteroidHP', crystal: 'crystalHP', debris: 'debrisHP', pebble: 'debrisHP' }[rock.type] || 'asteroidHP';
     const hp = (api.config.farming[hpKey] || 12) * G.thrownRockHpMult;   // tankier than a normal rock — shootable but takes a real hit
     api.state.projectiles.push({ x: ox, y: oy, px: ox, py: oy, vx: dx * G.well.launchSpeed, vy: dy * G.well.launchSpeed,
-      radius: rock.radius || G.thrownRockRadius, rockType: rock.type, isThrownRock: true, hp, damage: dmg, pierceLeft: 3, life: 2.4, color: '#b06bff', kind: 'rock', harvest: true, team: ship.team, owner: ship,
+      radius: rock.radius || G.thrownRockRadius, rockType: rock.type, isThrownRock: true, hp, damage: dmg, pierceLeft: 3, life: 2.4, color: '#b06bff', kind: 'rock', harvest: true, team: ship.team, owner: ship, plane: ship.plane | 0,
       spin: Math.random() * Math.PI * 2 });   // visual-only tumble phase (render adds time-based rotation)
     api.fx.spawnParticles(ox, oy, 8, '#b06bff', { dir: ang, spread: 0.4, speed: 220 });
   }
@@ -766,11 +840,12 @@ window.PULSAR = window.PULSAR || {};
     // Worldsplitter: on-demand shockwave burst at current position (no full ram required).
     worldsplitterSlam: {
       activate(api, ship) {
-        const s = api.config.hammerhead.worldsplitterSlam;
+        const s = api.config.hammerhead.worldsplitterSlam, ram = api.config.hammerhead.ram;
         for (const t of api.hittables(ship)) {
           const d = Math.hypot(t.x - ship.x, t.y - ship.y);
           if (d > s.radius) continue;
-          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship });
+          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship, capFrac: ram.maxHpCapFrac });
+          if (t.isShip && ram.stunSec) t.stunTimer = Math.max(t.stunTimer || 0, ram.stunSec);
         }
         api.fx.spawnParticles(ship.x, ship.y, 32, hueFor(ship.classId), { speed: 380 });
         if (!ship.isBot) api.fx.addShake(api.config.fx.screenShakeMax);

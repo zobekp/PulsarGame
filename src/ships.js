@@ -458,14 +458,14 @@ window.PULSAR.Ships = (function () {
   // A working tug: hex hull, front chain-guide yoke, and a big winch drum whose
   // spokes spin with the orb — the machine that swings the wrecking ball.
   // spokes spin with the orb — the machine that swings the wrecking ball. Now a long salvage
-  // WARSHIP with the winch drivetrain mounted forward; the heads/swords are drawn in game.js.
-  // Flailship: a sleek gold-accented fighter with chain hardpoints at the stern where the mace/
-  // blade heads feed out (the heads themselves are drawn in game.js). Twin classes get two.
+  // WARSHIP with the winch drivetrain mounted forward; the mace heads are drawn in game.js.
+  // Flailship: a sleek gold-accented fighter with chain hardpoints at the stern where the spiked
+  // mace heads feed out (the heads themselves are drawn in game.js). Heavy finals get 2 or 4.
   function flailBody(ctx, r, s, P, t, o) {
     const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
     fighterHull(ctx, r, s, P, t, { len: 1.3, beam: 0.28, wings: o.tier >= 2 ? 2 : 1, thrusters: o.tier >= 2 ? 3 : 2, tier: o.tier });
-    // chain hardpoint(s) at the stern — where the chains run out to the heads
-    const yokes = o.twin ? [0.4, -0.4] : [0];
+    // chain hardpoint(s) at the stern — where the chains run out to the heads (one per mace)
+    const yokes = o.quad ? [0.52, 0.18, -0.18, -0.52] : o.twin ? [0.4, -0.4] : [0];
     for (const yy of yokes) {
       plate(ctx, [[-0.85 * r, yy * r + 0.09 * r], [-1.3 * r, yy * r + 0.12 * r], [-1.4 * r, yy * r], [-1.3 * r, yy * r - 0.12 * r], [-0.85 * r, yy * r - 0.09 * r]], plateFill, 1.1);
       ctx.fillStyle = 'rgba(60,50,35,0.95)'; ctx.beginPath(); ctx.arc(-1.32 * r, yy * r, 0.07 * r, 0, TAU); ctx.fill();   // chain reel hub
@@ -641,7 +641,85 @@ window.PULSAR.Ships = (function () {
       ctx.strokeStyle = `rgba(${P.rgb[0]},${P.rgb[1]},${P.rgb[2]},0.2)`; ctx.lineWidth = 2; ctx.stroke();
       ctx.globalCompositeOperation = 'source-over';
     },
-    constellation(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { twin: true, tether: true, tier: 3 }); },
+    constellation(ctx, r, s, P, t) { flailBody(ctx, r, s, P, t, { quad: true, tier: 3 }); },
+
+    // DREADNOUGHT — the Titan-plane world boss. A colossal Star-Destroyer dagger: dark steel hull,
+    // widening trench plating, decks of lit windows, a hunched command tower with a glowing red
+    // bridge + twin sensor domes, blue engine banks, and a slow-pulsing red underglow. Scary on sight.
+    dreadnought(ctx, r, s, P, t) {
+      const bodyFill = s.hitFlash > 0 ? FLASH.body : P.body;
+      const plateFill = s.hitFlash > 0 ? FLASH.plate : P.plate;
+      const darkFill = `rgba(${Math.round(P.rgb[0] * 0.13 + 4)},${Math.round(P.rgb[1] * 0.13 + 5)},${Math.round(P.rgb[2] * 0.13 + 8)},0.98)`;
+      const pulse = 0.5 + 0.5 * Math.sin(t * 1.6);
+      const lw = (k) => Math.max(0.8, r * k);
+      // ominous red underglow beneath the hull
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.beginPath(); ctx.ellipse(-0.1 * r, 0, 1.7 * r, 0.55 * r, 0, 0, TAU);
+      ctx.fillStyle = `rgba(255,64,44,${0.05 + 0.06 * pulse})`; ctx.fill();
+      ctx.globalCompositeOperation = 'source-over';
+      // main dagger hull (nose at +x)
+      const hull = [[1.95 * r, 0], [0.25 * r, 0.5 * r], [-1.02 * r, 0.9 * r], [-1.3 * r, 0.72 * r],
+                    [-1.3 * r, -0.72 * r], [-1.02 * r, -0.9 * r], [0.25 * r, -0.5 * r]];
+      ctx.save(); ctx.scale(1.03, 1.08); plate(ctx, hull, darkFill, 2.0); ctx.restore();
+      plate(ctx, hull, bodyFill, 2.2);
+      // widening transverse plate ribs + bright keel
+      for (let i = 0; i < 8; i++) { const f = i / 7, px = 1.6 * r - f * 2.7 * r, hw = 0.1 * r + f * 0.78 * r; line(ctx, px, hw, px, -hw, P.dim, lw(0.008)); }
+      line(ctx, 1.9 * r, 0, -1.28 * r, 0, P.accent, lw(0.014));
+      for (const sgn of [1, -1]) line(ctx, 1.95 * r, 0, -1.02 * r, sgn * 0.9 * r, P.accent, lw(0.013));   // sharp leading edges
+      // decks of lit crew windows along the flanks (thousands aboard)
+      for (const sgn of [1, -1]) for (let i = 0; i < 12; i++) { const f = i / 11, px = 1.2 * r - f * 2.2 * r, py = sgn * (0.07 * r + f * 0.42 * r); light(ctx, px, py, [255, 150, 120], lw(0.012)); }
+      // hunched command tower (rear centre): base block, bridge deck, glowing red bridge, twin domes
+      plate(ctx, [[-0.32 * r, 0.24 * r], [-0.9 * r, 0.3 * r], [-0.9 * r, -0.3 * r], [-0.32 * r, -0.24 * r]], plateFill, 1.8);
+      plate(ctx, [[-0.44 * r, 0.15 * r], [-0.8 * r, 0.18 * r], [-0.8 * r, -0.18 * r], [-0.44 * r, -0.15 * r]], darkFill, 1.5);
+      for (const sgn of [1, -1]) { ctx.beginPath(); ctx.arc(-0.62 * r, sgn * 0.1 * r, 0.06 * r, 0, TAU); ctx.fillStyle = plateFill; ctx.fill(); ctx.strokeStyle = RIM; ctx.lineWidth = 1.2; ctx.stroke(); }
+      ctx.globalCompositeOperation = 'lighter';
+      ctx.beginPath(); ctx.arc(-0.62 * r, 0, 0.13 * r, 0, TAU); ctx.fillStyle = `rgba(255,58,40,${0.45 + 0.45 * pulse})`; ctx.fill();
+      // FOUR real stern BOOSTERS: hot throat + a flame that roars longer with velocity (boss tops out slow)
+      const sp = Math.min(1, Math.hypot(s.vx || 0, s.vy || 0) / 42);
+      for (const ey of [-0.56 * r, -0.19 * r, 0.19 * r, 0.56 * r]) {
+        const flick = 0.8 + 0.35 * Math.sin(t * 33 + ey * 9), flen = (0.4 + 2.1 * sp) * flick * r;
+        poly(ctx, [[-1.3 * r, ey - 0.12 * r], [-1.3 * r, ey + 0.12 * r], [-1.3 * r - flen, ey]]);
+        ctx.fillStyle = `rgba(120,180,255,${0.32 + 0.42 * sp})`; ctx.fill();
+        poly(ctx, [[-1.3 * r, ey - 0.06 * r], [-1.3 * r, ey + 0.06 * r], [-1.3 * r - flen * 0.55, ey]]);
+        ctx.fillStyle = `rgba(240,250,255,${0.4 + 0.4 * sp})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(-1.29 * r, ey, 0.1 * r, 0, TAU); ctx.fillStyle = `rgba(150,195,255,${0.55 + 0.3 * pulse})`; ctx.fill();
+        ctx.beginPath(); ctx.arc(-1.29 * r, ey, 0.045 * r, 0, TAU); ctx.fillStyle = 'rgba(245,251,255,0.95)'; ctx.fill();
+      }
+      ctx.globalCompositeOperation = 'source-over';
+      // --- greebles / detail ---
+      for (const sgn of [1, -1]) { line(ctx, 1.45 * r, sgn * 0.17 * r, -1.12 * r, sgn * 0.17 * r, P.dim, lw(0.006)); line(ctx, 1.05 * r, sgn * 0.36 * r, -1.05 * r, sgn * 0.5 * r, P.dim, lw(0.006)); }
+      for (let i = 0; i < 4; i++) { const px = 1.25 * r - i * 0.42 * r; line(ctx, px, 0.06 * r, px - 0.12 * r, 0.3 * r, P.dim, lw(0.005)); line(ctx, px, -0.06 * r, px - 0.12 * r, -0.3 * r, P.dim, lw(0.005)); }   // forward panel hatching
+      plate(ctx, [[0.42 * r, 0.11 * r], [0.16 * r, 0.13 * r], [0.16 * r, -0.13 * r], [0.42 * r, -0.11 * r]], 'rgba(10,12,18,0.98)', 1.2);   // recessed hangar bay
+      ctx.globalCompositeOperation = 'lighter'; ctx.fillStyle = `rgba(120,170,255,${0.14 + 0.1 * pulse})`; ctx.fillRect(0.18 * r, -0.1 * r, 0.22 * r, 0.2 * r); ctx.globalCompositeOperation = 'source-over';
+      for (const sgn of [1, -1]) { line(ctx, 1.5 * r, sgn * 0.07 * r, 1.78 * r, sgn * 0.02 * r, P.accent, lw(0.008)); light(ctx, 1.78 * r, sgn * 0.02 * r, [120, 220, 255], lw(0.012)); }   // bow sensor masts
+      for (let i = 0; i < 5; i++) light(ctx, 1.2 * r - i * 0.5 * r, 0, [130, 200, 255], lw(0.009));   // keel running lights
+      // SIX turrets — obvious, they point where they'll shoot and paint a RED LASER SIGHT before firing
+      const TU = (PULSAR.config.dreadnought && PULSAR.config.dreadnought.turrets) || null;
+      if (TU) for (let i = 0; i < TU.mounts.length; i++) {
+        const m = TU.mounts[i], bx = m[0] * r, by = m[1] * r;
+        const tur = s.turrets && s.turrets[i];
+        const la = tur ? tur.angle - s.aim : 0;             // barrel angle in local (aim-rotated) hull space
+        const tel = tur ? tur.tel : 0;
+        if (tel > 0) {                                      // red laser sight, brightening toward the shot
+          const k = 1 - tel / TU.telegraphSec;
+          ctx.save(); ctx.globalCompositeOperation = 'lighter';
+          ctx.strokeStyle = `rgba(255,40,30,${0.3 + 0.55 * k})`; ctx.lineWidth = lw(0.01) * (1 + 1.4 * k);
+          ctx.beginPath(); ctx.moveTo(bx, by); ctx.lineTo(bx + Math.cos(la) * 6 * r, by + Math.sin(la) * 6 * r); ctx.stroke();
+          ctx.restore();
+        }
+        ctx.save(); ctx.translate(bx, by); ctx.rotate(la);  // turret barrel
+        ctx.fillStyle = 'rgba(28,32,42,0.98)'; ctx.fillRect(0, -0.05 * r, 0.36 * r, 0.10 * r);
+        ctx.strokeStyle = RIM; ctx.lineWidth = 1.2; ctx.strokeRect(0, -0.05 * r, 0.36 * r, 0.10 * r);
+        ctx.restore();
+        ctx.beginPath(); ctx.arc(bx, by, 0.145 * r, 0, TAU); ctx.fillStyle = plateFill; ctx.fill();   // turret dome
+        ctx.strokeStyle = RIM; ctx.lineWidth = 1.4; ctx.stroke();
+        ctx.beginPath(); ctx.arc(bx, by, 0.06 * r, 0, TAU); ctx.fillStyle = 'rgba(18,20,28,0.95)'; ctx.fill();
+        if (tel > 0 && tel < 0.12) light(ctx, bx + Math.cos(la) * 0.4 * r, by + Math.sin(la) * 0.4 * r, [255, 90, 45], lw(0.022));
+      }
+      // red hull-edge running lights + forward spinal cannon glint
+      for (const sgn of [1, -1]) light(ctx, -0.98 * r, sgn * 0.86 * r, [255, 52, 40], lw(0.02));
+      light(ctx, 1.95 * r, 0, [255, 80, 60], lw(0.02));
+    },
   };
 
   function modelFor(classId) {

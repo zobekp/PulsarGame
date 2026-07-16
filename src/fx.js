@@ -10,8 +10,12 @@ window.PULSAR.Fx = (function () {
   const beams = [];
   const texts = [];
   let shakeMag = 0, shakePhase = 0;
+  // Plane attribution: newly-spawned fx are stamped with the current plane so the Titan plane and
+  // the normal arena don't leak each other's beams/sparks/text. -1 = environmental (seen on all planes).
+  let stamp = -1;
+  function stampPlane(pl) { stamp = pl == null ? -1 : (pl | 0); }
 
-  function reset() { particles.length = 0; beams.length = 0; texts.length = 0; shakeMag = 0; }
+  function reset() { particles.length = 0; beams.length = 0; texts.length = 0; shakeMag = 0; stamp = -1; }
 
   // burst of sparks from (x,y). opts: {speed, life, spread, dir, size, color}
   function spawnParticles(x, y, count, color, opts) {
@@ -28,7 +32,7 @@ window.PULSAR.Fx = (function () {
         x, y, px: x, py: y,
         vx: Math.cos(a) * sp, vy: Math.sin(a) * sp,
         life, maxLife: life, color,
-        size: size * (0.7 + 0.6 * Math.random()),
+        size: size * (0.7 + 0.6 * Math.random()), plane: stamp,
       });
     }
   }
@@ -38,7 +42,7 @@ window.PULSAR.Fx = (function () {
   // `fade` (optional): {fullFrac, minMult} tapers the beam's OPACITY from full over the first
   // fullFrac of its length down to minMult at the tip — the honest tell for range damage falloff.
   function spawnBeam(x1, y1, x2, y2, color, halfWidth, life, power, fade) {
-    beams.push({ x1, y1, x2, y2, color, halfWidth, life, maxLife: life, power: power || 0, fade: fade || null });
+    beams.push({ x1, y1, x2, y2, color, halfWidth, life, maxLife: life, power: power || 0, fade: fade || null, plane: stamp });
   }
 
   // floating combat text ("LINE BREAK", "+4")
@@ -48,7 +52,7 @@ window.PULSAR.Fx = (function () {
       x, y, text, color,
       size: opts.size || 14,
       vy: -cfg.floatTextRiseSpeed,
-      life: cfg.floatTextLifeSec, maxLife: cfg.floatTextLifeSec,
+      life: cfg.floatTextLifeSec, maxLife: cfg.floatTextLifeSec, plane: stamp,
     });
   }
 
@@ -81,12 +85,15 @@ window.PULSAR.Fx = (function () {
   function shakeX() { return Math.sin(shakePhase) * shakeMag; }
   function shakeY() { return Math.cos(shakePhase * 1.27) * shakeMag; }
 
-  function draw(R, alpha, lerp) {
+  function draw(R, alpha, lerp, viewPlane) {
     const ctx = R.ctx;
+    // Only draw fx on the viewer's plane (or environmental, plane -1). viewPlane null = draw all.
+    const show = (e) => viewPlane == null || e.plane === -1 || (e.plane | 0) === (viewPlane | 0);
 
     // beams + particles are additive glow
     R.setComposite('lighter');
     for (const b of beams) {
+      if (!show(b)) continue;
       const t = b.life / b.maxLife;                  // 1 -> 0
       const rgb = R.hexToRgb(b.color);
       const x1 = R.sx(b.x1), y1 = R.sy(b.y1), x2 = R.sx(b.x2), y2 = R.sy(b.y2);
@@ -122,6 +129,7 @@ window.PULSAR.Fx = (function () {
     // instead of a radial gradient each (a createRadialGradient per particle tanks the frame).
     const TAU = Math.PI * 2;
     for (const p of particles) {
+      if (!show(p)) continue;
       const t = p.life / p.maxLife;
       const ix = R.sx(lerp(p.px, p.x, alpha)), iy = R.sy(lerp(p.py, p.y, alpha));
       const rgb = R.hexToRgb(p.color);
@@ -134,6 +142,7 @@ window.PULSAR.Fx = (function () {
     ctx.textAlign = 'center';
     const z = R.camera.zoom || 1;                 // counter-scale so text stays a constant screen size under view zoom
     for (const tx of texts) {
+      if (!show(tx)) continue;
       const t = tx.life / tx.maxLife;
       const rgb = R.hexToRgb(tx.color);
       ctx.save(); ctx.translate(R.sx(tx.x), R.sy(tx.y)); ctx.scale(1 / z, 1 / z);
@@ -145,5 +154,5 @@ window.PULSAR.Fx = (function () {
     ctx.textAlign = 'left';
   }
 
-  return { reset, spawnParticles, spawnBeam, spawnText, addShake, update, draw, shakeX, shakeY };
+  return { reset, spawnParticles, spawnBeam, spawnText, addShake, update, draw, shakeX, shakeY, stampPlane };
 })();
