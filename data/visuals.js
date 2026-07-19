@@ -94,50 +94,6 @@ window.PULSAR.classVisuals = {
                         "tether burns hotter during a synced throw (the garrote)",
                         "enemies dragged onto the wire"] },
 
-  // ===== TIER-4 TITAN-CLASS APEXES =====
-  zenith:       { inherits: "railship", silhouette: "zenith",
-                  note: "Spinal siege railgun + autoaim point-defense turrets on the wings.",
-                  cues: ["biggest maw rail, twin barrels + helix", "point-defense turrets pulse at nearby foes"] },
-  prism:        { inherits: "railship", silhouette: "prism",
-                  note: "The ramping beam splits into auto-tracking sub-beams; three forward prism emitters.",
-                  cues: ["main ramping beam + fan of sub-beams onto multiple targets"] },
-  juggernaut:   { inherits: "hammerhead", silhouette: "juggernaut",
-                  note: "The heaviest ram cruiser — plows through everything in a straight line.",
-                  cues: ["massive ram prow", "boost pods + molten edge on the overrun"] },
-  cataclysm:    { inherits: "gravitor", silhouette: "cataclysm",
-                  note: "Artillery dreadnought — orbital meteor barrage on a marked zone.",
-                  cues: ["huge core + launch rails", "meteor rain (WIP)"] },
-  devourer:     { inherits: "gravitor", silhouette: "devourer",
-                  note: "A walking black hole — void core pulls enemies in; the core is lethal.",
-                  cues: ["void core + containment rings", "inward gravity aura pulls foes to the lethal centre"] },
-  constellation:{ inherits: "flailship", silhouette: "constellation",
-                  note: "FOUR spiked maces on four chains — a whirling cage of momentum.",
-                  cues: ["four big spiked maces, evenly phased around the hull",
-                         "four stern chain hardpoints", "heads whiten as they spin faster"] },
-
-  // ===== TITAN-PLANE WORLD BOSS =====
-  dreadnought:  { hue: "#9aa7bd", silhouette: "dreadnought",
-                  note: "A colossal Star Destroyer: dark steel dagger hull, hunched command tower with a " +
-                        "glowing red bridge, blue engine banks, flak batteries, ominous red underglow.",
-                  cues: ["dwarfs every other ship", "red bridge + hull lights pulse", "bristles with point-defense flak"] },
-};
-
-// Leader/crowned overlay (David-vs-Goliath legibility): bigger body, crown glyph,
-// brighter bloom, AND a visibly bigger hitbox so the threat reads as also-a-target.
-window.PULSAR.leaderVisual = {
-  crownGlyph: true, bloomScale: 2.2, showOnMinimap: true,
-  note: "Power must LOOK like power — and the larger silhouette is the honest tell " +
-        "that it's now easier to hit.",
-};
-
-// Neutral objects: dim, desaturated, clearly non-threatening so PvE never reads as PvP.
-window.PULSAR.objectVisuals = {
-  asteroid: { hue: "#6b7280", shape: "blob" },
-  crystal:  { hue: "#5eead4", shape: "shard", faintGlow: true },
-  debris:   { hue: "#4b5563", shape: "fragment" },
-  wreckage: { hue: "#6b7280", shape: "bigBlob" },
-  pulsar:   { hue: "#ffffff", shape: "blackhole", pulsingBloom: true,
-              note: "A BLACK HOLE at map center: dark event horizon + photon ring, WARPS the grid " +
-                    "around it (frame-drag swirl), PULLS ships toward the core (touch it = death), " +
-                    "and fires intermittent bipolar RELATIVISTIC JETS of scrap along a rotating axis." },
+  // (Tier-4 apex + Dreadnought visual rows removed 2026-07-19 with the Titan layer — see DEVLOG.
+  //  Their hull models remain dormant in src/ships.js.)
 };

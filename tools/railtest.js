@@ -1,5 +1,4 @@
-// Headless test of RAIL PIERCING across the whole family (chargeRail / helionBeam / mawRail —
-// and zenith + prism, which delegate to those).
+// Headless test of RAIL PIERCING across the whole family (chargeRail / helionBeam / mawRail).
 // The contract (playtest round 2): the line PIERCES rocks and ships alike — nothing hard-blocks —
 // but every thing already pierced makes the NEXT SHIP hit much cheaper (pierceFalloff.players,
 // now steep: 1.0 / 0.4 / 0.18). Shooting a player through a boulder is a poke, not a snipe.
@@ -27,7 +26,6 @@ const put = (type, x, y) => {
 
 // ---- the dials themselves ----
 const PF = R.pierceFalloff.players;
-check('cover no longer hard-blocks (coverMinRadius is data, not a wall)', typeof R.coverMinRadius === 'number' && R.pierceBlockRadius === undefined);
 check('player falloff is STEEP (2nd target <= 45%, 3rd <= 25%)', PF[0] === 1 && PF[1] <= 0.45 && PF[2] <= 0.25, PF.join('/'));
 check('farming falloff untouched', R.pierceFalloff.neutral.join('/') === '1/0.9/0.8/0.7');
 
@@ -63,10 +61,8 @@ for (const [kind, cls, label] of [
   ['charge', 'railship', 'railship (overcharge)'],
   ['maw', 'starPiercer', 'starPiercer maw'],
   ['maw', 'starbreak', 'starbreak maw'],
-  ['maw', 'zenith', 'zenith (tier-4 maw)'],
   ['helion', 'helion', 'helion beam'],
   ['helion', 'supernova', 'supernova beam'],
-  ['helion', 'prism', 'prism (tier-4 beam + sub-beams)'],
 ]) {
   const open = shoot(kind, cls, null).dmg;
   const behind = shoot(kind, cls, 'asteroid').dmg;
@@ -116,30 +112,6 @@ check('the pierced rock still eats full damage', Math.abs(shoot('charge', 'rails
   global.PULSAR.resolveWeapon('chargeRail').fire(api, shooter);
   check('LINE BREAK pays through a row of boulders', shooter.scrap - scrap0 >= cfg.economy.lineBreakBonusScrap,
     `+${(shooter.scrap - scrap0).toFixed(0)} scrap`);
-})();
-
-// ---- Prism sub-beams: cover attenuates (not blocks, not free) ----
-(() => {
-  clearAll();
-  for (const s of [...world.state.ships]) world.removeShip(s.id);
-  const shooter = world.addShip({ classId: 'prism', isBot: false, x: 1000, y: 1000, aim: Math.PI });   // main beam aims AWAY
-  shooter.spawnProtect = 0; shooter.heat = 0; shooter.ventTimer = 0; shooter.beamRamp = 1;
-  const covered = world.addShip({ classId: 'railship', isBot: false, x: 1400, y: 1000, aim: Math.PI });
-  covered.spawnProtect = 0; covered.maxHp = covered.hp = 100000;
-  put('asteroid', 1200, 1000);
-  world.setIntent(shooter.id, { moveX: 0, moveY: 0, aim: Math.PI, aimDist: 1, firing: true, ability: false, special: false });
-  const hp0 = covered.hp;
-  for (let i = 0; i < 60; i++) world.step(DT);
-  const dCovered = hp0 - covered.hp;
-  // same rig, rock removed
-  clearAll();
-  covered.hp = covered.maxHp;
-  const hp1 = covered.hp;
-  for (let i = 0; i < 60; i++) world.step(DT);
-  const dOpen = hp1 - covered.hp;
-  const ratio = dCovered / dOpen;
-  check('prism sub-beam tags a covered target (no hard LOS block)', dCovered > 0, `${dCovered.toFixed(1)} dmg`);
-  check('...at the attenuated cover rate', Math.abs(ratio - PF[1]) < 0.08, `ratio ${ratio.toFixed(2)} vs ${PF[1]}`);
 })();
 
 console.log(fails ? `\n${fails} FAILURES` : '\nALL PASS');

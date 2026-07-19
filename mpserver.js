@@ -51,11 +51,9 @@ const world = global.PULSAR.createWorld({
   onKill(v, killer) {
     const nm = (s) => s ? (s.name || (global.PULSAR.classes[s.classId] || {}).displayName || 'Ship') : null;
     broadcast({ t: 'kill', kn: killer && killer !== v ? nm(killer) : null, vn: nm(v), ld: v.isLeader ? 1 : 0 });
-    if (v.classId === 'dreadnought' && killer) for (const c of clients.values()) if (c.shipId === killer.id) { c.commandeerUntil = Date.now() + 7000; break; }   // slayer may seize the hull
   },
 });
 world.spawnBots(cfg.bots.count);     // bots fill the world until/with players; tune as desired
-world.spawnTitans(cfg.bots.titanCount);   // seed the Titan plane so an ascended player finds a fight
 
 // ---- snapshots ----
 function shipSnap(s) {
@@ -201,7 +199,6 @@ server.on('upgrade', (req, socket) => {
       let msg; try { msg = JSON.parse(payload.toString('utf8')); } catch (e) { continue; }
       if (msg.t === 'in') { const c = clients.get(socket); if (c) { world.setIntent(c.shipId, msg.i); if (msg.q != null) c.lastSeq = msg.q >>> 0; } }   // INPUT INTENT (+ prediction seq)
       else if (msg.t === 'evolve') { const c = clients.get(socket); if (c && c.shipId != null) world.chooseEvolution(world.getShip(c.shipId), msg.i | 0); }
-      else if (msg.t === 'cmdr') { const c = clients.get(socket); if (c && c.shipId != null && c.commandeerUntil && Date.now() < c.commandeerUntil) { world.becomeDreadnought(c.shipId); c.commandeerUntil = 0; } }
       else if (msg.t === 'join') {
         const c = clients.get(socket); if (!c) continue;
         if (c.shipId == null) {                                    // first join on this socket: create or reattach

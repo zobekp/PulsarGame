@@ -113,22 +113,7 @@ window.PULSAR.Bots = (function () {
 
     let enemy = null, ed = 1e9, rock = null, rd = 1e9;
     for (const s of world.ships) if (s !== bot && s.alive && s.team !== bot.team && (s.plane | 0) === (bot.plane | 0)) { const d = dist(bot, s); if (d < ed) { ed = d; enemy = s; } }
-    // bots farm rocks, not mountains — and only on plane 0: every object lives in the normal
-    // arena's rect, so Titan-plane bots must never chase (or path toward) rocks they can't reach.
-    if ((bot.plane | 0) === 0) for (const o of world.objects) { if (o.type === 'titan') continue; const d = dist(bot, o); if (d < rd) { rd = d; rock = o; } }
-
-    // DREADNOUGHT boss: no farming/strafing/fleeing. Ponderously turn to face the nearest foe and
-    // creep toward it, holding a standoff. Its turrets aim + fire on their own (see dreadnoughtGuns).
-    if (bot.classId === 'dreadnought') {
-      if (enemy) {
-        const want = Math.atan2(enemy.y - bot.y, enemy.x - bot.x);
-        const aim = swivel(ai, want, 0.5, dt);                 // slow, heavy rotation
-        const approach = ed > bot.radius * 2.6 ? 1 : 0;        // close to a standoff, then hold
-        return { moveX: Math.cos(want) * approach, moveY: Math.sin(want) * approach, aim, aimDist: 1, firing: false };
-      }
-      ai.aimCur = bot.aim;
-      return { moveX: 0, moveY: 0, aim: bot.aim, aimDist: 1, firing: false };
-    }
+    for (const o of world.objects) { if (o.type === 'titan') continue; const d = dist(bot, o); if (d < rd) { rd = d; rock = o; } }   // bots farm rocks, not mountains
 
     if (ai.t <= 0) {
       ai.t = C.decisionSec; ai.strafeDir = rnd() < 0.5 ? 1 : -1;
@@ -190,35 +175,9 @@ window.PULSAR.Bots = (function () {
         aimAng = swivel(ai, ang(bot, rock) + gauss(C.aimErrorRad * 0.4), turnRate, dt); aimDist = rd;
         if (rd > reachOf(bot, fam) * 0.7) go(rock.x, rock.y);
         fire = farmFire(bot, fam, rd);
-      } else if ((bot.plane | 0) === 1) {
-        // TITAN PLANE: Titans HUNT, they don't farm — PROWL. Stride toward the nearest Titan
-        // anywhere on the plane (the normal fight state takes over inside engageRange); alone,
-        // cruise between roam waypoints so the plane feels patrolled. (The old center-ring hover
-        // made lone Titans jitter in place: the go-target degenerated to their own position.)
-        // The plane's debris is deliberately NOT a movement target up here — see the grav note below.
-        const TH = C.titanHunt || {};
-        if (enemy) {
-          aimAng = swivel(ai, ang(bot, enemy), turnRate, dt); aimDist = ed;
-          go(enemy.x, enemy.y);
-        } else {
-          const m = TH.roamMargin || 800;
-          const off = world.config.titanPlane ? world.config.titanPlane.offsetX : 0;
-          if (!ai.roam || Math.hypot(ai.roam.x - bot.x, ai.roam.y - bot.y) < (TH.roamRepick || 300))
-            ai.roam = { x: off + m + rnd() * (world.arena.width - m * 2), y: m + rnd() * (world.arena.height - m * 2) };
-          aimAng = swivel(ai, ang(bot, ai.roam), turnRate, dt);
-          go(ai.roam.x, ai.roam.y);
-        }
-        // GRAV prowls with the well OPEN. Its kit is terrain-fed, so it must arrive at the fight
-        // already loaded — but chasing rocks would break the hunt. The well pulls anything inside
-        // pullRadius to it, so simply holding fire hoovers ammo off the debris field while it
-        // roams: hunting movement, farming intake.
-        if (fam === 'grav') {
-          const lc = world.config.gravitor.launchByClass[bot.classId] || world.config.gravitor.launchByClass.gravitor;
-          fire.firing = !bot.captured || bot.captured.length < lc.cap;
-        }
       } else {
-        // plane 0: hover near the black hole (where the action + jets are) but OUTSIDE its
-        // pull, not into it. Rocks are plentiful down here, so this branch is rarely idle-held.
+        // hover near the black hole (where the action + jets are) but OUTSIDE its pull, not
+        // into it. Rocks are plentiful, so this branch is rarely idle-held.
         const bcx = world.arena.width / 2, bcy = world.arena.height / 2;
         const ba = Math.atan2(bot.y - bcy, bot.x - bcx);
         const safe = (world.arena.pulsar ? world.arena.pulsar.pullRadius : 900) * 0.85;

@@ -15,26 +15,6 @@ window.PULSAR = window.PULSAR || {};
 
   // Shared beam corridor query: everything hittable within `halfWidth` of the ray, sorted
   // near-to-far. Used by the continuous beams (helion / maw); chargeRail keeps its own.
-  // A bulky neutral (config.railship.coverMinRadius) counts as COVER. Nothing hard-blocks a rail
-  // line anymore (piercing is the fantasy) — aimed beams price cover through the pierce-index
-  // falloff; auto-aim (Prism sub-beams, which have no pierce order) attenuates through it instead.
-  function isCover(api, t) { return !t.isShip && t.radius >= api.config.railship.coverMinRadius; }
-
-  // Line of sight from a ship to a target: is a bulky neutral sitting BETWEEN them? `pad` widens
-  // the rock a touch so a sub-beam can't thread a pixel gap at the edge of a boulder.
-  function coverBetween(api, ship, target, pad) {
-    const dx = target.x - ship.x, dy = target.y - ship.y, len = Math.hypot(dx, dy) || 1;
-    const ux = dx / len, uy = dy / len;
-    for (const o of api.state.objects) {
-      if (!isCover(api, o)) continue;
-      const along = (o.x - ship.x) * ux + (o.y - ship.y) * uy;
-      if (along <= 0 || along >= len) continue;                       // not between us
-      const perp = Math.abs((o.x - ship.x) * -uy + (o.y - ship.y) * ux);
-      if (perp <= o.radius + (pad || 0)) return true;
-    }
-    return false;
-  }
-
   function beamHits(api, ship, ox, oy, dx, dy, range, halfWidth) {
     const hits = [];
     for (const t of api.hittables(ship)) {
@@ -50,78 +30,6 @@ window.PULSAR = window.PULSAR || {};
   // ---- WEAPONS -------------------------------------------------------------
   const weapons = {
 
-    // ===== TIER-4 APEX WEAPONS — each builds on its final's weapon (bigger via tier-4 scaling) =====
-    // ZENITH: the spinal siege railgun + ALWAYS-ON autoaim point-defense batteries.
-    zenithRail: {
-      update(api, ship, dt, ctx) {
-        weapons.mawRail.update(api, ship, dt, ctx);
-        ship._pdCd = (ship._pdCd || 0) - dt;
-        if (ship._pdCd <= 0) {
-          const pd = api.config.railship.zenith.pointDefense, rng = pd.range * (ship.rangeMult || 1);
-          let best = null, bd = rng;
-          for (const e of api.enemiesOf(ship)) { if (e.spawnProtect > 0) continue; const d = Math.hypot(e.x - ship.x, e.y - ship.y); if (d < bd) { bd = d; best = e; } }
-          if (best) {
-            ship._pdCd = pd.cooldownSec;
-            // fire a SLOW cyan BOLT (projectile, dodgeable) toward the target — not hitscan
-            const a = Math.atan2(best.y - ship.y, best.x - ship.x), dx = Math.cos(a), dy = Math.sin(a);
-            const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
-            api.state.projectiles.push({
-              x: ox, y: oy, px: ox, py: oy, vx: dx * pd.projectileSpeed, vy: dy * pd.projectileSpeed,
-              radius: pd.projectileRadius, damage: pd.damage, pierceLeft: 1, life: pd.projectileLifeSec,
-              color: '#9fe8ff', team: ship.team, owner: ship, plane: ship.plane | 0,
-            });
-            api.fx.spawnParticles(ox, oy, 3, '#9fe8ff', { dir: a, spread: 0.3, speed: 150 });
-          }
-        }
-      },
-    },
-    // PRISM: the ramping beam + auto-tracking sub-beams onto the next-nearest enemies.
-    prismBeam: {
-      update(api, ship, dt, ctx) {
-        weapons.helionBeam.update(api, ship, dt, ctx);
-        const ramp = ship.beamRamp || 0;
-        if (ctx.firing && ramp > 0.05) {
-          const P = api.config.helion.prism, rng = P.range * (ship.rangeMult || 1), cands = [];
-          // Sub-beams track by distance and have no pierce order, so cover is priced here
-          // directly: a target hiding behind a boulder still gets tagged, but at the same steep
-          // behind-something rate the aimed beams pay (pierceFalloff.players[1]).
-          for (const e of api.enemiesOf(ship)) {
-            if (e.spawnProtect > 0) continue;
-            const d = Math.hypot(e.x - ship.x, e.y - ship.y);
-            if (d < rng) cands.push({ e, d, covered: coverBetween(api, ship, e, P.subWidth) });
-          }
-          cands.sort((a, b) => a.d - b.d);
-          const coverMult = api.config.railship.pierceFalloff.players[1];
-          for (let i = 0; i < Math.min(P.subBeams, cands.length); i++) {
-            const e = cands[i].e, a = Math.atan2(e.y - ship.y, e.x - ship.x), dx = Math.cos(a), dy = Math.sin(a);
-            api.damage(e, P.subDps * ramp * dt * (cands[i].covered ? coverMult : 1), { dx, dy, knockback: 0, source: ship });
-            api.fx.spawnBeam(ship.x + dx * ship.radius, ship.y + dy * ship.radius, e.x, e.y, hueFor(ship.classId), P.subWidth, 0.05, 0.4 * ramp * (cands[i].covered ? 0.5 : 1));
-          }
-        }
-      },
-    },
-    // JUGGERNAUT: the ram (tier-4 scaling makes it a plow). TODO: sustained overrun that hits all in a corridor.
-    juggernautRam: { update(api, ship, dt, ctx) { weapons.hammerRam.update(api, ship, dt, ctx); } },
-    // CATACLYSM: the gravity well for now. TODO: orbital meteor barrage on a marked area.
-    cataclysm: { update(api, ship, dt, ctx) { weapons.gravityWell.update(api, ship, dt, ctx); } },
-    // DEVOURER: the gravity well + a lethal BLACK-HOLE field (pull enemies in; the core kills).
-    devourerWell: {
-      update(api, ship, dt, ctx) {
-        weapons.gravityWell.update(api, ship, dt, ctx);
-        const D = api.config.gravitor.devourer, R = D.pullRadius * (ship.rangeMult || 1);
-        for (const e of api.enemiesOf(ship)) {
-          const dx = ship.x - e.x, dy = ship.y - e.y, d = Math.hypot(dx, dy) || 1;
-          if (d > R) continue;
-          const f = 1 - d / R;
-          e.impX = (e.impX || 0) + (dx / d) * D.pull * f * f * dt;
-          e.impY = (e.impY || 0) + (dy / d) * D.pull * f * f * dt;
-          if (d < ship.radius + D.lethalRadius) api.damage(e, D.coreDps * dt, { dx: -dx / d, dy: -dy / d, knockback: 0, source: ship });
-        }
-      },
-    },
-    // CONSTELLATION: FOUR spiked maces (wreckingOrb reads classId for head count + the heavy profile).
-    constellation: { update(api, ship, dt, ctx) { weapons.wreckingOrb.update(api, ship, dt, ctx); } },
-
     popgun: {
       update(api, ship, dt, ctx) {
         ship.fireTimer = (ship.fireTimer || 0) - dt;
@@ -135,67 +43,6 @@ window.PULSAR = window.PULSAR || {};
           life: c.projectileLifeSec, color: c.color, team: ship.team, owner: ship, plane: ship.plane | 0,
         });
         ship.fireTimer = c.fireCooldownSec;
-      },
-    },
-
-    // DREADNOUGHT world boss — SIX independently-tracking turrets. Each swings its barrel onto the
-    // nearest foe, paints a RED LASER SIGHT for telegraphSec (the dodge window), THEN fires one slow
-    // low-damage bolt down that line. Turret state (angle/telegraph) lives on the ship for the model.
-    dreadnoughtGuns: {
-      update(api, ship, dt, ctx) {
-        const D = api.config.dreadnought, T = D.turrets, g = D.guns, TAU = Math.PI * 2;
-        // The AI boss fires on its own; a PLAYER who commandeered the hull fires at will —
-        // guns on LMB (firing), missiles on RMB (altFire). Turrets still auto-track the nearest foe.
-        const canFire = ship.isBot || (ctx && ctx.firing);
-        const canMissile = ship.isBot || (ctx && ctx.altFire);
-        if (!ship.turrets || ship.turrets.length !== T.mounts.length) {
-          ship.turrets = T.mounts.map((m, i) => ({ angle: ship.aim, cd: T.cooldownSec * (i / T.mounts.length), tel: 0, mx: ship.x, my: ship.y }));
-        }
-        let e = null, ed = 1e9;
-        for (const en of api.enemiesOf(ship)) { if (en.spawnProtect > 0) continue; const d = Math.hypot(en.x - ship.x, en.y - ship.y); if (d < ed) { ed = d; e = en; } }
-        const inRange = e && ed < T.range * (ship.rangeMult || 1);
-        const ca = Math.cos(ship.aim), sa = Math.sin(ship.aim), step = T.slewRadPerSec * dt;
-        for (let i = 0; i < ship.turrets.length; i++) {
-          const tur = ship.turrets[i], m = T.mounts[i];
-          tur.mx = ship.x + (m[0] * ca - m[1] * sa) * ship.radius;   // world mount (hull rotates by aim)
-          tur.my = ship.y + (m[0] * sa + m[1] * ca) * ship.radius;
-          const want = inRange ? Math.atan2(e.y - tur.my, e.x - tur.mx) : ship.aim;
-          let da = want - tur.angle; while (da > Math.PI) da -= TAU; while (da < -Math.PI) da += TAU;
-          tur.angle += Math.max(-step, Math.min(step, da));
-          if (!inRange) { tur.tel = 0; if (tur.cd > 0) tur.cd -= dt; continue; }
-          if (tur.tel > 0) {
-            tur.tel -= dt;                                          // painting the laser sight
-            if (tur.tel <= 0) {                                    // release the bolt down the line
-              const ox = tur.mx + Math.cos(tur.angle) * ship.radius * 0.18, oy = tur.my + Math.sin(tur.angle) * ship.radius * 0.18;
-              api.state.projectiles.push({
-                x: ox, y: oy, px: ox, py: oy, vx: Math.cos(tur.angle) * g.projectileSpeed, vy: Math.sin(tur.angle) * g.projectileSpeed,
-                radius: g.projectileRadius, damage: g.damage, pierceLeft: 1, life: g.projectileLifeSec,
-                color: g.color, team: ship.team, owner: ship, plane: ship.plane | 0,
-              });
-              api.fx.spawnParticles(ox, oy, 7, g.color, { dir: tur.angle, spread: 0.35, speed: 260 });
-              tur.cd = T.cooldownSec;
-            }
-          } else if (tur.cd <= 0 && Math.abs(da) < 0.12 && canFire) {
-            tur.tel = ship.isBot ? T.telegraphSec : 0.001;         // bot telegraphs (readable boss); player fires at will
-          } else if (tur.cd > 0) tur.cd -= dt;
-        }
-        // HOMING MISSILE volley on a cadence — bot autofires; player triggers on RMB
-        ship._missileCd = (ship._missileCd || 0) - dt;
-        if (inRange && canMissile && ship._missileCd <= 0) {
-          const M = D.missiles; ship._missileCd = M.cooldownSec;
-          const base = Math.atan2(e.y - ship.y, e.x - ship.x);
-          for (let i = 0; i < M.count; i++) {
-            const a = base + (i - (M.count - 1) / 2) * M.spreadRad;
-            const ox = ship.x + Math.cos(a) * ship.radius * 0.7, oy = ship.y + Math.sin(a) * ship.radius * 0.7;
-            api.state.projectiles.push({
-              x: ox, y: oy, px: ox, py: oy, vx: Math.cos(a) * M.speed, vy: Math.sin(a) * M.speed,
-              radius: M.radius, damage: M.damage, pierceLeft: 1, life: M.lifeSec, color: M.color,
-              kind: 'missile', homing: true, turnRate: M.turnRate, speed: M.speed,
-              team: ship.team, owner: ship, plane: ship.plane | 0,
-            });
-            api.fx.spawnParticles(ox, oy, 6, M.color, { dir: a, spread: 0.4, speed: 200 });
-          }
-        }
       },
     },
 
@@ -607,13 +454,10 @@ window.PULSAR = window.PULSAR || {};
     wreckingOrb: {
       update(api, ship, dt, ctx) {
         const F = api.config.flailship;
-        // Heavier finals carry BIGGER SPIKED MACES via a multiplier profile over F.orb: Binary Star
-        // (2 heavy heads) and Constellation (4 heads). They still block projectiles (block radius
-        // scales with head size).
+        // Binary Star carries BIGGER SPIKED MACES via a multiplier profile over F.orb. They still
+        // block projectiles (block radius scales with head size).
         let O = F.orb;
-        const prof = ship.classId === 'binaryStar' ? (F.binaryStar && F.binaryStar.mace)
-                   : ship.classId === 'constellation' ? (F.constellation && F.constellation.mace)
-                   : null;
+        const prof = ship.classId === 'binaryStar' ? (F.binaryStar && F.binaryStar.mace) : null;
         if (prof) O = Object.assign({}, F.orb, {
           spinSpeedMin: F.orb.spinSpeedMin * prof.spinMult, spinSpeedMax: F.orb.spinSpeedMax * prof.spinMult,
           releaseSweepRadPerSec: F.orb.releaseSweepRadPerSec * prof.spinMult,
@@ -625,7 +469,7 @@ window.PULSAR = window.PULSAR || {};
         // bigger hull => longer chain: the maces reach + swing wider as the ship grows
         const rm = ship.rangeMult || 1;
         if (rm !== 1) O = Object.assign({}, O, { maxReach: O.maxReach * rm, spinRadius: O.spinRadius * rm, trailDistance: O.trailDistance * rm });
-        const HEADS = { twinmaul: 2, binaryStar: 2, constellation: 4 };
+        const HEADS = { twinmaul: 2, binaryStar: 2 };
         const nHeads = HEADS[ship.classId] || 1;
         const twin = nHeads > 1;
         const dmgMult = twin ? F.twin.dmgMult : 1;

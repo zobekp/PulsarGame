@@ -409,7 +409,6 @@ window.PULSAR.MP = (function () {
       }
     },
     sendEvolve(i) { send({ t: 'evolve', i: i | 0 }); },
-    sendCommandeer() { send({ t: 'cmdr' }); },
     sendName(name) { myName = name || ''; send(Object.assign({ t: 'join', name: myName, tk: TOKEN, skin: mySkin() }, myView())); },
     sendAdmin(action) { send({ t: 'admin', a: action }); },   // dev cheats — server honors unless PULSAR_ADMIN=0
   };

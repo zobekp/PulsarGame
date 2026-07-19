@@ -6,6 +6,37 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-19 — SIMPLIFICATION: Titan plane, tier-4 apexes & Dreadnought REMOVED (cosmetics kept)
+Playtest verdict: "games far too complicated now." Reverted the game to pre-Titan scope — the
+evolution tree ends at the tier-3 FINALS again — while keeping everything orthogonal that landed
+since: cosmetics (all 14 liveries + shop + cores), hammerhead set-damage-by-charge, rail piercing
+v2 (steep player falloff), the MP fixes (predict() guard, object-flash latch, view-scaled interest
+culling), and the Phase 4 bot feel pass.
+
+**Removed (gameplay):** the 6 tier-4 apex classes + configs/weapons/blurbs/visual rows; the
+Dreadnought world boss (class, config, turrets/missiles/shield seeding, AI branch, bounty,
+commandeer flow incl. [Y] prompt + MP `cmdr` protocol); the Titan plane (offset rect, debris
+field, per-plane spawns/clamps/bounds, ascension teleport + warp cinematic + briefing panel,
+prowl AI, minimap variant); `levelApex` + apex evolution cost; scaling arrays trimmed to rank 3.
+The now-orphaned cover-LOS helpers (`isCover`/`coverBetween`, `coverMinRadius`) went with Prism.
+
+**Kept dormant on purpose (zero player-facing surface, removal = churn + regression risk):**
+the `plane` field plumbing (everything is plane 0; filters are no-ops), the generic deflector-
+shield + homing-missile support in sim/MP/render (nothing sets them), and the apex/Dreadnought
+HULL MODELS in src/ships.js (unreachable pure functions — cheap to resurrect if an endgame
+returns). DreadnoughtSprite.png stays in the repo root as an asset.
+
+**History:** everything removed lives one commit back — `ac7b695` is a full pre-removal
+checkpoint, so this is a single-revert restore if the endgame ever comes back.
+
+**Files:** data/classes.js, data/config.js, data/visuals.js, src/sim.js, src/weapons.js,
+src/bots.js, src/game.js, src/mpclient.js, mpserver.js; tests: planetest.js + gravtest.js deleted
+(their subjects no longer exist), hammertest/railtest trimmed of apex entries.
+**How to test:** all 8 remaining suites ALL PASS (sptest, finaltest, skintest, hammertest,
+railtest, edgetest, predtest, botmatchtest). Live boot verified: class tree renders 3 tiers ending
+at the finals, bot lobby runs, no console errors.
+
+
 ## 2026-07-17 — Rail piercing RESTORED; cover is priced in damage, not walls (playtest round 2)
 Playtest verdict on yesterday's pierce-walls: "rail sucks now, bring back piercing, just with
 significantly more damage dropoff against players." Done exactly that:

@@ -1,6 +1,6 @@
 // Headless test of the HAMMERHEAD lineage's ram damage: it must be SET damage (a knowable
 // number, never a share of the target's max HP) that scales LINEARLY with charge time —
-// across hammerhead -> maulbreaker -> worldsplitter -> juggernaut.
+// across hammerhead -> maulbreaker -> worldsplitter.
 'use strict';
 global.window = global;
 require('../data/config.js'); require('../data/classes.js'); require('../data/farming.js'); require('../data/visuals.js');
@@ -39,7 +39,7 @@ check('quarter charge == exact quarter-point (linear)', near(dq, R.damageMin + (
 check('damage strictly increases with charge time', d0 < dq && dq < dh && dh < d1, `${d0} < ${dq.toFixed(1)} < ${dh.toFixed(1)} < ${d1}`);
 
 // ---- the whole lineage rams by the same set, charge-scaled rule ----
-for (const cls of ['hammerhead', 'maulbreaker', 'worldsplitter', 'juggernaut']) {
+for (const cls of ['hammerhead', 'maulbreaker', 'worldsplitter']) {
   const lo = baseAtCharge(0, cls), hi = baseAtCharge(1, cls);
   check(`${cls}: set damage, scales with charge`, near(lo, R.damageMin) && near(hi, R.damageMax), `${lo} -> ${hi}`);
 }
@@ -68,7 +68,7 @@ check('tap ram lands damageMin x rank mult', near(tapHit.dealt, R.damageMin * ta
 check('full ram hits much harder than a tap', small.dealt > tapHit.dealt * 3, `${tapHit.dealt.toFixed(1)} -> ${small.dealt.toFixed(1)}`);
 
 // ---- tuning intent: a full ram can't execute a SAME-RANK peer from full HP ----
-for (const cls of ['hammerhead', 'maulbreaker', 'worldsplitter', 'juggernaut']) {
+for (const cls of ['hammerhead', 'maulbreaker', 'worldsplitter']) {
   const atk = world.addShip({ classId: cls, x: 1050, y: 1000, aim: 0 });
   const vic = world.addShip({ classId: cls, x: 1015, y: 1000, aim: Math.PI });
   vic.spawnProtect = 0;

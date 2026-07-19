@@ -97,9 +97,9 @@ window.PULSAR.config = {
     levelChooseClass: 3,          // pick one of the 4 families
     levelChoosePath: 8,           // pick upgrade branch
     levelFinalEvolution: 15,      // final class form
-    levelLeaderScaling: 25,       // dreadnought / crowned scaling kicks in
-    levelApex: 30,                // TIER-4 Titan-class apex (one per final) — past leader scaling
-    evolutionCosts: { class: 30, path: 80, final: 160, apex: 320 }, // scrap spent = banked progress
+    levelLeaderScaling: 25,       // crowned-leader scaling kicks in
+    // (levelApex / apex cost removed 2026-07-19 — the tree ends at tier-3 finals; see DEVLOG)
+    evolutionCosts: { class: 30, path: 80, final: 160 }, // scrap spent = banked progress
     // Level from cumulative earned scrap (XP): xpToReach(L) = round(k * (L-1)^exp).
     // ~L3≈28xp (early), L8≈250, L15≈880, L25≈2360 (leader grind). Tune in playtest.
     levelCurve: { k: 8, exp: 1.8 },
@@ -117,34 +117,13 @@ window.PULSAR.config = {
   //   • Maneuver (top speed + accel) tapers with size, so capital ships LUMBER and small ships
   //     dance around them — the David-vs-Goliath counterplay. Derived from radius so SP == MP.
   scaling: {
-    sizeByRank:  [1.0, 1.5, 2.2, 3.1, 4.2],   // rank 4 = Titan-class apex (radius == hitbox == drawn hull)
-    hpByRank:    [1.0, 2.0, 3.6, 6.0, 9.0],   // durability grows with hull, but less than area (still killable)
-    dmgByRank:   [1.0, 1.8, 3.0, 4.8, 6.5],   // bigger guns hit harder (keeps intra-rank TTK reasonable)
-    rangeByRank: [1.0, 1.2, 1.45, 1.7, 2.0],  // bigger weapons REACH further — beams, chain, lunge, grav field
+    sizeByRank:  [1.0, 1.5, 2.2, 3.1],   // rank 3 (final) is the ceiling — tier-4 apexes removed 2026-07-19
+    hpByRank:    [1.0, 2.0, 3.6, 6.0],   // durability grows with hull, but less than area (still killable)
+    dmgByRank:   [1.0, 1.8, 3.0, 4.8],   // bigger guns hit harder (keeps intra-rank TTK reasonable)
+    rangeByRank: [1.0, 1.2, 1.45, 1.7],  // bigger weapons REACH further — beams, chain, lunge, grav field
     leaderSizeMult: 1.5,  leaderHpMult: 1.6,  leaderDmgMult: 1.4,  leaderRangeMult: 1.3,  // dominance → dreadnought
     maneuver: { fullSizeRadius: 62, minMult: 0.70 }, // speed+accel taper: 1.0 at baseRadius → minMult by this size
                                                      // (0.70: eased so big brawlers can still close on kiters — tune in playtest)
-  },
-
-  // ---- Titan plane (tier-4 apexes) --------------------------------------------
-  // The Titan plane is a PHYSICALLY separate arena: same size as the main one, shifted
-  // far along +X. Nothing up there shares space with the farm field anymore — Titans
-  // can't (visibly or invisibly) destroy the rocks players farm, and no weapon/aura can
-  // reach across the void between the two rects.
-  titanPlane: {
-    offsetX: 14000,   // left edge of the Titan rect (arena is 6000 wide -> an 8000px void between planes)
-    // DEBRIS FIELD — the Titan rect is a BATTLEFIELD, not a mine. These rocks exist so the plane
-    // is a PLACE (cover, landmarks, something to path around) and, critically, so the Gravitor
-    // lineage has AMMO up here: its whole kit (capture -> hurl, orbital shield, orbit contact) is
-    // terrain-fed, and a rockless plane left the grav apexes disarmed AND unarmoured.
-    // They are ammo, not terrain: every Titan-class hull PLOWS THROUGH them (see plowRank), so a
-    // debris field can never chip the big hulls or stall their regen.
-    // Sparser + rubble-weighted vs the main field (320 asteroid-heavy) — this is wreckage, not a farm.
-    debris: { count: 110, weights: { asteroid: 3, crystal: 1, debris: 6 }, respawnSec: 6, edgeInset: 120 },
-    // Hulls at this rank or above take NO rock contact damage — they shoulder rubble aside.
-    // (Rank: starter=0, base=1, tier-2=2, final=3, Titan apex=4. The Dreadnought is tier 4 too,
-    //  which is why this replaces the old hardcoded `classId !== 'dreadnought'` check.)
-    plowRank: 4,
   },
 
   // ---- Meta / persistence (Phase 6) ------------------------------------------
@@ -173,40 +152,9 @@ window.PULSAR.config = {
   // ---- Bots (Phase 4 — the prove-it opponents) -------------------------------
   // Free-for-all AI ships that farm, fight, contest the pulsar, dodge telegraphs, and
   // evolve. They drive the SAME data weapons as the player via a synthesized input intent.
-  // DREADNOUGHT — a Star-Destroyer world boss that haunts the Titan plane. Enormous, crawling
-  // slow, low damage, monstrously tanky; slaying it pays a huge XP/scrap bounty. A group objective.
-  dreadnought: {
-    count: 1,                    // world bosses alive at once on the Titan plane
-    respawnSec: 90,              // long respawn — it's an event, not cannon fodder
-    bounty: 2500,                // flat XP+scrap awarded to whoever lands the killing blow
-    spawnScrap: 1200,            // carried scrap => a mote shower on death for everyone who helped
-    stats: { hp: 14, speed: 0.16, sizeMult: 3.0 },   // ≈14.7k HP, ≈200px radius, ≈30px/s crawl
-    // Bolts are telegraphed (0.9s red laser sight) so they SHOULD hurt if you eat one — dodge the sight.
-    guns: { damage: 16, projectileSpeed: 300, projectileRadius: 12, projectileLifeSec: 3.0, color: '#ff5a3c' },
-    // Six visible turrets that independently track the nearest foe, paint a RED LASER SIGHT for
-    // `telegraphSec`, THEN fire a bolt down that line. Obvious tells; the boss is readable, not weird.
-    turrets: {
-      mounts: [[0.62, 0.3], [0.62, -0.3], [0.1, 0.52], [0.1, -0.52], [-0.42, 0.72], [-0.42, -0.72]],  // local (x,y) in radii
-      range: 720,              // start tracking/firing when the nearest enemy is within this
-      slewRadPerSec: 1.3,      // how fast a barrel swings onto target (slow, ponderous)
-      cooldownSec: 2.4,        // rest between a turret's shots
-      telegraphSec: 0.9,       // red laser-sight warning BEFORE the bolt releases (dodge window)
-    },
-    // DEFLECTOR SHIELD — a hex bubble that eats ALL hull damage until it's burst. It can't be killed
-    // while the shield holds; back off and it recharges, so you must commit and break it in one push.
-    shield: { max: 7000, regenDelaySec: 4.5, regenPerSec: 900 },
-    // HOMING MISSILE pods — slow-turning trackers you can juke, launched in volleys on a long cadence.
-    missiles: { count: 3, cooldownSec: 4.5, damage: 11, speed: 300, turnRate: 2.2, radius: 8, lifeSec: 6, spreadRad: 0.7, color: '#ffb24a' },
-  },
 
   bots: {
     count: 6,
-    titanCount: 5,               // Titan-plane apex bots seeded so an ascended player finds a fight up there
-    // ---- Titan-plane idle (the hunt zone has no rocks; bots PROWL instead of farming) ----
-    titanHunt: {
-      roamMargin: 800,           // roam waypoints stay this far inside the Titan rect walls
-      roamRepick: 300,           // waypoint counts as reached within this range -> pick a new one
-    },
     respawnDelaySec: 3.0,
     senseRange: 1150,             // pursue enemies within this awareness halo; firing stays range-gated
     engageRange: 700,             // switch from closing to family-specific combat movement here
@@ -351,17 +299,10 @@ window.PULSAR.config = {
     // open-lane rail is untouched. Farming falloff (`neutral`) is unchanged, so multi-rock
     // LINE BREAKS pay exactly as before.
     pierceFalloff: { neutral: [1.0, 0.9, 0.8, 0.7], players: [1.0, 0.4, 0.18] },
-    // A neutral at least this big still counts as COVER for AUTO-AIM: Prism's tracking sub-beams
-    // have no pierce order, so they attenuate through it (x players[1]) instead — see weapons.js.
-    // Aimed beams price cover via the pierce index above; nothing hard-blocks anymore.
-    coverMinRadius: 30,
     lineBreakThreshold: 3,
     // Tier mods applied by class id. Multipliers/values vs the base rail above.
     evolveMods: {},   // tier-2 rails now have their OWN weapons (helionBeam / mawRail) — no stat-mod evolutions
     brokenCoreMarkSec: 2.0,   // Star Piercer special: weak-point mark duration on cracked leaders
-    // ZENITH (tier-4): always-on autoaim point-defense batteries — chip the nearest enemy while you charge.
-    // Autoaim point-defense: SLOW cyan BOLTS (projectile, dodgeable), not hitscan. Light chip damage.
-    zenith: { pointDefense: { range: 560, damage: 8, cooldownSec: 0.34, projectileSpeed: 340, projectileRadius: 6, projectileLifeSec: 2.2 } },
     // Star Piercer siege maw (branch B weapon). Charging OPENS the cannon — beam width IS
     // maw width. Release fires ONE instantaneous blast: all the damage lands the frame you
     // let go, along the aim you committed to. Fired, not steered — miss = recycle wasted.
@@ -437,8 +378,6 @@ window.PULSAR.config = {
   // the gun force-vents.
   helion: {
     stats: { hp: 0.85, speed: 0.97, sizeMult: 0.94, difficulty: "medium" },
-    // PRISM (tier-4): the ramping beam splits into auto-tracking sub-beams onto the nearest enemies.
-    prism: { range: 900, subBeams: 3, subDps: 42, subWidth: 3 },
     beam: {
       range: 680, halfWidth: 6,        // thin, honest hitbox (bloom matches)
       dpsBase: 24, dpsMax: 82,         // ramp start -> full fury
@@ -465,8 +404,6 @@ window.PULSAR.config = {
   // Lineage: descends from Nova (Collapse/Event Horizon == Nova "pull-then-detonate").
   gravitor: {
     stats: { hp: 0.90, speed: 0.90, sizeMult: 1.02, difficulty: "medium" },
-    // DEVOURER (tier-4): a walking black hole — pull enemies toward the core; the very centre kills.
-    devourer: { pullRadius: 440, pull: 900, lethalRadius: 34, coreDps: 130 },
     well: {
       pullRadius: 440, enemyPull: 30, enemySlow: 0.10,
       launchSpeed: 660, launchDamage: 24,
@@ -493,12 +430,6 @@ window.PULSAR.config = {
       // Branch B (control) — fewer rocks, the well itself is the weapon (tidalDrag).
       singularity:  { cap: 4, per: 1, cd: 0.5 },
       eventHorizon: { cap: 6, per: 2, cd: 0.35 },
-      // TIER-4 apexes. These MUST be listed: both lookup sites do
-      // `launchByClass[classId] || launchByClass.gravitor`, so a missing row silently drops the
-      // apex to the tier-1 BASE profile (cap 3 / per 1 / cd 0.45) — i.e. ascending from starfall
-      // or eventHorizon USED TO BE a straight downgrade. Every apex must beat its parent row.
-      cataclysm: { cap: 7, per: 3, cd: 0.13 },   // artillery apex (parent starfall 5/2/0.15)
-      devourer:  { cap: 7, per: 2, cd: 0.30 },   // control apex — the well is the main gun (parent eventHorizon 6/2/0.35)
     },
     // DUST ACCRETION — the anti-sitting-duck floor. When the well is below capacity and
     // there is NOTHING capturable in range, it condenses a small PEBBLE from dust every
@@ -566,10 +497,6 @@ window.PULSAR.config = {
       // projectiles (the block radius scales up with the head size). Tune in playtest.
       mace: { spinMult: 1.4, reachMult: 1.35, dmgMult: 1.4, sizeMult: 1.6 },
     },
-    // CONSTELLATION (tier-4 apex): FOUR spiked maces on four chains, evenly phased — a whirling
-    // cage of momentum. Per-head damage trimmed (four of them) but the wall of heads + tier-4
-    // scaling makes it the heaviest flail. No tether; the four maces ARE the threat.
-    constellation: { heads: 4, mace: { spinMult: 1.2, reachMult: 1.3, dmgMult: 0.9, sizeMult: 1.2 } },
     // Orb Parry — if the orb is positioned between you and a charging attacker, it softens the ram
     // and bleeds the attacker's momentum. Position-based: the orb must be near the incoming hull.
     orbParry: { ramDamageReduction: 0.55, attackerVelocityReduction: 0.6, attackerSlow: 0.4, attackerSlowSec: 0.45, reach: 18 },

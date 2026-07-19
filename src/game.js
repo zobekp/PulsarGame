@@ -32,8 +32,6 @@ window.PULSAR = window.PULSAR || {};
     flailship: 'flail', twinmaul: 'flail', binaryStar: 'flail',
     // TIER-4 apexes — MUST be here or their class-extras (maces/chains, beam charge, grav core) and
     // family HUD/controls silently no-op (undefined family). Mirrors src/sim.js FAMILY.
-    zenith: 'rail', prism: 'rail', juggernaut: 'hammer', cataclysm: 'grav', devourer: 'grav', constellation: 'flail',
-    dreadnought: 'dreadnought',
   };
   const EVOLVE_BLURB = {
     railship: 'charge beam · heat · Vent Dash', hammerhead: 'wind-up lunge · Brace',
@@ -56,7 +54,6 @@ window.PULSAR = window.PULSAR || {};
     fx: Fx,
     onKill(v, killer) {
       addKill(killer && killer !== v ? nameOf(killer) : null, nameOf(v), v.isLeader);
-      if (v.classId === 'dreadnought' && killer === p && p.alive && p.classId !== 'dreadnought') takeover = { t: 0, dur: 7 };   // offer to seize the hull
       if (v === p && gameStarted && PULSAR.Profile) {   // Phase 6: end-of-life converts earned scrap -> permanent cores
         const gained = PULSAR.Profile.bankRun(v.xp, v.scrap);
         if (gained > 0) Fx.spawnText(v.x, v.y - 52, '+' + gained + ' ◆ CORES', '#8fe9ff', { size: 16 });
@@ -69,8 +66,8 @@ window.PULSAR = window.PULSAR || {};
   p._firePrev = false; p._abilityPrev = false; p._specialPrev = false; p._adminPrev = false;
   p._burnPrev = false; p._altPrev = false; p._suppressFire = false;
   p._numPrev = [false, false, false, false, false];
-  if (!(PULSAR.MP && PULSAR.MP.AUTH)) { world.spawnBots(cfg.bots.count); world.spawnTitans(cfg.bots.titanCount); }
-  function toggleBots() { if (world.countBots()) world.clearBots(); else { world.spawnBots(cfg.bots.count); world.spawnTitans(cfg.bots.titanCount); } }
+  if (!(PULSAR.MP && PULSAR.MP.AUTH)) world.spawnBots(cfg.bots.count);
+  function toggleBots() { if (world.countBots()) world.clearBots(); else world.spawnBots(cfg.bots.count); }
   const allShips = () => {
     if (PULSAR.MP && PULSAR.MP.connected) { const a = [p]; const rs = PULSAR.MP.remotes; for (let i = 0; i < rs.length; i++) a.push(rs[i]); return a; }
     return state.ships;
@@ -96,14 +93,12 @@ window.PULSAR = window.PULSAR || {};
   // ---- player input → intent (overlay/admin handled here; the world consumes it) ------------
   let uiButtons = [];
   function spControls(dt) {
-    if (warp) { world.setIntent(p.id, Object.assign({}, IDLE_INTENT, { aim: warp.aim })); return; }   // locked; hold the jump heading
     const e = world.evolveOptions(p);
     if (e && e.levelOk) for (let i = 0; i < e.options.length; i++) { const down = Input.key('Digit' + (i + 1)); if (down && !p._numPrev[i]) requestEvolve(i); p._numPrev[i] = down; }
     const prevFire = p._firePrev;
     if (Input.firing && !prevFire) for (const b of uiButtons) { if (Input.mouseX >= b.x && Input.mouseX <= b.x + b.w && Input.mouseY >= b.y && Input.mouseY <= b.y + b.h) { b.onClick(); p._suppressFire = true; break; } }
     if (!Input.firing) p._suppressFire = false; p._firePrev = Input.firing;
     const lDown = Input.key('KeyL'); if (lDown && !p._adminPrev) adminLevelUp(); p._adminPrev = lDown;
-    const yDown = Input.key('KeyY'); if (takeover && yDown && !p._yPrev) requestBecomeDreadnought(); p._yPrev = yDown;
 
     const mdx = Input.mouseX - Render.viewW / 2, mdy = Input.mouseY - Render.viewH / 2;
     const dir = Input.moveDir();
@@ -121,28 +116,17 @@ window.PULSAR = window.PULSAR || {};
   // ---- thin-client control (authoritative MP) --------------------------------
   // Route an evolve request: to the server when authoritative, else apply locally.
   function requestEvolve(i) { if (PULSAR.MP && PULSAR.MP.connected) PULSAR.MP.sendEvolve(i); else world.chooseEvolution(p, i); }
-  function requestBecomeDreadnought() { if (!takeover) return; takeover = null; if (PULSAR.MP && PULSAR.MP.connected) PULSAR.MP.sendCommandeer && PULSAR.MP.sendCommandeer(); else world.becomeDreadnought(p.id); }
   const IDLE_INTENT = { moveX: 0, moveY: 0, aim: 0, aimDist: 1, firing: false, ability: false, special: false, afterburner: false, altFire: false };
   let mpIntent = Object.assign({}, IDLE_INTENT);
   // Read input into `mpIntent` each tick. Continuous fields overwrite; edge actions LATCH (OR-in)
   // until consumed by a send, so a tap between 30Hz sends is never dropped.
   function mpControls(dt) {
-    // Locked during the ascension cinematic — hold the jump heading. MUST still return a per-tick
-    // intent: mpSimulate feeds this straight to MP.predict, and a bare `return` handed it
-    // `undefined` => "Cannot read properties of undefined (reading 'aim')" the moment you ascended
-    // in MP. (spControls has the same early return, but its return value is unused — which is why
-    // this only ever bit online.)
-    if (warp) {
-      mpIntent = Object.assign({}, IDLE_INTENT, { aim: warp.aim });
-      return { moveX: 0, moveY: 0, aim: warp.aim, afterburner: false };
-    }
     const e = world.evolveOptions(p);
     if (e && e.levelOk) for (let i = 0; i < e.options.length; i++) { const down = Input.key('Digit' + (i + 1)); if (down && !p._numPrev[i]) requestEvolve(i); p._numPrev[i] = down; }
     const prevFire = p._firePrev;
     if (Input.firing && !prevFire) for (const b of uiButtons) { if (Input.mouseX >= b.x && Input.mouseX <= b.x + b.w && Input.mouseY >= b.y && Input.mouseY <= b.y + b.h) { b.onClick(); p._suppressFire = true; break; } }
     if (!Input.firing) p._suppressFire = false; p._firePrev = Input.firing;
     const lDown = Input.key('KeyL'); if (lDown && !p._adminPrev) adminLevelUp(); p._adminPrev = lDown;   // [L] admin works online too
-    const yDown = Input.key('KeyY'); if (takeover && yDown && !p._yPrev) requestBecomeDreadnought(); p._yPrev = yDown;
     const mdx = Input.mouseX - Render.viewW / 2, mdy = Input.mouseY - Render.viewH / 2;
     const dir = Input.moveDir(), isGrav = FAMILY[p.classId] === 'grav';
     const aDown = Input.key('Space'), aEdge = aDown && !p._abilityPrev; p._abilityPrev = aDown;
@@ -196,11 +180,7 @@ window.PULSAR = window.PULSAR || {};
   }
 
   // ---- render ----------------------------------------------------------------
-  let lastFrameT = 0;        // wall-clock of the last frame (frame-rate-independent zoom/warp timing)
-  let prevPlane = 0;         // to detect the arena→Titan-plane transition (ascension)
-  let warp = null;           // ascension cinematic: { t, dur, aim } — "jump to lightspeed" then arrive
-  let titanGuide = false, titanGuideT = 0;   // Titan-plane briefing shown on arrival
-  let takeover = null;       // { t, dur } — "press Y to commandeer the Dreadnought" window
+  let lastFrameT = 0;        // wall-clock of the last frame (frame-rate-independent zoom timing)
   function onScreen(x, y, pad) {
     const hw = Render.viewW / (2 * Render.camera.zoom), hh = Render.viewH / (2 * Render.camera.zoom);
     return x > Render.camera.x - hw - pad && x < Render.camera.x + hw + pad && y > Render.camera.y - hh - pad && y < Render.camera.y + hh + pad;
@@ -215,12 +195,6 @@ window.PULSAR = window.PULSAR || {};
     const frameDt = Math.min(0.1, (nowT - (lastFrameT || nowT)) / 1000); lastFrameT = nowT;
     // ASCENSION: the moment you cross onto the Titan plane, play a "jump to lightspeed" cinematic,
     // then a one-time briefing on arrival. (plane is authoritative — set in the sim on apex evolve.)
-    if (gameStarted && (p.plane | 0) === 1 && prevPlane === 0) { warp = { t: 0, dur: 1.9, aim: p.aim }; Fx.addShake(14, p.id); }
-    if ((p.plane | 0) === 0) { titanGuide = false; }   // fell back to the arena — clear the briefing
-    prevPlane = p.plane | 0;
-    if (warp) { warp.t += frameDt; if (warp.t >= warp.dur) { warp = null; titanGuide = true; titanGuideT = 0; } }
-    if (titanGuide) titanGuideT += frameDt;
-    if (takeover) { takeover.t += frameDt; if (takeover.t >= takeover.dur || p.classId === 'dreadnought' || !p.alive) takeover = null; }
     // Zoom OUT as your hull grows so a dreadnought never fills the screen (you always see the fight).
     // Ease to the target so an evolve/growth glides the camera out over ~0.2s instead of snapping.
     const V = cfg.view;
@@ -235,8 +209,7 @@ window.PULSAR = window.PULSAR || {};
     for (const m of state.motes) { if (!onScreen(m.x, m.y, 30)) continue; R.glow(R.sx(lerp(m.px, m.x, alpha)), R.sy(lerp(m.py, m.y, alpha)), pk.moteRadius * 3, m.pulsar ? [200, 230, 255] : [255, 210, 120], m.pulsar ? 0.7 : 0.5); }
     for (const pr of state.projectiles) { if ((pr.plane | 0) !== myPlane) continue; R.glow(R.sx(lerp(pr.px, pr.x, alpha)), R.sy(lerp(pr.py, pr.y, alpha)), pr.radius * (pr.kind === 'rock' ? 1.6 : 2.4), R.hexToRgb(pr.color), 0.85); }
     Fx.draw(R, alpha, lerp, myPlane);
-    const warpHideMe = warp && warp.t >= 0.6;   // once the jump starts, drawWarp renders the player ship
-    for (const s of allShips()) { if (!s.alive || (s.plane | 0) !== myPlane || (warpHideMe && s === p) || !onScreen(s.x, s.y, s.radius * 5)) continue; shipBloom(R, s, alpha, s === p); }
+    for (const s of allShips()) { if (!s.alive || (s.plane | 0) !== myPlane || !onScreen(s.x, s.y, s.radius * 5)) continue; shipBloom(R, s, alpha, s === p); }
 
     // CORE PASS
     R.setComposite('source-over');
@@ -250,7 +223,7 @@ window.PULSAR = window.PULSAR || {};
       else R.solidCircle(x, y, pr.radius * 0.6, '#ffffff');
     }
     for (const s of allShips()) {
-      if (!s.alive || (s.plane | 0) !== myPlane || (warpHideMe && s === p) || !onScreen(s.x, s.y, s.radius * 5)) continue;
+      if (!s.alive || (s.plane | 0) !== myPlane || !onScreen(s.x, s.y, s.radius * 5)) continue;
       const sxi = R.sx(lerp(s.px, s.x, alpha)), syi = R.sy(lerp(s.py, s.y, alpha));
       drawClassExtras(R, s, sxi, syi);
       drawShip(R.ctx, sxi, syi, s, s === p);
@@ -263,125 +236,6 @@ window.PULSAR = window.PULSAR || {};
     drawOnboardingGuide();
     drawHud(); drawLeaderboard(); drawKillFeed(); drawMinimap(); drawEvolveOverlay(); drawDevPanel();
     if (showTree) drawClassTree();
-    drawTitanGuide();
-    drawTakeoverPrompt();
-    drawWarp();   // cinematic sits on TOP of everything
-  }
-
-  // "Press Y to COMMANDEER the Dreadnought" — flashes after you land the killing blow on the boss.
-  function drawTakeoverPrompt() {
-    if (!takeover) return;
-    const ctx = Render.ctx, W = Render.viewW, remain = 1 - takeover.t / takeover.dur;
-    const pw = 460, ph = 90, x = (W - pw) / 2, y = Render.viewH - 188;
-    const pulse = 0.6 + 0.4 * Math.sin(state.time * 6);
-    ctx.save();
-    panel(ctx, x, y, pw, ph, `rgba(255,210,120,${0.5 + 0.4 * pulse})`);
-    ctx.textAlign = 'center';
-    ctx.font = '800 20px system-ui, sans-serif'; ctx.fillStyle = '#ffe08a';
-    ctx.fillText('DREADNOUGHT SLAIN', x + pw / 2, y + 28);
-    ctx.font = '700 14px system-ui, sans-serif'; ctx.fillStyle = `rgba(235,244,255,${0.7 + 0.3 * pulse})`;
-    ctx.fillText('press  [ Y ]  to COMMANDEER its hull', x + pw / 2, y + 50);
-    ctx.font = '600 11px system-ui, sans-serif'; ctx.fillStyle = 'rgba(180,205,230,0.8)';
-    ctx.fillText('LMB — turret guns    ·    RMB — homing missiles', x + pw / 2, y + 70);
-    ctx.fillStyle = 'rgba(255,210,120,0.85)'; ctx.fillRect(x + 12, y + ph - 6, (pw - 24) * remain, 3);   // countdown
-    ctx.textAlign = 'left'; ctx.restore();
-  }
-
-  // ---- ascension cinematic: charge → BLAST off → fade to black → drop OUT of hyperspace & stop -----
-  // A soft engine plume streaking behind the ship at (sx,sy), pointing back along -heading.
-  function warpEngineTrail(ctx, sx, sy, dx, dy, intensity) {
-    if (intensity <= 0) return;
-    const len = 70 + 320 * intensity, tx = sx - dx * len, ty = sy - dy * len;
-    const g = ctx.createLinearGradient(sx, sy, tx, ty);
-    g.addColorStop(0, `rgba(190,225,255,${0.75 * Math.min(1, intensity)})`); g.addColorStop(1, 'rgba(120,180,255,0)');
-    ctx.globalCompositeOperation = 'lighter'; ctx.strokeStyle = g; ctx.lineCap = 'round'; ctx.lineWidth = 9 + 20 * intensity;
-    ctx.beginPath(); ctx.moveTo(sx, sy); ctx.lineTo(tx, ty); ctx.stroke();
-    ctx.globalCompositeOperation = 'source-over';
-  }
-  // The player's ACTUAL hull, drawn at a screen point, rotated to the jump heading, engines roaring.
-  function drawWarpShip(sx, sy, boost) {
-    const R = Render, ctx = R.ctx, z = Math.max(0.28, R.camera.zoom);
-    ctx.save(); ctx.translate(sx, sy); ctx.rotate(warp.aim); ctx.scale(z, z);
-    const svx = p.vx, svy = p.vy;                      // fake high velocity so engine()'s flare roars
-    p.vx = Math.cos(warp.aim) * 260 * boost; p.vy = Math.sin(warp.aim) * 260 * boost;
-    PULSAR.Ships.draw(ctx, p, state.time);
-    p.vx = svx; p.vy = svy; ctx.restore();
-  }
-  function drawWarp() {
-    if (!warp) return;
-    const ctx = Render.ctx, W = Render.viewW, H = Render.viewH, cx = W / 2, cy = H / 2, t = warp.t;
-    const CHARGE = 0.6, FADE = 0.95, HOLD = 1.35, dur = warp.dur;   // phases within dur (1.9s)
-    const dx = Math.cos(warp.aim), dy = Math.sin(warp.aim), maxD = Math.hypot(W, H) * 0.72;
-    ctx.save();
-    // 1) CHARGE: engine bloom + a hard plume swelling behind the (still world-rendered) ship
-    if (t < CHARGE) {
-      const k = t / CHARGE;
-      ctx.globalCompositeOperation = 'lighter';
-      const bx = cx - dx * 46, by = cy - dy * 46, rad = 80 + 130 * k;
-      const g = ctx.createRadialGradient(bx, by, 0, bx, by, rad);
-      g.addColorStop(0, `rgba(170,215,255,${0.7 * k})`); g.addColorStop(0.55, `rgba(110,170,255,${0.3 * k})`); g.addColorStop(1, 'rgba(0,0,0,0)');
-      ctx.fillStyle = g; ctx.beginPath(); ctx.arc(bx, by, rad, 0, TAU); ctx.fill();
-      warpEngineTrail(ctx, cx, cy, dx, dy, k * 0.9);
-      ctx.globalCompositeOperation = 'source-over';
-    }
-    // 2) fade to BLACK → hold → fade back in
-    let black = 0;
-    if (t >= CHARGE && t < FADE) black = (t - CHARGE) / (FADE - CHARGE);
-    else if (t >= FADE && t < HOLD) black = 1;
-    else if (t >= HOLD) black = Math.max(0, 1 - (t - HOLD) / (dur - HOLD));
-    if (black > 0) { ctx.fillStyle = `rgba(2,4,9,${black})`; ctx.fillRect(0, 0, W, H); }
-    // 3) BLAST OFF: boosters fire HARD, the ship accelerates off-heading (drawn over the rising black)
-    if (t >= CHARGE && t < FADE) {
-      const bp = (t - CHARGE) / (FADE - CHARGE), ease = bp * bp;   // accelerate away
-      const sx = cx + dx * ease * maxD, sy = cy + dy * ease * maxD;
-      warpEngineTrail(ctx, sx, sy, dx, dy, 1.2 + bp);
-      drawWarpShip(sx, sy, 2.4 + bp);
-    }
-    // 4) EXIT HYPERSPACE: streak in and DECELERATE hard to a dead stop at centre (as black clears)
-    if (t >= HOLD) {
-      const ap = Math.min(1, (t - HOLD) / (dur - HOLD)), eo = 1 - Math.pow(1 - ap, 3);   // ease-out = decel
-      const speed = 1 - eo, off = speed * maxD * 0.85;
-      const sx = cx - dx * off, sy = cy - dy * off;
-      if (ap < 0.22) {   // the drop-out flash as it snaps out of lightspeed
-        const fk = 1 - ap / 0.22; ctx.globalCompositeOperation = 'lighter';
-        const fg = ctx.createRadialGradient(sx, sy, 0, sx, sy, 200);
-        fg.addColorStop(0, `rgba(225,240,255,${0.8 * fk})`); fg.addColorStop(1, 'rgba(0,0,0,0)');
-        ctx.fillStyle = fg; ctx.beginPath(); ctx.arc(sx, sy, 200, 0, TAU); ctx.fill(); ctx.globalCompositeOperation = 'source-over';
-      }
-      warpEngineTrail(ctx, sx, sy, dx, dy, 0.3 + 2.4 * speed);   // long blur when fast, gone when stopped
-      drawWarpShip(sx, sy, 0.2 + 1.6 * speed);
-    }
-    ctx.restore();
-    ctx.globalCompositeOperation = 'source-over';
-  }
-
-  // ---- Titan-plane briefing (shown once on arrival; click to dismiss, game runs behind) ----------
-  function drawTitanGuide() {
-    if (!titanGuide) return;
-    const ctx = Render.ctx, W = Render.viewW, H = Render.viewH;
-    const fade = Math.min(1, titanGuideT / 0.4);
-    const pw = Math.min(560, W - 60), ph = 234, x = (W - pw) / 2, y = Math.min(120, H * 0.16);
-    ctx.save(); ctx.globalAlpha = fade;
-    panel(ctx, x, y, pw, ph, 'rgba(255,210,120,0.55)');
-    ctx.textAlign = 'center';
-    ctx.font = '800 22px system-ui, sans-serif'; ctx.fillStyle = '#ffe08a'; ctx.fillText('⯃  THE TITAN PLANE  ⯃', x + pw / 2, y + 40);
-    ctx.textAlign = 'left';
-    ctx.font = '600 13px system-ui, sans-serif'; ctx.fillStyle = '#dbe8f6';
-    const lines = [
-      'You ascended. Only Titans fight here — the fleets below can’t reach',
-      'you, and you can’t reach them. This is the endgame arena.',
-      '',
-      '•  Hunt the other apex Titans for scrap & XP.',
-      '•  A DREADNOUGHT patrols this plane. Slaying it pays a huge bounty —',
-      '    but mind its turrets: a RED laser sight means a bolt is inbound.',
-      '•  Fall here and you drop back to the arena as a fresh Scout.',
-    ];
-    let ly = y + 72; for (const ln of lines) { ctx.fillStyle = ln.startsWith('•') ? '#eaf4ff' : '#b9c9da'; ctx.fillText(ln, x + 26, ly); ly += 21; }
-    ctx.textAlign = 'center';
-    ctx.font = '700 12px system-ui, sans-serif'; ctx.fillStyle = 'rgba(255,224,138,0.9)';
-    ctx.fillText('click to continue', x + pw / 2, y + ph - 16);
-    ctx.textAlign = 'left'; ctx.restore();
-    uiButtons.push({ x, y, w: pw, h: ph, onClick: () => { titanGuide = false; } });
   }
 
   // ---- class tree overlay [T] -------------------------------------------------
@@ -605,8 +459,7 @@ window.PULSAR = window.PULSAR || {};
     } else if (fam === 'flail') {
       const O = cfg.flailship.orb, spin = s.spinFrac || 0;
       // heavier finals carry bigger spiked maces — scale the drawn head to match its hitbox
-      const headScale = s.classId === 'binaryStar' ? cfg.flailship.binaryStar.mace.sizeMult
-                      : s.classId === 'constellation' ? cfg.flailship.constellation.mace.sizeMult : 1;
+      const headScale = s.classId === 'binaryStar' ? cfg.flailship.binaryStar.mace.sizeMult : 1;
       const tip = O.tipRadius * headScale;
       // local ships carry the full maces array; remote ships only sync head positions
       const heads = s.maces || [
@@ -895,29 +748,23 @@ window.PULSAR = window.PULSAR || {};
   }
   function drawMinimap() {
     const ctx = Render.ctx, size = cfg.ui.minimapSize, pad = 14, x0 = Render.viewW - size - pad, y0 = Render.viewH - size - pad, sc = size / cfg.arena.width;
-    // The minimap shows YOUR plane's rect: plane 1 lives at +titanPlane.offsetX in world
-    // space, so subtract the zone offset to map it into the same square.
-    const mmPlane = p.plane | 0;
-    const mmOff = (mmPlane === 1 && cfg.titanPlane) ? cfg.titanPlane.offsetX : 0;
-    panel(ctx, x0 - 7, y0 - 24, size + 14, size + 31, mmPlane === 1 ? 'rgba(214,178,90,.4)' : 'rgba(95,155,210,.36)');
-    ctx.font = '800 8px system-ui, sans-serif'; ctx.fillStyle = mmPlane === 1 ? 'rgba(222,190,120,.72)' : 'rgba(145,190,220,.62)';
-    ctx.fillText(mmPlane === 1 ? 'TACTICAL  /  TITAN PLANE' : 'TACTICAL  /  PULSAR CENTER', x0, y0 - 9);
+    panel(ctx, x0 - 7, y0 - 24, size + 14, size + 31, 'rgba(95,155,210,.36)');
+    ctx.font = '800 8px system-ui, sans-serif'; ctx.fillStyle = 'rgba(145,190,220,.62)';
+    ctx.fillText('TACTICAL  /  PULSAR CENTER', x0, y0 - 9);
     ctx.fillStyle = 'rgba(5,10,19,0.78)'; ctx.fillRect(x0, y0, size, size); ctx.strokeStyle = 'rgba(80,120,180,0.28)'; ctx.lineWidth = 1; ctx.strokeRect(x0, y0, size, size);
     ctx.strokeStyle = 'rgba(90,145,190,.12)'; ctx.beginPath(); ctx.moveTo(x0 + size / 2, y0); ctx.lineTo(x0 + size / 2, y0 + size); ctx.moveTo(x0, y0 + size / 2); ctx.lineTo(x0 + size, y0 + size / 2); ctx.stroke();
-    if (mmPlane === 0) {   // the hole + the mountains are normal-arena landmarks — plane 0 only
-      const px = x0 + (cfg.arena.width / 2) * sc, py = y0 + (cfg.arena.height / 2) * sc;
-      // black hole marker: dark core + bright ring that flares on the jet beat
-      const jf = Math.max(0, 1 - ((state.time % cfg.arena.pulsar.jetIntervalSec) / cfg.arena.pulsar.jetIntervalSec) * 6);
-      ctx.fillStyle = '#04060c'; ctx.beginPath(); ctx.arc(px, py, 4, 0, TAU); ctx.fill();
-      ctx.strokeStyle = `rgba(220,240,255,${0.75 + 0.25 * jf})`; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(px, py, 4.8 + jf * 2, 0, TAU); ctx.stroke();
-      // titan landmarks — the mountains you navigate by
-      ctx.fillStyle = 'rgba(150,165,195,0.7)';
-      for (const o of state.objects) if (o.type === 'titan') { ctx.beginPath(); ctx.arc(x0 + o.x * sc, y0 + o.y * sc, 3, 0, TAU); ctx.fill(); }
-    }
+    // black hole marker: dark core + bright ring that flares on the jet beat
+    const px = x0 + (cfg.arena.width / 2) * sc, py = y0 + (cfg.arena.height / 2) * sc;
+    const jf = Math.max(0, 1 - ((state.time % cfg.arena.pulsar.jetIntervalSec) / cfg.arena.pulsar.jetIntervalSec) * 6);
+    ctx.fillStyle = '#04060c'; ctx.beginPath(); ctx.arc(px, py, 4, 0, TAU); ctx.fill();
+    ctx.strokeStyle = `rgba(220,240,255,${0.75 + 0.25 * jf})`; ctx.lineWidth = 1.8; ctx.beginPath(); ctx.arc(px, py, 4.8 + jf * 2, 0, TAU); ctx.stroke();
+    // titan landmarks — the mountains you navigate by
+    ctx.fillStyle = 'rgba(150,165,195,0.7)';
+    for (const o of state.objects) if (o.type === 'titan') { ctx.beginPath(); ctx.arc(x0 + o.x * sc, y0 + o.y * sc, 3, 0, TAU); ctx.fill(); }
     // Each ship is a CLASS-COLOURED arrow pointing where it faces (you = cyan + ring, leader = gold rim).
     for (const s of allShips()) {
-      if (!s.alive || (s.plane | 0) !== mmPlane) continue;
-      const mx = x0 + (s.x - mmOff) * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 5.2 : (isMe ? 4.2 : 3.5);
+      if (!s.alive) continue;
+      const mx = x0 + s.x * sc, my = y0 + s.y * sc, isMe = s === p, r = s.isLeader ? 5.2 : (isMe ? 4.2 : 3.5);
       ctx.save(); ctx.translate(mx, my); ctx.rotate(s.aim);
       ctx.fillStyle = isMe ? '#39d0ff' : hueFor(s.classId);
       ctx.beginPath(); ctx.moveTo(r, 0); ctx.lineTo(-r * 0.7, r * 0.62); ctx.lineTo(-r * 0.7, -r * 0.62); ctx.closePath(); ctx.fill();
