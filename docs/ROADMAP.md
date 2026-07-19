@@ -56,8 +56,8 @@ no UI to explain. *Needs human playtest sign-off on the tension/curve — code-c
 **Done when:** a match against bots is genuinely fun solo. **Do not build netcode until this
 passes** — if it isn't fun here, multiplayer won't save it.
 *Combat foundation + bots + branches are built & smoke-tested; the "genuinely fun" sign-off is
-a human playtest call. Bots currently lean farm-heavy (1 kill / 25s in test) — `config.bots.aggression`
-and ranges are the dials.*
+a human playtest call. The deterministic match-flow gate now records 20 kills / 270 simulated
+seconds with 22.9% hunt/fight samples; `config.bots.aggression` and ranges remain the pacing dials.*
 
 ## Phase 5 — Real multiplayer  ◐ code-complete (2026-07-02), two-browser sign-off pending
 - ☑ Authoritative Node + WebSocket server (`mpserver.js`) runs the headless sim (`sim.js`), owns the world

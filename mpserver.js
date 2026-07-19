@@ -86,19 +86,38 @@ const nid = (e) => e._nid || (e._nid = nextNid++);
 // between LAN-only and playable-over-the-internet.
 const CULL = 1400, CULL_FX = 1600, CULL_OBJ = 1500;
 const near = (x, y, s, r) => !s || (Math.abs(x - s.x) < r && Math.abs(y - s.y) < r);
+// Interest boxes must COVER WHAT THE CLIENT SEES. The camera zooms out with hull size
+// (cfg.view: zoom = clamp(shipTargetPx/radius)), so a Titan's visible half-extent is
+// viewport/(2*zoom) — up to ~2600px+ on a big monitor, past the fixed 1400-1600 boxes. That made
+// rocks/fx/ship-state pop in and out of existence in plain view, snapshot-quantized: the
+// Titan-plane "strobe". Scale each client's culls to their reported viewport + their ship's zoom
+// (floor = the legacy constants, so clients that sent no viewport behave exactly as before).
+function cullFor(c, me) {
+  if (!me || !(c.vw > 0)) return { ship: CULL, fx: CULL_FX, obj: CULL_OBJ };
+  const V = cfg.view;
+  const zoom = Math.max(V.minZoom, Math.min(V.baseZoom, V.shipTargetPx / (me.radius || cfg.player.baseRadius)));
+  const half = Math.max(c.vw, c.vh || 0) / (2 * zoom);            // worst-axis visible half-extent (world px)
+  const cap = 4200;                                                // sanity ceiling (dreadnought on a cinema display)
+  return {
+    ship: Math.min(cap, Math.max(CULL, half + 200)),
+    fx: Math.min(cap, Math.max(CULL_FX, half + 300)),
+    obj: Math.min(cap, Math.max(CULL_OBJ, half + 250)),
+  };
+}
 function snapshotFor(c) {
   const st = world.state;
   const me = world.getShip(c.shipId);
+  const cull = cullFor(c, me);
   const snap = { t: 't', tm: +st.time.toFixed(3), pt: +st.pulsarTimer.toFixed(3), ack: c.lastSeq || 0,
-    sh: st.ships.map(s => (s.id === c.shipId || near(s.x, s.y, me, CULL)) ? shipSnap(s) : shipSnapFar(s)),
+    sh: st.ships.map(s => (s.id === c.shipId || near(s.x, s.y, me, cull.ship)) ? shipSnap(s) : shipSnapFar(s)),
     pr: [], mo: [], ev: [] };
-  for (const p of st.projectiles) if (near(p.x, p.y, me, CULL))
+  for (const p of st.projectiles) if (near(p.x, p.y, me, cull.ship))
     snap.pr.push({ id: nid(p), x: Math.round(p.x), y: Math.round(p.y), r: p.radius, c: p.color, k: p.kind || '', rt: p.rockType || '', pl: p.plane || 0 });
-  for (const m of st.motes) if (near(m.x, m.y, me, CULL))
+  for (const m of st.motes) if (near(m.x, m.y, me, cull.ship))
     snap.mo.push({ id: nid(m), x: Math.round(m.x), y: Math.round(m.y), p: m.pulsar ? 1 : 0 });
   for (const e of fxEvents) {
     if (e[0] === 's') { if (e[2] === c.shipId) snap.ev.push(e); }                    // your shake only
-    else if (near(e[1], e[2], me, CULL_FX) || (e[0] === 'b' && near(e[3], e[4], me, CULL_FX))) snap.ev.push(e);
+    else if (near(e[1], e[2], me, cull.fx) || (e[0] === 'b' && near(e[3], e[4], me, cull.fx))) snap.ev.push(e);
   }
   // one object SLICE per snapshot (ids where id % OBJ_SLICES === obi) — client merges by id
   // and prunes stale ids per-slice, so destroyed/out-of-range objects still disappear
@@ -106,7 +125,7 @@ function snapshotFor(c) {
   for (const o of st.objects) {
     const id = nid(o);
     if (id % OBJ_SLICES !== snap.obi) continue;
-    if (o.type === 'titan' || near(o.x, o.y, me, CULL_OBJ))
+    if (o.type === 'titan' || near(o.x, o.y, me, cull.obj))
       snap.ob.push({ id, t: o.type, x: Math.round(o.x), y: Math.round(o.y), r: o.radius, h: +(o.hp / o.maxHp).toFixed(2), cr: o.cracked ? 1 : 0, fl: o.flash > 0 ? 1 : 0, sp: +o.spin.toFixed(2), sr: +o.spinRate.toFixed(3) });
   }
   return snap;
@@ -206,6 +225,10 @@ server.on('upgrade', (req, socket) => {
           const skid = String(msg.skin || '').slice(0, 24);
           sh.skin = (skid && global.PULSAR.cosmetics && global.PULSAR.cosmetics.skins.some(k => k.id === skid)) ? skid : null;
         }
+        // Viewport (CSS px, clamped): sizes this client's interest-culling box to what they can
+        // actually SEE once zoom-out is applied (see cullFor). Absent/garbage -> legacy constants.
+        c.vw = Math.max(0, Math.min(3840, msg.vw | 0));
+        c.vh = Math.max(0, Math.min(2400, msg.vh | 0));
       }
       else if (msg.t === 'admin' && ALLOW_ADMIN) {   // dev panel cheats, applied by the authority
         const c = clients.get(socket); if (!c) continue;

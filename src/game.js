@@ -127,7 +127,15 @@ window.PULSAR = window.PULSAR || {};
   // Read input into `mpIntent` each tick. Continuous fields overwrite; edge actions LATCH (OR-in)
   // until consumed by a send, so a tap between 30Hz sends is never dropped.
   function mpControls(dt) {
-    if (warp) { mpIntent = Object.assign({}, IDLE_INTENT, { aim: warp.aim }); return; }   // locked; hold the jump heading
+    // Locked during the ascension cinematic — hold the jump heading. MUST still return a per-tick
+    // intent: mpSimulate feeds this straight to MP.predict, and a bare `return` handed it
+    // `undefined` => "Cannot read properties of undefined (reading 'aim')" the moment you ascended
+    // in MP. (spControls has the same early return, but its return value is unused — which is why
+    // this only ever bit online.)
+    if (warp) {
+      mpIntent = Object.assign({}, IDLE_INTENT, { aim: warp.aim });
+      return { moveX: 0, moveY: 0, aim: warp.aim, afterburner: false };
+    }
     const e = world.evolveOptions(p);
     if (e && e.levelOk) for (let i = 0; i < e.options.length; i++) { const down = Input.key('Digit' + (i + 1)); if (down && !p._numPrev[i]) requestEvolve(i); p._numPrev[i] = down; }
     const prevFire = p._firePrev;

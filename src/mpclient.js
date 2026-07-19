@@ -110,7 +110,11 @@ window.PULSAR.MP = (function () {
   // slow/stun aren't synced and are absorbed by reconciliation instead.
   function predict(p, intent, dt) {
     const C = cfg();
-    if (!p.alive) { pred.ready = false; return; }
+    if (!p || !p.alive) { pred.ready = false; return; }
+    // Belt-and-braces: a missing intent used to throw here and kill the whole session (an
+    // uncaught TypeError stops the rAF loop dead). Coasting on the ship's own heading is always
+    // a safe read of "no input this tick".
+    if (!intent) intent = { moveX: 0, moveY: 0, aim: p.aim, afterburner: false };
     if (!pred.ready) {
       pred.ready = true; pred.x = p.x; pred.y = p.y; pred.vx = 0; pred.vy = 0; pred.impX = 0; pred.impY = 0;
       pred.cruise = 0; pred.cruiseDX = 0; pred.cruiseDY = 0; pred.burnTimer = 0; pred.burnCd = 0; pred.viewX = 0; pred.viewY = 0;
@@ -197,10 +201,15 @@ window.PULSAR.MP = (function () {
   function send(obj) { if (connected) try { ws.send(JSON.stringify(obj)); } catch (e) {} }
   // Equipped cosmetic livery rides the join so other pilots see it (server validates the id).
   function mySkin() { return (window.PULSAR && PULSAR.Profile) ? (PULSAR.Profile.get().skin || '') : ''; }
+  // Viewport (CSS px) rides the join: the server scales its interest-culling box to what this
+  // client can actually SEE. A zoomed-out Titan on a big monitor sees ±2500px+, and the old fixed
+  // ±1400-1600 boxes ended mid-screen — rocks/fx/ship-state popped in and out of existence in
+  // plain view, snapshot-quantized (the Titan-plane "strobe").
+  function myView() { return { vw: Math.round(window.innerWidth || 1600), vh: Math.round(window.innerHeight || 900) }; }
   function connect() {
     const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
     ws = new WebSocket(`${proto}//${location.host}/ws`);
-    ws.onopen = () => { connected = true; send({ t: 'join', name: myName || '', tk: TOKEN, skin: mySkin() }); };
+    ws.onopen = () => { connected = true; send(Object.assign({ t: 'join', name: myName || '', tk: TOKEN, skin: mySkin() }, myView())); };
     ws.onclose = () => { connected = false; buffer.length = 0; remotes.length = 0; byId.clear(); objView.clear(); lastSyncAt = 0; clockOff = null; jitterMs = 0; pred.ready = false; history.clear(); setTimeout(connect, 1500); };
     ws.onmessage = (ev) => {
       let m; try { m = JSON.parse(ev.data); } catch (e) { return; }
@@ -358,7 +367,12 @@ window.PULSAR.MP = (function () {
       if (!v) { v = { type: o.t, x: o.x, y: o.y, px: o.x, py: o.y, radius: o.r, hp: 1, maxHp: 1, spin: o.sp || 0, spinRate: o.sr || 0, flash: 0, cracked: false, crackTimer: 0 }; objView.set(o.id, v); }
       v.type = o.t; v.tx = o.x; v.ty = o.y; v.spinRate = o.sr || 0; v.radius = o.r; v.cracked = !!o.cr;
       v.hp = o.h != null ? o.h : 1;                    // damage arc: hp as a fraction of maxHp==1
-      if (o.fl) v.flash = 0.12;                        // hit flash latches on, decays locally in syncState
+      // Hit flash latches on and decays locally in syncState. The latch MUST outlive one full
+      // slice cycle (obn/snapHz = 6/20 = 0.3s): objects only refresh every ~300ms, so a 0.12s
+      // latch made any rock under sustained fire STROBE at ~3Hz (on 0.12s, off 0.18s, relatch) —
+      // in SP the sim re-sets flash at 60Hz and the same rock reads as continuously lit. A beam
+      // parked on an asteroid should glow steadily, not blink like a hazard light.
+      if (o.fl) v.flash = 0.34;
     }
     if (snap.obi != null) {
       const n = snap.obn || 6;
@@ -396,7 +410,7 @@ window.PULSAR.MP = (function () {
     },
     sendEvolve(i) { send({ t: 'evolve', i: i | 0 }); },
     sendCommandeer() { send({ t: 'cmdr' }); },
-    sendName(name) { myName = name || ''; send({ t: 'join', name: myName, tk: TOKEN, skin: mySkin() }); },
+    sendName(name) { myName = name || ''; send(Object.assign({ t: 'join', name: myName, tk: TOKEN, skin: mySkin() }, myView())); },
     sendAdmin(action) { send({ t: 'admin', a: action }); },   // dev cheats — server honors unless PULSAR_ADMIN=0
   };
 })();

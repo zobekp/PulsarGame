@@ -15,6 +15,26 @@ window.PULSAR = window.PULSAR || {};
 
   // Shared beam corridor query: everything hittable within `halfWidth` of the ray, sorted
   // near-to-far. Used by the continuous beams (helion / maw); chargeRail keeps its own.
+  // A bulky neutral (config.railship.coverMinRadius) counts as COVER. Nothing hard-blocks a rail
+  // line anymore (piercing is the fantasy) — aimed beams price cover through the pierce-index
+  // falloff; auto-aim (Prism sub-beams, which have no pierce order) attenuates through it instead.
+  function isCover(api, t) { return !t.isShip && t.radius >= api.config.railship.coverMinRadius; }
+
+  // Line of sight from a ship to a target: is a bulky neutral sitting BETWEEN them? `pad` widens
+  // the rock a touch so a sub-beam can't thread a pixel gap at the edge of a boulder.
+  function coverBetween(api, ship, target, pad) {
+    const dx = target.x - ship.x, dy = target.y - ship.y, len = Math.hypot(dx, dy) || 1;
+    const ux = dx / len, uy = dy / len;
+    for (const o of api.state.objects) {
+      if (!isCover(api, o)) continue;
+      const along = (o.x - ship.x) * ux + (o.y - ship.y) * uy;
+      if (along <= 0 || along >= len) continue;                       // not between us
+      const perp = Math.abs((o.x - ship.x) * -uy + (o.y - ship.y) * ux);
+      if (perp <= o.radius + (pad || 0)) return true;
+    }
+    return false;
+  }
+
   function beamHits(api, ship, ox, oy, dx, dy, range, halfWidth) {
     const hits = [];
     for (const t of api.hittables(ship)) {
@@ -62,12 +82,20 @@ window.PULSAR = window.PULSAR || {};
         const ramp = ship.beamRamp || 0;
         if (ctx.firing && ramp > 0.05) {
           const P = api.config.helion.prism, rng = P.range * (ship.rangeMult || 1), cands = [];
-          for (const e of api.enemiesOf(ship)) { if (e.spawnProtect > 0) continue; const d = Math.hypot(e.x - ship.x, e.y - ship.y); if (d < rng) cands.push({ e, d }); }
+          // Sub-beams track by distance and have no pierce order, so cover is priced here
+          // directly: a target hiding behind a boulder still gets tagged, but at the same steep
+          // behind-something rate the aimed beams pay (pierceFalloff.players[1]).
+          for (const e of api.enemiesOf(ship)) {
+            if (e.spawnProtect > 0) continue;
+            const d = Math.hypot(e.x - ship.x, e.y - ship.y);
+            if (d < rng) cands.push({ e, d, covered: coverBetween(api, ship, e, P.subWidth) });
+          }
           cands.sort((a, b) => a.d - b.d);
+          const coverMult = api.config.railship.pierceFalloff.players[1];
           for (let i = 0; i < Math.min(P.subBeams, cands.length); i++) {
             const e = cands[i].e, a = Math.atan2(e.y - ship.y, e.x - ship.x), dx = Math.cos(a), dy = Math.sin(a);
-            api.damage(e, P.subDps * ramp * dt, { dx, dy, knockback: 0, source: ship });
-            api.fx.spawnBeam(ship.x + dx * ship.radius, ship.y + dy * ship.radius, e.x, e.y, hueFor(ship.classId), P.subWidth, 0.05, 0.4 * ramp);
+            api.damage(e, P.subDps * ramp * dt * (cands[i].covered ? coverMult : 1), { dx, dy, knockback: 0, source: ship });
+            api.fx.spawnBeam(ship.x + dx * ship.radius, ship.y + dy * ship.radius, e.x, e.y, hueFor(ship.classId), P.subWidth, 0.05, 0.4 * ramp * (cands[i].covered ? 0.5 : 1));
           }
         }
       },
@@ -227,7 +255,7 @@ window.PULSAR = window.PULSAR || {};
         const rf = R.beam.rangeFalloff, rfFull = rf.fullRangeFrac * maxRange;
         const rangeMult = (along) => along <= rfFull ? 1
           : 1 - (1 - rf.minMult) * Math.min(1, (along - rfFull) / (maxRange - rfFull));
-        let pierced = 0, neutrals = 0;
+        let pierced = 0, neutrals = 0, end = maxRange;
         for (const h of hits) {
           if (pierced >= pierce) break;
           const fall = (h.t.isShip ? R.pierceFalloff.players : R.pierceFalloff.neutral);
@@ -247,11 +275,15 @@ window.PULSAR = window.PULSAR || {};
             api.fx.spawnParticles(h.t.x, h.t.y, 12, '#9fe8ff', { speed: 220 });
           }
           pierced++; if (!h.t.isShip) neutrals++;
+          if (pierced >= pierce) end = h.along;                 // pierce spent — the line dies at its last victim
         }
         // Bigger charges throw a more powerful-looking beam (extra bloom layers, brighter core).
         const power = stage === 'overcharge' ? 1 : stage === 'lance' ? 0.7 : stage === 'focus' ? 0.35 : 0.1;
-        api.fx.spawnBeam(ox, oy, ox + dx * maxRange, oy + dy * maxRange, hue, halfWidth, R.beam.visualSec, power,
-                         { fullFrac: rf.fullRangeFrac, minMult: rf.minMult });   // opacity fades to show the damage falloff
+        // The drawn beam ends where the damage does. Its falloff gradient is expressed as a
+        // fraction of the DRAWN length, so rescale it to the truncated beam (and end the taper at
+        // the real damage multiplier there) — otherwise a blocked shot would fake its own falloff.
+        api.fx.spawnBeam(ox, oy, ox + dx * end, oy + dy * end, hue, halfWidth, R.beam.visualSec, power,
+                         { fullFrac: Math.min(1, rfFull / end), minMult: rangeMult(end) });
         api.fx.spawnParticles(ox, oy, 6 + Math.round(power * 14), hue, { dir: ship.aim, spread: 0.6, speed: 260 + power * 220 });
         if (neutrals >= R.lineBreakThreshold) api.lineBreak(ship, neutrals, ox, oy);
         api.applyImpulse(ship, -dx * recoil, -dy * recoil);
@@ -342,16 +374,17 @@ window.PULSAR = window.PULSAR || {};
         const ox = ship.x + dx * ship.radius, oy = ship.y + dy * ship.radius;
         const range = M.range * (ship.rangeMult || 1);   // bigger siege hull reaches further
         const hits = beamHits(api, ship, ox, oy, dx, dy, range, w);
-        let pierced = 0, neutrals = 0;
+        let pierced = 0, neutrals = 0, end = range;
         for (const h of hits) {
           if (pierced >= M.pierce) break;
           const fall = h.t.isShip ? R.pierceFalloff.players : R.pierceFalloff.neutral;
           api.damage(h.t, dmg * fall[Math.min(pierced, fall.length - 1)],
             { dx, dy, knockback: R.beam.knockback * (1 + c), crack: c >= M.crackAtCharge, source: ship });
           pierced++; if (!h.t.isShip) neutrals++;
+          if (pierced >= M.pierce) end = h.along;
         }
         if (neutrals >= R.lineBreakThreshold) api.lineBreak(ship, neutrals, ox, oy);
-        api.fx.spawnBeam(ox, oy, ox + dx * range, oy + dy * range, hueFor(ship.classId), w, M.beamVisualSec, 0.6 + 0.4 * c);
+        api.fx.spawnBeam(ox, oy, ox + dx * end, oy + dy * end, hueFor(ship.classId), w, M.beamVisualSec, 0.6 + 0.4 * c);
         api.fx.spawnParticles(ox + dx * ship.radius, oy + dy * ship.radius, 10 + Math.round(c * 18),
           hueFor(ship.classId), { dir: ship.aim, spread: 0.5, speed: 320 + c * 260 });
         api.applyImpulse(ship, -dx * M.recoil * c, -dy * M.recoil * c);
@@ -429,7 +462,7 @@ window.PULSAR = window.PULSAR || {};
           const dx = e.x - ship.x, dy = e.y - ship.y, rr = ship.radius + e.radius;
           if (dx * dx + dy * dy > rr * rr) continue;
           const d = Math.hypot(dx, dy) || 1;
-          api.damage(e, bc.damage, { dx: dx / d, dy: dy / d, knockback: bc.knockback, source: ship, capFrac: H.ram.maxHpCapFrac });
+          api.damage(e, bc.damage, { dx: dx / d, dy: dy / d, knockback: bc.knockback, source: ship });
           if (H.ram.bodyCheckStunSec) e.stunTimer = Math.max(e.stunTimer || 0, H.ram.bodyCheckStunSec);
           api.fx.spawnParticles(ship.x + dx * 0.5, ship.y + dy * 0.5, 6, hueFor(ship.classId), { speed: 140 });
           ship.bodyCheckCd = bc.cooldownSec;
@@ -438,7 +471,11 @@ window.PULSAR = window.PULSAR || {};
       },
       lunge(api, ship, H) {
         const c = ship.ramCharge || 0;
-        ship.ramHitBase = c < 0.34 ? H.ram.tapBashDamage : c < 0.95 ? H.ram.chargedDamage : H.ram.overcommitDamage;
+        // SET damage, scaled linearly by charge time (see config hammerhead.ram). Locked in at
+        // release: what the charge bar promised is what the hit lands for — no share of the
+        // target's HP, no velocity term. Every class in the lineage rams by this same rule.
+        const R = H.ram;
+        ship.ramHitBase = R.damageMin + (R.damageMax - R.damageMin) * c;
         ship.ramFull = c >= 0.95; ship.ramSlammed = false;
         const f = H.lunge.minLungeFactor + (1 - H.lunge.minLungeFactor) * c;
         ship.ramActive = H.lunge.durationSec * (0.55 + 0.45 * c);
@@ -453,7 +490,7 @@ window.PULSAR = window.PULSAR || {};
       smash(api, ship, H) {
         const heavy = (ship.classId === 'maulbreaker' || ship.classId === 'worldsplitter');
         const reach = ship.radius * (heavy ? H.maulbreaker.frontHitboxMult : H.lunge.hitboxMult);
-        const impact = ship.ramHitBase + Math.hypot(ship.impX, ship.impY) * H.ram.momentumMultiplier;
+        const impact = ship.ramHitBase;   // set at release, charge-scaled — the whole hit
         const kb = api.config.combat.knockbackBase * (H.ram.knockbackMult || 1) * (heavy ? H.maulbreaker.knockbackMult : 1);
         for (const t of api.hittables(ship)) {
           const rr = reach + t.radius;
@@ -466,8 +503,8 @@ window.PULSAR = window.PULSAR || {};
           if (ship.ramHitList.indexOf(t) >= 0) continue;
           ship.ramHitList.push(t);
           const d = Math.hypot(ship.x - t.x, ship.y - t.y) || 1;
-          // High damage, hard knock, STUN — but capped so it can't flat oneshot a healthy target.
-          api.damage(t, impact, { dx: (t.x - ship.x) / d, dy: (t.y - ship.y) / d, knockback: kb, source: ship, capFrac: H.ram.maxHpCapFrac });
+          // Set charge-scaled damage, hard knock, STUN — crowd control that hits for a knowable number.
+          api.damage(t, impact, { dx: (t.x - ship.x) / d, dy: (t.y - ship.y) / d, knockback: kb, source: ship });
           if (t.isShip && H.ram.stunSec) t.stunTimer = Math.max(t.stunTimer || 0, H.ram.stunSec);
           if (ship.classId === 'worldsplitter' && ship.ramFull && !ship.ramSlammed) { ship.ramSlammed = true; this.shockwave(api, ship, H); }
         }
@@ -477,7 +514,7 @@ window.PULSAR = window.PULSAR || {};
         for (const t of api.hittables(ship)) {
           const d = Math.hypot(t.x - ship.x, t.y - ship.y);
           if (d > s.radius) continue;
-          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship, capFrac: H.ram.maxHpCapFrac });
+          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship });
           if (t.isShip && H.ram.stunSec) t.stunTimer = Math.max(t.stunTimer || 0, H.ram.stunSec);
         }
         api.fx.spawnParticles(ship.x, ship.y, 28, hueFor(ship.classId), { speed: 360 });
@@ -844,7 +881,7 @@ window.PULSAR = window.PULSAR || {};
         for (const t of api.hittables(ship)) {
           const d = Math.hypot(t.x - ship.x, t.y - ship.y);
           if (d > s.radius) continue;
-          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship, capFrac: ram.maxHpCapFrac });
+          api.damage(t, s.damage, { dx: (t.x - ship.x) / (d || 1), dy: (t.y - ship.y) / (d || 1), knockback: s.knockback, source: ship });
           if (t.isShip && ram.stunSec) t.stunTimer = Math.max(t.stunTimer || 0, ram.stunSec);
         }
         api.fx.spawnParticles(ship.x, ship.y, 32, hueFor(ship.classId), { speed: 380 });

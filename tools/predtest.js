@@ -52,5 +52,21 @@ for (let i = 0; i < 30; i++) MP._reconcile({ x: pred.x + (i % 2 ? 14 : -14), y: 
 check('dead zone: ±14px jitter leaves the render still', Math.abs((pred.x - pred.viewX) - r0) < 3,
   `moved ${Math.abs((pred.x - pred.viewX) - r0).toFixed(2)}px over 30 phantom corrections`);
 
+// 7) REGRESSION — a missing intent must never throw. game.js `mpControls` early-returns while the
+// ascension cinematic holds the jump heading, and that bare `return` handed predict() `undefined`,
+// so ASCENDING IN MP threw "Cannot read properties of undefined (reading 'aim')" — an uncaught
+// TypeError that stops the rAF loop, freezing the whole session. mpControls now returns a real
+// intent; this pins the boundary itself so the failure can't come back through another caller.
+(() => {
+  const q = { alive: true, classId: 'starter', charging: false, charge: 0, ramWinding: false, ramActive: 0, radius: 16, x: 500, y: 500, aim: 1.23 };
+  let threw = null;
+  try { MP.predict(q, undefined, DT); } catch (e) { threw = e.message; }
+  check('predict() survives a missing intent (the MP ascension crash)', !threw, threw || 'no throw');
+  check('...and coasts on the ship\'s own heading', Math.abs(pred.aim - 1.23) < 1e-6, `aim=${pred.aim.toFixed(3)}`);
+  let threw2 = null;
+  try { MP.predict(undefined, { moveX: 0, moveY: 0, aim: 0, afterburner: false }, DT); } catch (e) { threw2 = e.message; }
+  check('predict() survives a missing ship', !threw2, threw2 || 'no throw');
+})();
+
 console.log(fails ? `\n${fails} FAILURE(S)` : '\nALL PASS');
 process.exit(fails ? 1 : 0);

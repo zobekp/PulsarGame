@@ -6,6 +6,201 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-17 — Rail piercing RESTORED; cover is priced in damage, not walls (playtest round 2)
+Playtest verdict on yesterday's pierce-walls: "rail sucks now, bring back piercing, just with
+significantly more damage dropoff against players." Done exactly that:
+- **No hard blocking anywhere.** The wall stops came out of chargeRail / helionBeam / mawRail;
+  the line pierces rocks and ships alike again, capped only by each weapon's `pierce` count. The
+  honest beam-truncation at pierce exhaustion stays (drawn beam still ends at its last victim).
+- **`pierceFalloff.players` 1.0 / 0.7 / 0.45 → 1.0 / 0.4 / 0.18.** Every thing already pierced —
+  rock or ship — makes the next SHIP hit much cheaper: through one boulder = 40% (a poke, not a
+  snipe); through two things = 18%. Open-lane rail is untouched. `neutral` falloff unchanged, so
+  farming and LINE BREAK pay exactly as before (round 1's line-break regression is gone — verified
+  +4 scrap through a row of boulders).
+- **Prism sub-beams attenuate through cover instead of refusing targets** (`coverBetween` kept,
+  now ×players[1] with a dimmer sub-beam visual): auto-aim has no pierce order, so cover is priced
+  there directly. `pierceBlockRadius` renamed `coverMinRadius` (data for this check only).
+**Files:** `data/config.js`, `src/weapons.js`, `tools/railtest.js` (rewritten for the new contract).
+**How to test:** `node tools/railtest.js` — 24 checks: all 7 rail classes pierce a boulder at
+exactly ×0.4, titans pierceable, first rock still eats full damage, a line of 3 ships lands
+126/50/23 (1.0/0.4/0.18 in order), LINE BREAK pays through boulders, prism cover ratio 0.40. All
+10 suites green.
+**Dials:** the whole feel lives in `pierceFalloff.players` — raise [1] toward 0.7 to soften the
+cover tax, lower toward 0.25 if boulder-camping still dies too fast.
+
+## 2026-07-16 — Rail pierce limits: a big rock is a WALL (whole family, incl. Prism's sub-beams)
+User: "there should be limits on piercing for both rail upgrades, and rail itself. it shouldnt be
+able to slice thru a big rock and hit something behind it."
+
+**Cause:** pierce was a flat TARGET COUNT (`charge.pierce` snap 1 / focus 3 / lance 6 / overcharge
+9; `mawRail.pierce 6`; `helion.beam.pierce 3`). A 170px titan cost exactly as much as a 15px
+pebble, so a charged rail drilled a boulder and killed whoever stood behind it. Worse, `chargeRail`
+and `mawRail` always DREW the beam to full range regardless of where the damage stopped — the glow
+was lying about its reach (a VISUAL_SPEC violation).
+
+**Fix — `railship.pierceBlockRadius: 30`.** A bulky NEUTRAL absorbs the line: it still eats the
+hit, but nothing behind it is touched and the drawn beam is truncated at it.
+- blocks: asteroid r36, titan r170 (**titans are real cover now**), a gravitor's thrown boulder r36
+- pierced: crystal r22, debris r15, recycled fragments (~r22) — it's a SIZE rule, not "no rocks"
+- **SHIPS never block** — skewering a line of enemies is the rail fantasy, and each weapon's own
+  `pierce` count still caps it exactly as before. Deliberately chose this over re-scaling pierce
+  into a mass budget, which would have collaterally nerfed ship-piercing (the thing not complained about).
+- Applied at the three impls the whole family funnels through: `chargeRail`, `helionBeam`,
+  `mawRail` — so railship, helion, supernova, starPiercer, starbreak, **zenith** and **prism** all
+  inherit it. Zenith's point-defense needed nothing: those are real projectiles and the sim already
+  collides projectiles with rocks.
+- **Prism needed an extra fix (caught by the new test):** `prismBeam`'s auto-tracking sub-beams
+  pick targets by raw DISTANCE, so they ignored cover entirely and still put 273 dmg through the
+  rock. Added `coverBetween()` — a segment/circle LOS check (padded by sub-beam width so it can't
+  thread a pixel gap at a boulder's edge) — and sub-beams now refuse targets behind cover.
+- **Honest VFX restored:** the beam is drawn to where it actually stopped. `chargeRail`'s opacity
+  gradient is expressed as a fraction of the DRAWN length, so it's rescaled to the truncated beam
+  (`fullFrac: rfFull/end`, `minMult: rangeMult(end)`) — otherwise a blocked shot would fake its
+  own range-falloff.
+
+**Files:** `data/config.js`, `src/weapons.js`, `tools/railtest.js` (new).
+**Config:** `railship.pierceBlockRadius 30` (raise above 170 to let big shots slice rocks again).
+**How to test:** `node tools/railtest.js` — 23 checks: an asteroid fully blocks all 7 rail
+classes/weapons (0 dmg through, each verified to hit an open target first), a titan blocks, crystal
+and debris still get pierced, an overcharge still skewers a LINE of 3 ships, and the blocking rock
+still takes the hit. All 10 suites green. Live client: with a rock, victim 0 dmg / rock 70 dmg /
+**beam drawn 178px** (origin 1022 → rock 1200 — stops dead at it); without, 126 dmg and the full
+1560px beam.
+**Balance note (intended, flag for playtest):** LINE BREAK (`lineBreakThreshold 3`, +4 scrap) now
+wants a line of small debris/crystal rather than boulders, since asteroids stop the line. Rail
+farming itself is unaffected (a focus shot does 20 vs an asteroid's 12 HP — one rock per shot as
+always); only the 3-in-a-row bonus got harder. The field is asteroid-weighted 5/1/4, so if line
+break now feels too rare, that's the dial — or raise `pierceBlockRadius` to ~40 to keep asteroids
+pierceable while titans stay walls.
+
+## 2026-07-16 — Grav rescue: apex launch-profile BUG + Titan-plane debris field (ammo, not terrain)
+User: "grav and its upgrades are total victims in the titan plane… putting rocks back in makes it
+impossible to regen health for large ships." Investigation found three compounding causes, one of
+which was a plain bug.
+
+**1. BUG — ascending to a grav apex was a straight DOWNGRADE.** `gravitor.launchByClass` had no
+`cataclysm`/`devourer` rows, and BOTH lookup sites do `launchByClass[classId] || launchByClass
+.gravitor` — so the tier-4 apexes silently used the **tier-1 base** profile (cap 3 / per 1 / cd
+0.45) while their tier-3 parents ran 5-6 / 2 / 0.15-0.35. Evolving *halved your ammo and tripled
+your launch cooldown*. Fixed: `cataclysm 7/3/0.13` (parent starfall 5/2/0.15), `devourer 7/2/0.30`
+(parent eventHorizon 6/2/0.35) — every apex now beats its parent on every axis, asserted in test.
+
+**2. No ammo (from the plane relocation).** Grav's whole kit is terrain-fed — capture→hurl,
+`orbitalShield` (spend a rock to soak 55% of a heavy hit — `heavyThreshold 30`, i.e. exactly a
+juggernaut ram), `orbitContact` (orbiting rocks as an anti-rush hazard). A rockless plane left the
+apexes **disarmed AND unarmoured**, falling back to DUST ACCRETION — 2 pebbles at 0.55× damage,
+one per 3.2s. That floor is commented "anti-sitting-duck"; it was designed for a brief dry spell
+in the main arena, not as an apex's entire permanent kit. (Cataclysm was worst: `meteorVolley`
+early-returns on `captured.length === 0` — its ult did *nothing*. Devourer coped best; its well is
+rock-independent.)
+
+**3. Option A — the Titan plane gets a DEBRIS FIELD, and it's AMMO, not TERRAIN.**
+- `titanPlane.debris` (110 rocks, rubble-weighted 3/1/6 vs the main field's 320 asteroid-heavy,
+  `respawnSec 6`) seeded into the Titan rect via `spawnTitanDebris()` — uniform scatter, no pulsar
+  gradient (there's no hole up there). Objects now carry `plane` — **bookkeeping only**: the rects
+  are 8000px apart, so every distance check in the game (capture, contact, hittables, MP interest
+  culling, render onScreen) already separates them geometrically for free. `plane` exists so a
+  destroyed rock respawns into the field it came from.
+- **The regen blocker is solved by the rule the codebase already had.** Contact damage was gated
+  by a hardcoded `classId !== 'dreadnought'` ("the boss plows through rocks"). That's now
+  `rankOf(s) < titanPlane.plowRank` (**4**) — every Titan-class hull shoulders rubble aside, and
+  since the Dreadnought is tier 4 it still plows *by the same rule* (special case deleted).
+  `rankOf()` is now the single source of rank, shared with `applyClassStats`.
+- Shatter-recycling un-gated from plane 0 (it was gated when the plane had no rocks) — grav volleys
+  now reseed whichever field they die in.
+- **Bots:** grav Titans prowl **with the well open** — the well vacuums anything inside `pullRadius`,
+  so they arrive at fights loaded without chasing rocks (hunting movement, farming intake). Titan
+  bots still never rock-*chase*; debris is not a movement target up there.
+
+**Files:** `data/config.js`, `src/sim.js`, `src/bots.js`, `tools/gravtest.js` (new), `tools/planetest.js`.
+**Config:** `gravitor.launchByClass.cataclysm/devourer`; `titanPlane.debris {count 110, weights,
+respawnSec 6, edgeInset 120}`, `titanPlane.plowRank 4`.
+**How to test:** `node tools/gravtest.js` — 20 checks: every grav class resolves a real profile,
+both ascensions are upgrades, both fields seeded in their own rects, a cataclysm fills 7/7 from
+debris, Titan hulls take **0** contact damage while a fighter and a tier-3 final still take 65, and
+a Titan sitting in rubble still regens. All 10 suites green (incl. your botmatchtest). Live client:
+110 Titan rocks (39/12/59 asteroid/crystal/debris), ambient density puts ~9 rocks in an apex's
+880px pull radius, a cataclysm arms 0→7 **real** rocks (0 dust) in ~2s, and a devourer buried in
+rubble regens 527→616 over 5s taking zero contact damage.
+**Notes / dials:** ambient density (~9 rocks in an apex pull radius vs cap 7) means a parked apex
+roughly self-feeds and moving refreshes — `debris.count` is the dial if that's too generous or too
+lean. `plowRank 4` currently means "Titan plane only" in practice (apexes ascend, and death returns
+you to plane 0 as a Scout); drop it to 3 if you ever want tier-3 finals shrugging off rubble too.
+Two test-harness gotchas worth remembering: plane-0 probes must not sit at the arena centre (that's
+the black hole — instant death), and a grav probe *captures* a touching rock rather than taking
+contact damage, so contact tests need a non-grav hull.
+
+## 2026-07-16 — Hammerhead lineage: SET ram damage that scales with charge time
+User: "hammerhead and its upgrades should have set damage, not percentages. damage should scale
+with charge time." Three things were fighting that, all now gone:
+- **`ram.maxHpCapFrac 0.55`** — literal percentage damage. The cap bound against basically any
+  same-or-smaller target, so a ram just took *55% of your max HP*, whoever you were.
+- **`ram.momentumMultiplier 0.12`** — `impact = base + |impulse| * 0.12`. At a full lunge this
+  added up to ~+360, so momentum (not the damage fields) was the real damage driver, and the
+  number varied with your velocity at contact. It was also *why* the ram used to oneshot, which
+  is what the cap was band-aiding.
+- **3-step buckets** — `tapBash 10 / charged 34 / overcommit 60` picked by `<0.34 / <0.95 / else`.
+  Charge didn't scale damage, it selected a bucket.
+
+**Now:** `impact = damageMin + (damageMax - damageMin) * ramCharge`, locked in at release — the
+number the charge bar promised is the number that lands. `damageMin 12` (tap) → `damageMax 90`
+(full wind-up). Applies to the whole lineage (hammerhead → maulbreaker → worldsplitter →
+juggernaut all route through `hammerRam`). `bodyCheck.damage 12` and `worldsplitterSlam.damage 40`
+were already set numbers — they just lost their `capFrac`. Stun + knockback untouched: still CC.
+`capFrac` is now unused, so the mechanism came out of `damageShip` too (no dead code).
+**Rank scaling (`scaling.dmgByRank`) still multiplies the result** — that's the game's global
+progression, applied to every weapon, not a hammerhead-specific percentage. Left as-is.
+
+**Files:** `data/config.js`, `src/weapons.js`, `src/sim.js`, `tools/hammertest.js` (new).
+**Config:** `hammerhead.ram.damageMin 12`, `damageMax 90`; removed `maxHpCapFrac`,
+`momentumMultiplier`, `tapBashDamage`, `chargedDamage`, `overcommitDamage`.
+**How to test:** `node tools/hammertest.js` — 19 checks: exact linear lerp at 0/¼/½/1 charge,
+strict monotonicity, all four classes, and the headline — **identical damage vs a 300hp and an
+8000hp target** (162 vs 162; it was 165 vs 4400 under the cap). All 8 suites green. Verified in
+the live client too: 21.6 → 91.8 → 162 across charge, 162 against both a 300hp and 9000hp hull.
+**Balance note (deliberate consequence, flag for playtest):** the "a ram can NEVER execute from
+full" guarantee was the cap doing the work; that's now a *tuning* property, not a hard rule.
+`damageMax 90` keeps a full-commit ram at **33-42% of a same-rank peer's max HP** (worldsplitter
+53% because its full-ram shockwave adds on top) — still CC, can't execute an equal. But a fresh
+130hp Scout now *does* die to a fully-charged ram from a real warship (162 dmg), where the cap
+previously held it to ~72. That's inherent to set damage + rank scaling (and matches the scaling
+block's own "a dreadnought devastates fighters" intent) — if you want scouts to survive a full
+ram, drop `damageMax` to ~65. One dial.
+
+## 2026-07-16 — Phase 4 bot feel pass: encounters catch, scaled flails actually throw
+The solo-match gate still needed less incidental farming and more fights that commit. This pass
+changes bot decisions, not ship stats: all existing aim error, reaction delay, telegraph dodge,
+and honest per-family firing ranges remain intact.
+- **Awareness pursuit (`src/bots.js`):** bots now enter a distinct `hunt` state when an enemy is
+  inside `bots.senseRange` but outside `engageRange`. They close without ranged fire, begin the
+  existing perception/acquire process on approach, and transition into normal family combat at
+  700px. Once a hunt/fight starts it persists while the target remains sensed; the old behavior
+  re-rolled aggression every 0.25s and could randomly forget a nearby opponent to farm a rock.
+  Grav/flail bots may prepare their persistent pull/spin while hunting, but still cannot shoot
+  beyond `bots.fireRange`.
+- **Flail AI correctness:** the fling release check now scales `orb.maxReach` by the hull's same
+  `rangeMult` used by the actual weapon. Binary Star previously preferred ~400px while testing
+  release against the base chain's shorter threshold, so it often spun forever. It now went from
+  0 aggregate final-duel wins to 9-10 in repeated samples. Flail bots also answer a visible
+  Hammerhead windup with Swing Control and retain the defensive spin through the rush.
+- **Regression gate (`tools/botmatchtest.js`):** deterministic checks cover awareness-band
+  pursuit (900→476px in 2s), sticky combat, rank-scaled flail release, anti-ram response, and
+  three 90s full lobbies. Current seeded result: 20 kills, 8230 ship damage, 22.9% hunt/fight
+  samples over 270 simulated seconds (the old roadmap note was ~1 kill / 25s).
+
+**Files:** `src/bots.js`, `data/config.js` (comments clarify existing bot dial semantics),
+`tools/botmatchtest.js` (new), `docs/ROADMAP.md`, `docs/DEVLOG.md`.
+**Config:** no values changed; `senseRange 1150`, `engageRange 700`, `aggression 0.88`, and all
+fire ranges remain the existing balance settings.
+**How to test:** `node tools/botmatchtest.js`; then play a solo match and verify nearby bots close
+decisively, fights do not repeatedly dissolve into farming, and no ranged bot fires from outside
+the visible range. Regression suites: sptest, planetest, finaltest, edgetest, and predtest pass;
+both base/final duel ladders complete.
+**Known limits / TODO:** headless telemetry proves activity, not fun; human solo sign-off remains
+the Phase 4 gate. The bot ladder still has base Flailship losing 12-0 to Hammerhead despite using
+the intended anti-rush response. Do not add raw stat buffs from that signal alone; verify the
+matchup in live play first, where mace placement/dodging differ substantially from the bot pilot.
+
 ## 2026-07-16 — Fix: Titan-plane bots "tweaking" — idle ring-hover replaced with PROWL
 User report: bots on the Titan plane were twitching erratically. Root cause (mine, from the
 plane relocation): with no rocks up there, the no-target idle branch became every Titan bot's

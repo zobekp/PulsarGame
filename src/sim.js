@@ -135,7 +135,7 @@
       // PROGRESSION SCALE: bigger hull+hitbox, HP, and damage by rank (starter=0 … final=3),
       // then a dreadnought bump for dominance-scaled leaders.
       const sc = cfg.scaling;
-      const rank = Math.min((s.classId === 'starter' ? 0 : node.tier), sc.sizeByRank.length - 1);
+      const rank = rankOf(s);
       let r = cfg.player.baseRadius * (st.sizeMult || 1) * sc.sizeByRank[rank];
       let hpMax = cfg.player.baseHP * (st.hp || 1) * sc.hpByRank[rank];
       let dmgMult = sc.dmgByRank[rank], rangeMult = sc.rangeByRank[rank];
@@ -213,16 +213,27 @@
     const af = cfg.farming.field;
     const TYPEBAG = (() => { const b = []; for (const k in af.weights) for (let i = 0; i < af.weights[k]; i++) b.push(k); return b; })();
     function pickType() { return TYPEBAG[Math.floor(Math.random() * TYPEBAG.length)]; }
+    // Titan-plane debris has its own weights (wreckage, not a farm) — its own bag.
+    const TITANBAG = (() => { const w = cfg.titanPlane.debris.weights, b = []; for (const k in w) for (let i = 0; i < w[k]; i++) b.push(k); return b; })();
+    function pickTitanDebrisType() { return TITANBAG[Math.floor(Math.random() * TITANBAG.length)]; }
     function densityAt(x, y) { const t = Math.min(1, Math.hypot(x - cfg.arena.width / 2, y - cfg.arena.height / 2) / (cfg.arena.width / 2)); return lerp(cfg.farming.densityAtCenter, cfg.farming.densityAtEdge, t); }
-    function addObject(type, x, y) {
+    // `plane` is bookkeeping only — the two rects are 8000px apart, so every distance check in the
+    // game (capture, contact, hittables, MP culling) already separates them geometrically. It's
+    // carried so a destroyed rock respawns into the field it came from.
+    function addObject(type, x, y, plane) {
       const hp = cfg.farming[OBJDEF[type].hp];
-      state.objects.push({ type, x, y, px: x, py: y, vx: 0, vy: 0, radius: cfg.farming[OBJDEF[type].radius], hp, maxHp: hp, spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0 });
+      state.objects.push({ type, x, y, px: x, py: y, vx: 0, vy: 0, plane: plane | 0, radius: cfg.farming[OBJDEF[type].radius], hp, maxHp: hp, spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0 });
+    }
+    // Hull rank (starter=0 … Titan apex=4) — drives progression scaling AND the rock-plow rule.
+    function rankOf(s) {
+      const n = classNode(s.classId);
+      return Math.min(s.classId === 'starter' ? 0 : (n ? n.tier : 0), cfg.scaling.sizeByRank.length - 1);
     }
     // Pick the best of several valid edge spawns by counting real nearby farmables. This keeps
     // time-to-fun under ten seconds while respecting the shared, emergent economy.
     function edgeSpawn(plane) {
       // Titan-plane spawns: same edge band, shifted into the Titan rect. No farm-density search
-      // up there — the Titan plane has no rocks (that's the point).
+      // up there — its debris is ammo/cover, not a farm to wake up next to; Titans spawn to hunt.
       if ((plane | 0) === 1) { const p = edgeSpawnCandidate(); p.x += planeOffX(1); return p; }
       const sc = cfg.player.spawnFarmSearch;
       let best = edgeSpawnCandidate(), bestCount = -1;
@@ -235,8 +246,13 @@
     }
     function spawnArenaObject() {
       const cx = cfg.arena.width / 2, cy = cfg.arena.height / 2;
-      for (let t = 0; t < 24; t++) { const x = Math.random() * cfg.arena.width, y = Math.random() * cfg.arena.height; if (Math.hypot(x - cx, y - cy) < af.pulsarClearRadius) continue; if (Math.random() <= densityAt(x, y)) { addObject(pickType(), x, y); return; } }
-      addObject(pickType(), Math.random() * cfg.arena.width, Math.random() * cfg.arena.height);
+      for (let t = 0; t < 24; t++) { const x = Math.random() * cfg.arena.width, y = Math.random() * cfg.arena.height; if (Math.hypot(x - cx, y - cy) < af.pulsarClearRadius) continue; if (Math.random() <= densityAt(x, y)) { addObject(pickType(), x, y, 0); return; } }
+      addObject(pickType(), Math.random() * cfg.arena.width, Math.random() * cfg.arena.height, 0);
+    }
+    // Titan-plane wreckage: uniform scatter (no pulsar up there, so no density gradient).
+    function spawnTitanDebris() {
+      const D = cfg.titanPlane.debris, off = planeOffX(1), m = D.edgeInset;
+      addObject(pickTitanDebrisType(), off + m + Math.random() * (cfg.arena.width - m * 2), m + Math.random() * (cfg.arena.height - m * 2), 1);
     }
     function ejectMotes(x, y, count, valueEach, o) {
       o = o || {};
@@ -272,7 +288,11 @@
       ejectMotes(o.x, o.y, n, total / n, o.type === 'titan' ? { life: 30, speed: 150, evenIndex: true } : undefined);
       fx.spawnParticles(o.x, o.y, cfg.fx.objectBreakParticles, OBJDEF[o.type].hue, { speed: 290, size: 3.3 });
       const idx = state.objects.indexOf(o); if (idx >= 0) state.objects.splice(idx, 1);
-      if (!o.recycled) state.respawns.push(o.type === 'titan' ? { timer: cfg.farming.titans.respawnSec, titan: true } : { timer: cfg.farming.respawnSec });   // fragments are bonus matter, not part of the spawn budget
+      // fragments are bonus matter, not part of the spawn budget. A rock respawns into the FIELD
+      // IT CAME FROM (`plane`) — Titan-plane wreckage regrows up there, on its own faster timer.
+      if (!o.recycled) state.respawns.push(o.type === 'titan' ? { timer: cfg.farming.titans.respawnSec, titan: true }
+        : (o.plane | 0) === 1 ? { timer: cfg.titanPlane.debris.respawnSec, plane: 1 }
+        : { timer: cfg.farming.respawnSec });
     }
     function damageShip(t, dmg, opts) {
       opts = opts || {};
@@ -294,7 +314,9 @@
         }
       }
       if (opts.crack) { t.cracked = true; t.crackTimer = cfg.railship.armorCrack.baseDurationSec; }
-      if (opts.capFrac && t.maxHp > 0) dmg = Math.min(dmg, t.maxHp * opts.capFrac);   // anti-oneshot: a single hit can't exceed this share of max HP
+      // (No percentage-of-maxHP damage cap: every weapon deals SET damage. The hammer ram's
+      //  "can't execute an equal from full" property is enforced by its tuned numbers instead —
+      //  see config.hammerhead.ram.damageMax.)
       // DEFLECTOR SHIELD: while it holds, the hull takes NO damage — every hit only bleeds the shield.
       if (t.shieldMax > 0 && t.shield > 0) {
         t.shield -= dmg; t.shieldHitTimer = t.shieldRegenDelay; t.shieldFlash = 0.14;
@@ -466,7 +488,12 @@
       if (intent.special && s.specialCd <= 0) s.specialCd = PULSAR.resolveSpecial(classNode(s.classId).special).activate(api, s) || 0;
       PULSAR.resolveWeapon(classNode(s.classId).weapon).update(api, s, dt, { firing: intent.firing, altFire: intent.altFire, aimDist: intent.aimDist });
 
-      if (s.spawnProtect <= 0 && s.contactCd <= 0 && s.classId !== 'dreadnought') {   // the boss plows through rocks; only combat bleeds its shield
+      // TITAN-CLASS HULLS PLOW THROUGH ROCKS (rank >= titanPlane.plowRank): a capital ship
+      // shoulders rubble aside. This is what lets the Titan plane HAVE a debris field (grav ammo +
+      // cover) without it chipping the big hulls or perpetually resetting their regen delay — the
+      // rocks are ammo, not terrain. Generalises the old `classId !== 'dreadnought'` special case
+      // (the boss is tier 4, so it still plows, by the same rule as every other Titan).
+      if (s.spawnProtect <= 0 && s.contactCd <= 0 && rankOf(s) < cfg.titanPlane.plowRank) {
         for (const o of state.objects) {
           const dx = s.x - o.x, dy = s.y - o.y, rr = s.radius + o.radius;
           if (dx * dx + dy * dy > rr * rr) continue;
@@ -566,11 +593,13 @@
             // SHATTER RECYCLING: dying rocks sometimes leave a real capturable fragment —
             // the gravitor's volleys reseed the battlefield (for everyone). Pebbles don't.
             const rc = cfg.gravitor.recycle;
-            if (pr.rockType !== 'pebble' && (pr.plane | 0) === 0   // fragments only reseed the normal arena (objects are plane-0 world content)
+            const rOff = planeOffX(pr.plane);   // reseeds into the field it died in (either rect)
+            if (pr.rockType !== 'pebble'
                 && state.objects.length < rc.maxWorldObjects && Math.random() < rc.fragmentChance
-                && pr.x > 60 && pr.y > 60 && pr.x < cfg.arena.width - 60 && pr.y < cfg.arena.height - 60) {
+                && pr.x > rOff + 60 && pr.y > 60 && pr.x < rOff + cfg.arena.width - 60 && pr.y < cfg.arena.height - 60) {
               const fr = Math.max(10, (pr.radius || 20) * rc.fragmentRadiusMult);
               state.objects.push({ type: 'debris', x: pr.x, y: pr.y, px: pr.x, py: pr.y, vx: pr.vx * 0.1, vy: pr.vy * 0.1,
+                plane: pr.plane | 0,
                 radius: fr, hp: cfg.farming.debrisHP, maxHp: cfg.farming.debrisHP, recycled: true,
                 spin: Math.random() * TAU, spinRate: (Math.random() - 0.5) * 0.8, flash: 0, cracked: false, crackTimer: 0 });
             }
@@ -586,7 +615,7 @@
         const damp = Math.max(0, 1 - 4 * dt); o.vx *= damp; o.vy *= damp;
         if (o.flash > 0) o.flash -= dt; if (o.cracked) { o.crackTimer -= dt; if (o.crackTimer <= 0) o.cracked = false; }
       }
-      for (let i = state.respawns.length - 1; i >= 0; i--) { state.respawns[i].timer -= dt; if (state.respawns[i].timer <= 0) { state.respawns[i].titan ? spawnTitan() : spawnArenaObject(); state.respawns.splice(i, 1); } }
+      for (let i = state.respawns.length - 1; i >= 0; i--) { const r = state.respawns[i]; r.timer -= dt; if (r.timer <= 0) { r.titan ? spawnTitan() : (r.plane | 0) === 1 ? spawnTitanDebris() : spawnArenaObject(); state.respawns.splice(i, 1); } }
     }
     function simulateMotes(dt) {
       for (let i = state.motes.length - 1; i >= 0; i--) {
@@ -664,7 +693,11 @@
       if (!s.isBot) fx.addShake(16, s.id);
     }
     function clearBots() { for (let i = state.ships.length - 1; i >= 0; i--) if (state.ships[i].isBot) state.ships.splice(i, 1); }
-    function populateField() { for (let i = 0; i < af.count; i++) spawnArenaObject(); for (let i = 0; i < cfg.farming.titans.count; i++) spawnTitan(); }
+    function populateField() {
+      for (let i = 0; i < af.count; i++) spawnArenaObject();
+      for (let i = 0; i < cfg.farming.titans.count; i++) spawnTitan();
+      for (let i = 0; i < cfg.titanPlane.debris.count; i++) spawnTitanDebris();   // Titan-plane wreckage (grav ammo + cover)
+    }
     // TITANS: center-biased landmark placement — rejection-sample toward mid-map, keep them
     // apart from each other and off the pulsar core. Immovable mountains; see config note.
     function spawnTitan() {

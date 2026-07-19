@@ -133,6 +133,18 @@ window.PULSAR.config = {
   // reach across the void between the two rects.
   titanPlane: {
     offsetX: 14000,   // left edge of the Titan rect (arena is 6000 wide -> an 8000px void between planes)
+    // DEBRIS FIELD — the Titan rect is a BATTLEFIELD, not a mine. These rocks exist so the plane
+    // is a PLACE (cover, landmarks, something to path around) and, critically, so the Gravitor
+    // lineage has AMMO up here: its whole kit (capture -> hurl, orbital shield, orbit contact) is
+    // terrain-fed, and a rockless plane left the grav apexes disarmed AND unarmoured.
+    // They are ammo, not terrain: every Titan-class hull PLOWS THROUGH them (see plowRank), so a
+    // debris field can never chip the big hulls or stall their regen.
+    // Sparser + rubble-weighted vs the main field (320 asteroid-heavy) — this is wreckage, not a farm.
+    debris: { count: 110, weights: { asteroid: 3, crystal: 1, debris: 6 }, respawnSec: 6, edgeInset: 120 },
+    // Hulls at this rank or above take NO rock contact damage — they shoulder rubble aside.
+    // (Rank: starter=0, base=1, tier-2=2, final=3, Titan apex=4. The Dreadnought is tier 4 too,
+    //  which is why this replaces the old hardcoded `classId !== 'dreadnought'` check.)
+    plowRank: 4,
   },
 
   // ---- Meta / persistence (Phase 6) ------------------------------------------
@@ -196,10 +208,10 @@ window.PULSAR.config = {
       roamRepick: 300,           // waypoint counts as reached within this range -> pick a new one
     },
     respawnDelaySec: 3.0,
-    senseRange: 1150,             // notice enemies within this
-    engageRange: 700,             // start fighting within this (~on-screen, no offscreen hunts)
+    senseRange: 1150,             // pursue enemies within this awareness halo; firing stays range-gated
+    engageRange: 700,             // switch from closing to family-specific combat movement here
     fleeHpFraction: 0.20,         // flee below this HP fraction (commit to fights longer)
-    aggression: 0.88,             // 0 = farmer, 1 = always hunts
+    aggression: 0.88,             // chance to begin a hunt; committed hunts persist while in senseRange
     aimErrorRad: 0.09,            // base aim noise — grows with range and shrinks with skill
     decisionSec: 0.25,            // re-evaluate state this often (avoids jitter)
     // ---- human-ish aiming (bots track SNAPSHOTS of you, not your live position) ----
@@ -332,7 +344,17 @@ window.PULSAR.config = {
     lineBreakHeatRefund: 20,       // LINE BREAK (3+ neutrals in one shot) also vents this much heat
     armorCrack: { baseDurationSec: 1.5, damageAmp: 0.15,
                   durationVs2xLarger: 2.25, durationVs4xLarger: 3.0 },
-    pierceFalloff: { neutral: [1.0, 0.9, 0.8, 0.7], players: [1.0, 0.7, 0.45] },
+    // PIERCING IS BACK (playtest verdict: hard rock-walls made rail feel terrible). The line goes
+    // THROUGH rocks and ships alike, capped only by each weapon's `pierce` count — but every
+    // thing already pierced now costs the NEXT SHIP hit dearly: 2nd target 40%, 3rd+ 18%
+    // (was 70%/45%). Shooting a player through a boulder is a poke, not a snipe; point-blank
+    // open-lane rail is untouched. Farming falloff (`neutral`) is unchanged, so multi-rock
+    // LINE BREAKS pay exactly as before.
+    pierceFalloff: { neutral: [1.0, 0.9, 0.8, 0.7], players: [1.0, 0.4, 0.18] },
+    // A neutral at least this big still counts as COVER for AUTO-AIM: Prism's tracking sub-beams
+    // have no pierce order, so they attenuate through it (x players[1]) instead — see weapons.js.
+    // Aimed beams price cover via the pierce index above; nothing hard-blocks anymore.
+    coverMinRadius: 30,
     lineBreakThreshold: 3,
     // Tier mods applied by class id. Multipliers/values vs the base rail above.
     evolveMods: {},   // tier-2 rails now have their OWN weapons (helionBeam / mawRail) — no stat-mod evolutions
@@ -372,12 +394,20 @@ window.PULSAR.config = {
   hammerhead: {
     stats: { hp: 1.50, speed: 0.90, sizeMult: 1.28, difficulty: "easy-medium" },
     ram: {
-      tapBashDamage: 10, chargedDamage: 34, overcommitDamage: 60,
-      momentumMultiplier: 0.12,   // impactDamage = base + lunge-speed * this
+      // SET damage that scales LINEARLY with charge time — no percentage-of-HP math anywhere:
+      //   impact = damageMin + (damageMax - damageMin) * ramCharge
+      // ramCharge runs 0..1 over `lunge.chargeTimeSec` and is LOCKED IN at release, so the number
+      // the charge bar promised is exactly the number that lands (no momentum/velocity term —
+      // damage is a function of how long you wound up, nothing else).
+      // Rank scaling (scaling.dmgByRank) still multiplies the result exactly as it does for every
+      // other weapon in the game — that's global progression, not a hammerhead-specific rule.
+      // Tuning intent: a full-commit ram lands ≈33-42% of a SAME-RANK peer's max HP — a heavy CC
+      // hit that can't execute an equal from full. Raise/lower `damageMax` to move that.
+      damageMin: 12,   // tap release (ramCharge ≈ 0) — barely above a body-check
+      damageMax: 90,   // full wind-up (ramCharge = 1) — the committed hit
       windupSec: 0.6, missRecoverySec: 0.9, turnRateDuringCharge: 0.42,
-      // The ram is CROWD CONTROL, not an execute: it knocks HARD, STUNS, and hits high — but a single
-      // ram can never take more than `maxHpCapFrac` of a target's max HP, so it can't flat oneshot.
-      stunSec: 0.6, maxHpCapFrac: 0.55, knockbackMult: 2.2,
+      // The ram is CROWD CONTROL: on top of its damage it knocks HARD and STUNS.
+      stunSec: 0.6, knockbackMult: 2.2,
       bodyCheckStunSec: 0.22,
     },
     // Hold fire to wind up, release to LUNGE forward; contact during the lunge is the hit.
@@ -463,6 +493,12 @@ window.PULSAR.config = {
       // Branch B (control) — fewer rocks, the well itself is the weapon (tidalDrag).
       singularity:  { cap: 4, per: 1, cd: 0.5 },
       eventHorizon: { cap: 6, per: 2, cd: 0.35 },
+      // TIER-4 apexes. These MUST be listed: both lookup sites do
+      // `launchByClass[classId] || launchByClass.gravitor`, so a missing row silently drops the
+      // apex to the tier-1 BASE profile (cap 3 / per 1 / cd 0.45) — i.e. ascending from starfall
+      // or eventHorizon USED TO BE a straight downgrade. Every apex must beat its parent row.
+      cataclysm: { cap: 7, per: 3, cd: 0.13 },   // artillery apex (parent starfall 5/2/0.15)
+      devourer:  { cap: 7, per: 2, cd: 0.30 },   // control apex — the well is the main gun (parent eventHorizon 6/2/0.35)
     },
     // DUST ACCRETION — the anti-sitting-duck floor. When the well is below capacity and
     // there is NOTHING capturable in range, it condenses a small PEBBLE from dust every

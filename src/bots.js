@@ -23,7 +23,7 @@ window.PULSAR.Bots = (function () {
   const reachOf = (bot, fam) => REACH_CLASS[bot.classId] || REACH[fam];
 
   // fight-time firing/ability/special decision per family (reads the bot's own weapon state)
-  function fightFire(bot, fam, ed, world) {
+  function fightFire(bot, fam, ed, world, enemy) {
     const o = { firing: false, ability: false, special: false };
     if (fam === 'rail') {
       if (SUSTAIN(bot.classId))                                    // hold the beam, respect the heat bar + its shorter range
@@ -43,10 +43,14 @@ window.PULSAR.Bots = (function () {
       o.special = (bot.classId === 'eventHorizon') && ed < 380;     // collapse
     } else if (fam === 'flail') {
       // wind the mace while closing; let go (stop firing) to FLING once it's fast + in reach
-      const reach = world.config.flailship.orb.maxReach;
-      o.firing = bot.orbState === 'spin' ? !((bot.spinFrac || 0) > 0.85 && ed < reach * 0.95)
+      const reach = world.config.flailship.orb.maxReach * (bot.rangeMult || 1);
+      const counterRush = enemy && world.familyOf(enemy.classId) === 'hammer' && (enemy.ramWinding || enemy.ramActive > 0);
+      o.firing = bot.orbState === 'spin' ? counterRush || !((bot.spinFrac || 0) > 0.85 && ed < reach * 0.95)
                                          : ed < 700;
-      o.ability = ed < 210 && rnd() < 0.05;
+      // Swing Control is the lineage's answer to a telegraphed dive: get the defensive orbit
+      // up quickly, then keep it spinning through the impact instead of throwing it away.
+      o.ability = (enemy && world.familyOf(enemy.classId) === 'hammer' && ed < reach && (bot.spinFrac || 0) < 0.85)
+               || (ed < 210 && rnd() < 0.05);
       o.special = TWIN(bot.classId) && ed < 200;                    // static lash when they dive the maces
     } else {
       o.firing = ed < REACH.dart;                                   // starter popgun
@@ -129,8 +133,15 @@ window.PULSAR.Bots = (function () {
     if (ai.t <= 0) {
       ai.t = C.decisionSec; ai.strafeDir = rnd() < 0.5 ? 1 : -1;
       if (bot.hp < bot.maxHp * C.fleeHpFraction && enemy && ed < C.senseRange) ai.state = 'flee';
-      else if (enemy && ed < C.engageRange && rnd() < C.aggression) ai.state = 'fight';
-      else ai.state = 'farm';
+      else {
+        // Encounters need a little adhesion. Once a bot commits, keep pursuing through the
+        // awareness band instead of re-rolling aggression every decision and dropping back
+        // to farming mid-fight. New encounters still use the aggression roll.
+        const committed = ai.state === 'fight' || ai.state === 'hunt';
+        const pursue = enemy && ed < C.senseRange && (committed || rnd() < C.aggression);
+        if (pursue) ai.state = ed < C.engageRange ? 'fight' : 'hunt';
+        else ai.state = 'farm';
+      }
     }
     if (!enemy && ai.state !== 'farm') { ai.state = 'farm'; ai.target = null; }
 
@@ -153,7 +164,16 @@ window.PULSAR.Bots = (function () {
     if (ai.state === 'flee' && enemy) {
       perceive(bot, ai, enemy, C, dt);
       go(enemy.x, enemy.y, 'away'); aimAng = swivel(ai, ai.seenA, turnRate, dt); aimDist = ai.seenD;
-      fire = gate(fightFire(bot, fam, ed, world), ed); fire.special = false;
+      fire = gate(fightFire(bot, fam, ed, world, enemy), ed); fire.special = false;
+    } else if (ai.state === 'hunt' && enemy) {
+      // Close the awareness-to-engagement gap without shooting from off-screen. Perception
+      // starts here, so the acquire beat is usually complete by the time the fight begins.
+      perceive(bot, ai, enemy, C, dt);
+      aimAng = swivel(ai, ai.seenA, turnRate, dt); aimDist = ai.seenD;
+      if (ai.dodge > 0) go(enemy.x, enemy.y, 'side');
+      else go(enemy.x, enemy.y);
+      // These inputs prepare persistent melee/control weapons; neither fires a ranged shot.
+      fire.firing = fam === 'grav' || fam === 'flail';
     } else if (ai.state === 'fight' && enemy) {
       perceive(bot, ai, enemy, C, dt);
       aimAng = swivel(ai, ai.seenA, turnRate, dt); aimDist = ai.seenD;
@@ -162,7 +182,7 @@ window.PULSAR.Bots = (function () {
       else if (ed > pref * 1.1) go(enemy.x, enemy.y);
       else if (ed < pref * 0.7) go(enemy.x, enemy.y, 'away');
       else go(enemy.x, enemy.y, 'side');
-      fire = gate(fightFire(bot, fam, ed, world), ed);
+      fire = gate(fightFire(bot, fam, ed, world, enemy), ed);
     } else {
       ai.target = null;
       if (rock) {
@@ -171,10 +191,11 @@ window.PULSAR.Bots = (function () {
         if (rd > reachOf(bot, fam) * 0.7) go(rock.x, rock.y);
         fire = farmFire(bot, fam, rd);
       } else if ((bot.plane | 0) === 1) {
-        // TITAN PLANE: no rocks to farm — PROWL. Stride toward the nearest Titan anywhere on
-        // the plane (the normal fight state takes over inside engageRange); alone, cruise
-        // between roam waypoints so the plane feels patrolled. (The old center-ring hover made
-        // lone Titans jitter in place: the go-target degenerated to their own position.)
+        // TITAN PLANE: Titans HUNT, they don't farm — PROWL. Stride toward the nearest Titan
+        // anywhere on the plane (the normal fight state takes over inside engageRange); alone,
+        // cruise between roam waypoints so the plane feels patrolled. (The old center-ring hover
+        // made lone Titans jitter in place: the go-target degenerated to their own position.)
+        // The plane's debris is deliberately NOT a movement target up here — see the grav note below.
         const TH = C.titanHunt || {};
         if (enemy) {
           aimAng = swivel(ai, ang(bot, enemy), turnRate, dt); aimDist = ed;
@@ -186,6 +207,14 @@ window.PULSAR.Bots = (function () {
             ai.roam = { x: off + m + rnd() * (world.arena.width - m * 2), y: m + rnd() * (world.arena.height - m * 2) };
           aimAng = swivel(ai, ang(bot, ai.roam), turnRate, dt);
           go(ai.roam.x, ai.roam.y);
+        }
+        // GRAV prowls with the well OPEN. Its kit is terrain-fed, so it must arrive at the fight
+        // already loaded — but chasing rocks would break the hunt. The well pulls anything inside
+        // pullRadius to it, so simply holding fire hoovers ammo off the debris field while it
+        // roams: hunting movement, farming intake.
+        if (fam === 'grav') {
+          const lc = world.config.gravitor.launchByClass[bot.classId] || world.config.gravitor.launchByClass.gravitor;
+          fire.firing = !bot.captured || bot.captured.length < lc.cap;
         }
       } else {
         // plane 0: hover near the black hole (where the action + jets are) but OUTSIDE its

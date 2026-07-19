@@ -49,10 +49,17 @@ const tBolts = world.state.projectiles.filter(pr => (pr.plane | 0) === 1);
 check('titan-plane projectiles exist + fly within the rect', tBolts.length > 0 && tBolts.every(pr => pr.x >= OFF - 1 && pr.x <= OFF + W + 1),
   `bolts=${tBolts.length}`);
 
-// ---- objects (farm rocks) all live in the normal arena rect ----
+// ---- objects live in exactly ONE rect: the farm field or the Titan debris field ----
 for (let i = 0; i < 300; i++) world.step(DT);
-check('every object stays in the normal arena', world.state.objects.every(o => o.x >= 0 && o.x <= W),
+const inArena = (o) => o.x >= 0 && o.x <= W, inTitan = (o) => o.x >= OFF && o.x <= OFF + W;
+check('every object sits in its own plane\'s rect (never the void)',
+  world.state.objects.every(o => (o.plane | 0) === 1 ? inTitan(o) : inArena(o)),
   `objects=${world.state.objects.length}`);
+check('the farm field is plane-0 only (Titans can\'t touch farm rocks)',
+  world.state.objects.filter(o => (o.plane | 0) === 0).every(inArena));
+check('Titan plane has its own debris field (grav ammo + cover)',
+  world.state.objects.filter(o => (o.plane | 0) === 1).length > 50,
+  `${world.state.objects.filter(o => (o.plane | 0) === 1).length} rocks up there`);
 
 // ---- titan bots ignore rocks + PROWL (no ring-jitter, no rock-chasing) ----
 world.clearBots();
