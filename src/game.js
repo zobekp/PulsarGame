@@ -325,9 +325,11 @@ window.PULSAR = window.PULSAR || {};
     const scale = isPlayer ? cfg.readability.yourShipBloomScale : 1.0;
     // capital-ship presence: a wide, dim power aura that grows with hull size (dreadnoughts loom)
     const sizeBoost = Math.min(1, (s.radius - cfg.player.baseRadius) / 55);
-    if (sizeBoost > 0.05) R.glow(cx, cy, s.radius * 4.6 * scale, hue, 0.05 + 0.15 * sizeBoost);
-    R.glow(cx, cy, s.radius * (3.0 + chargeGlow) * scale * threat, hue, (isPlayer ? 0.45 : 0.32) + chargeGlow * 0.4 + tierBoost + 0.12 * sizeBoost);
-    if (s.heat > cfg.railship.heat.max * 0.6 || s.ventTimer > 0) R.glow(cx, cy, s.radius * 2.4, [255, 120, 60], 0.22 + 0.4 * (s.heat / cfg.railship.heat.max));
+    // halo (soft centre), not glow (hot centre): the aura must SURROUND the hull, not paint a
+    // bright disc under its middle — the plating is the ship, the light is the presence.
+    if (sizeBoost > 0.05) R.halo(cx, cy, s.radius * 4.6 * scale, hue, 0.05 + 0.15 * sizeBoost);
+    R.halo(cx, cy, s.radius * (3.0 + chargeGlow) * scale * threat, hue, (isPlayer ? 0.55 : 0.4) + chargeGlow * 0.5 + tierBoost + 0.12 * sizeBoost);
+    if (s.heat > cfg.railship.heat.max * 0.6 || s.ventTimer > 0) R.halo(cx, cy, s.radius * 2.4, [255, 120, 60], 0.3 + 0.5 * (s.heat / cfg.railship.heat.max));
     if ((s.burnTimer || 0) > 0) R.glow(cx, cy, s.radius * 3.4, [127, 220, 255], 0.55);   // afterburner flare
   }
   function drawEnemyTag(ctx, s, x, y) {
@@ -343,7 +345,8 @@ window.PULSAR = window.PULSAR || {};
 
   // ---- ship silhouettes ------------------------------------------------------
   // Hull models live in src/ships.js (one per class, keyed by visuals.js silhouette).
-  // This wrapper keeps the readability overlays: spawn shield, white YOU core, leader crown.
+  // This wrapper keeps the readability overlays: spawn shield, leader crown (the legacy white
+  // YOU-disc is gated behind readability.yourShipCoreWhite, default off).
   // Skins (data/cosmetics.js) retint the hull inside Ships.draw and may add an FX layer here —
   // they never touch the readability channels (silhouette / rim / white core / threat bloom).
   function drawShip(ctx, x, y, s, isPlayer) {
@@ -355,8 +358,10 @@ window.PULSAR = window.PULSAR || {};
     PULSAR.Ships.draw(ctx, s, state.time);
     if (sk && sk.fx) drawSkinFx(ctx, s, sk.fx);            // cosmetic flair, dimmer than the rim
     ctx.restore();
-    if (isPlayer) {
-      ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, TAU); ctx.fillStyle = '#ffffff'; ctx.fill();   // white core = you (readability)
+    if (isPlayer && cfg.readability.yourShipCoreWhite) {
+      // legacy "that's you" marker — OFF by default now (the fat white dot hid the hull art);
+      // find-yourself readability rides on yourShipBloomScale instead. Flip the flag to restore.
+      ctx.beginPath(); ctx.arc(x, y, r * 0.4, 0, TAU); ctx.fillStyle = '#ffffff'; ctx.fill();
     }
     if (s.isLeader) drawCrown(ctx, x, y, r);
   }

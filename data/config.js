@@ -177,7 +177,7 @@ window.PULSAR.config = {
 
   // ---- Readability (gameplay-stakes, do not let these emerge by accident) ----
   readability: {
-    yourShipCoreWhite: true,      // YOU always get the pure-white core ring; nobody else
+    yourShipCoreWhite: false,     // legacy solid white centre disc on YOUR hull — hid the ship art ("fat white dot"); brightness (yourShipBloomScale) carries the find-yourself read now
     yourShipBloomScale: 1.4,      // you are the brightest thing on screen
     threatBloomScale: 1.0,        // scales up with carried scrap / level (rich = bright)
     threatBloomMax: 2.2,

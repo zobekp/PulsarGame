@@ -6,6 +6,31 @@ survives between agents and sessions.
 
 ---
 
+## 2026-07-20 — Kill the "fat white dot" on ship centres (halo bloom + YOU-disc off)
+User: "get rid of the fat white dot in the middle of every ship." Two stacked causes:
+- **Every ship:** `shipBloom` drew the presence aura with the standard glow sprite, whose centre
+  is NEAR-OPAQUE (stops: 1.0 -> 0.35 @45%) — a bright solid disc painted under/around every
+  hull's midsection. Added a SOFT-CENTER `halo()` sprite variant in render.js (0.38 -> 0.30 ->
+  0) used by ship auras only; intensities re-tuned up slightly to keep the same perceived
+  presence. Objects/motes/projectiles keep the hot-cored `glow()` — they ARE dots.
+- **Your ship:** the readability white core (`r*0.4` solid #fff disc drawn OVER the hull) hid
+  the ship art entirely. It now honors `readability.yourShipCoreWhite` (a config flag that
+  existed but was never read) and the flag defaults to **false** — find-yourself readability
+  rides on `yourShipBloomScale` (you are still the brightest thing on screen). Flip the flag to
+  restore the old marker.
+**Also:** `sptest`'s drive-phase check had gone flaky (~40%) — the post-feel-pass bots sometimes
+killed the test player mid-drive and the respawn teleport made dx negative. Spawn protection is
+now held during the 10s drive (the check asserts intent-driven movement, not survival); 6x
+deterministic.
+**Files:** src/render.js (halo sprite + export), src/game.js (shipBloom -> halo; gated YOU-disc),
+data/config.js (`yourShipCoreWhite: false`), tools/sptest.js.
+**How to test:** all 8 suites ALL PASS; visually, hull plating now reads at ship centres with the
+aura surrounding it (verified in live SP, no console errors).
+**VISUAL_SPEC note:** spec rule #1 said "pure-white core ring nobody else gets" — per the owner's
+call the marker is retired; rule #1's intent (your eye finds you instantly) is carried by the
+brightness channel alone. Revisit if find-yourself suffers in 6-player chaos.
+
+
 ## 2026-07-19 — SIMPLIFICATION: Titan plane, tier-4 apexes & Dreadnought REMOVED (cosmetics kept)
 Playtest verdict: "games far too complicated now." Reverted the game to pre-Titan scope — the
 evolution tree ends at the tier-3 FINALS again — while keeping everything orthogonal that landed

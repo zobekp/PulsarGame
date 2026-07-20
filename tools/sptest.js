@@ -30,12 +30,17 @@ let spawnsOk = true;
 for (const s of world.state.ships) { const d = wallDist(s); if (d < A.spawnEdgeInset - 1 || d > A.edgeSafeMargin + 1) spawnsOk = false; }
 check('all spawns in the edge band', spawnsOk, `player wallDist=${wallDist(p).toFixed(0)}`);
 
-// drive the player like game.js does: thrust right + fire, 10 sim-seconds with bots alive
+// drive the player like game.js does: thrust right + fire, 10 sim-seconds with bots alive.
+// Spawn protection is HELD for the drive so the (aggressive, post-feel-pass) bots can't kill or
+// knock the player mid-measurement — a death/respawn teleport made dx negative and the check
+// flaky. This check asserts intent-driven MOVEMENT, not survival; combat is exercised below.
 const sx = p.x;
 for (let i = 0; i < 600; i++) {
+  p.spawnProtect = 1;
   world.setIntent(p.id, { moveX: 1, moveY: 0, aim: 0, aimDist: 400, firing: true, ability: false, special: false, afterburner: false, altFire: false });
   world.step(DT);
 }
+p.spawnProtect = 0;
 check('player moved under intent', p.x - sx > 500 || p.x >= A.width - p.radius - 1, `dx=${(p.x - sx).toFixed(0)}`);
 
 // no non-finite state anywhere after 10s of mixed sim

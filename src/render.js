@@ -73,6 +73,34 @@ window.PULSAR.Render = (function () {
     ctx.drawImage(glowSprite(rgb), sx - radius, sy - radius, radius * 2, radius * 2);
     ctx.globalAlpha = 1;
   }
+  // SOFT-CENTER halo for SHIP auras. The standard glow sprite is near-opaque at its middle,
+  // which painted a bright solid disc under every hull — the "fat dot in the middle of every
+  // ship". This variant keeps the surrounding bloom but stays translucent at the centre, so the
+  // plating reads instead of a blob. Objects/motes/projectiles keep the hot-cored glow (they ARE
+  // dots — that's their look).
+  const haloCache = new Map();
+  function haloSprite(rgb) {
+    const key = (rgb[0] << 16) | (rgb[1] << 8) | rgb[2];
+    let spr = haloCache.get(key);
+    if (spr) return spr;
+    spr = document.createElement('canvas');
+    spr.width = spr.height = GLOW_R * 2;
+    const s = spr.getContext('2d');
+    const g = s.createRadialGradient(GLOW_R, GLOW_R, 0, GLOW_R, GLOW_R, GLOW_R);
+    const [r, gg, b] = rgb;
+    g.addColorStop(0.0, `rgba(${r},${gg},${b},0.38)`);
+    g.addColorStop(0.5, `rgba(${r},${gg},${b},0.30)`);
+    g.addColorStop(1.0, `rgba(${r},${gg},${b},0)`);
+    s.fillStyle = g;
+    s.fillRect(0, 0, GLOW_R * 2, GLOW_R * 2);
+    haloCache.set(key, spr);
+    return spr;
+  }
+  function halo(sx, sy, radius, rgb, intensity) {
+    ctx.globalAlpha = intensity < 0 ? 0 : intensity > 1 ? 1 : intensity;
+    ctx.drawImage(haloSprite(rgb), sx - radius, sy - radius, radius * 2, radius * 2);
+    ctx.globalAlpha = 1;
+  }
 
   function solidCircle(sx, sy, radius, style) {
     ctx.fillStyle = style;
@@ -203,7 +231,7 @@ window.PULSAR.Render = (function () {
   }
 
   return {
-    init, resize, beginFrame, endWorld, drawGrid, drawPulsar, glow, solidCircle,
+    init, resize, beginFrame, endWorld, drawGrid, drawPulsar, glow, halo, solidCircle,
     hexToRgb,
     setComposite(mode) { ctx.globalCompositeOperation = mode; },
     get ctx() { return ctx; },
