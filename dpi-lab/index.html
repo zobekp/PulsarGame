@@ -1,0 +1,627 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DPI Lab</title>
+<style>
+:root{--bg:#07080c;--panel:#0f1118;--line:#1e2230;--text:#e6e9f2;--muted:#8a90a6;--acc:#37e8ff;--acc2:#ff4fd8;--ok:#5cff9d;--bad:#ff5c6c;--warn:#ffcc4d}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--text);font:14px/1.45 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;overflow:hidden}
+#c{position:fixed;inset:0;display:block;cursor:crosshair}
+.panel{position:fixed;inset:0;overflow:auto;background:rgba(7,8,12,.88);backdrop-filter:blur(6px);display:flex;justify-content:center;align-items:flex-start;padding:32px 16px}
+.panel[hidden]{display:none}
+.card{width:min(960px,100%);background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:24px 28px 28px;box-shadow:0 0 60px rgba(55,232,255,.08)}
+h1{margin:0 0 4px;font-size:26px;letter-spacing:.5px}
+h1 span{color:var(--acc)}
+h2{font-size:12px;margin:22px 0 10px;color:var(--acc);text-transform:uppercase;letter-spacing:1.6px}
+.sub{color:var(--muted);margin:0 0 6px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(170px,1fr));gap:12px 16px}
+label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.8px}
+input[type=number],select{background:#090b12;border:1px solid var(--line);color:var(--text);padding:8px 10px;border-radius:8px;font:inherit;font-size:14px;width:100%}
+input:focus,select:focus{outline:1px solid var(--acc)}
+.seg{display:flex;gap:8px;flex-wrap:wrap}
+.seg button{flex:1;min-width:150px;text-align:left;padding:10px 12px;background:#090b12;border:1px solid var(--line);color:var(--text);border-radius:10px;cursor:pointer;font:inherit}
+.seg button.on{border-color:var(--acc);box-shadow:inset 0 0 0 1px var(--acc)}
+.seg button b{display:block;margin-bottom:2px}
+.seg button small{color:var(--muted)}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap;margin-top:18px}
+.btn{padding:11px 18px;border-radius:10px;border:1px solid var(--line);background:#141827;color:var(--text);font:inherit;font-weight:600;cursor:pointer}
+.btn.primary{background:var(--acc);color:#05161a;border-color:var(--acc)}
+.btn:hover{filter:brightness(1.12)}
+.stats{display:flex;gap:10px;flex-wrap:wrap;margin-top:12px}
+.stat{display:inline-flex;flex-direction:column;padding:10px 14px;background:#090b12;border:1px solid var(--line);border-radius:10px;min-width:130px}
+.stat b{font-size:20px}.stat small{color:var(--muted);text-transform:uppercase;letter-spacing:.8px;font-size:11px}
+.check{flex-direction:row;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:13px;color:var(--text)}
+table{width:100%;border-collapse:collapse;font-size:13px;margin-top:8px}
+th,td{padding:7px 8px;text-align:right;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:500;text-transform:uppercase;font-size:11px;letter-spacing:.8px}
+td:first-child,th:first-child{text-align:left}
+tr.rec td{color:var(--acc);font-weight:600}
+.tablewrap{overflow-x:auto}
+.big{font-size:64px;font-weight:700;color:var(--acc);line-height:1;text-shadow:0 0 24px rgba(55,232,255,.5)}
+.big small{font-size:22px;color:var(--muted);text-shadow:none;font-weight:500}
+.hist{list-style:none;margin:0;padding:0}
+.hist li{display:flex;justify-content:space-between;gap:12px;padding:6px 0;border-bottom:1px solid var(--line);color:var(--muted);font-size:13px}
+.hist li b{color:var(--text)}
+#chart{width:100%;height:280px;display:block;margin-top:8px}
+.note{font-size:12px;color:var(--muted);margin:6px 0 0}
+.ev{margin:10px 0 0;padding-left:18px}
+.ev li{margin:4px 0}
+kbd{background:#1a1f2e;border:1px solid #2b3245;border-radius:4px;padding:1px 6px;font-size:12px}
+.ok{color:var(--ok)}.bad{color:var(--bad)}.warn{color:var(--warn)}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+
+<div class="panel" id="setup">
+  <div class="card">
+    <h1>DPI <span>Lab</span></h1>
+    <p class="sub">Find the mouse DPI you actually aim best at. You play the same drill at several simulated DPIs (in shuffled order) and the app scores each one.</p>
+    <p class="note">The browser can't change your mouse's hardware DPI, so DPI Lab scales raw mouse deltas instead: at your in-game sensitivity, a simulated 1600 DPI moves the crosshair exactly twice as far per inch as 800. Results are also reported as eDPI and cm/360, so you can change either DPI or in-game sens afterwards.</p>
+
+    <h2>Your current setup</h2>
+    <div class="grid">
+      <label>Mouse DPI (current)<input type="number" id="baseDpi" min="100" max="26000" step="50" value="800"></label>
+      <label>Game<select id="game"></select></label>
+      <label>In-game sensitivity<input type="number" id="sens" min="0.001" step="0.01" value="1.5"></label>
+      <label>Current feel<div id="feel" style="font-size:14px;color:var(--text);text-transform:none;letter-spacing:0;padding-top:8px">–</div></label>
+    </div>
+
+    <h2>Drill</h2>
+    <div class="seg" id="scenario"></div>
+
+    <h2>DPI ladder to test</h2>
+    <div class="grid">
+      <label>Lowest DPI<input type="number" id="minDpi" min="100" max="26000" step="50" value="400"></label>
+      <label>Highest DPI<input type="number" id="maxDpi" min="100" max="26000" step="50" value="1600"></label>
+      <label>Steps<input type="number" id="steps" min="2" max="9" value="5"></label>
+      <label>Seconds per step<input type="number" id="secs" min="10" max="90" step="5" value="20"></label>
+      <label>Rounds<input type="number" id="rounds" min="1" max="4" value="2"></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <label class="check"><input type="checkbox" id="shuffle" checked> Shuffle order (removes warm-up bias)</label>
+      <label class="check"><input type="checkbox" id="blind" checked> Blind mode (steps shown as letters, DPI revealed at the end)</label>
+    </div>
+    <p class="note" id="ladder"></p>
+
+    <div class="row">
+      <button class="btn primary" id="start">Start calibration</button>
+      <button class="btn" id="free">Free play at current DPI</button>
+      <span class="note">In the arena: <kbd>Esc</kbd> pause · <kbd>Space</kbd> continue · <kbd>Q</kbd> quit to this screen</span>
+    </div>
+
+    <h2>History</h2>
+    <ul class="hist" id="hist"></ul>
+    <div class="row" style="margin-top:8px"><button class="btn" id="clearHist">Clear history</button></div>
+  </div>
+</div>
+
+<div class="panel" id="results" hidden>
+  <div class="card" id="resultsCard"></div>
+</div>
+
+<script>
+'use strict';
+// ───────────────────────────── CONFIG (every tunable lives here) ─────────────────────────────
+const CONFIG = {
+  hfov: 103,        // deg. Horizontal FOV used to convert degrees of turn → on-screen px at screen centre.
+  countdown: 3,     // s of live-mouse countdown before targets appear (lets you feel the sens first).
+  commonDpi: [400, 500, 600, 800, 1000, 1200, 1600, 2000, 2400, 3200],
+  flatBand: 0.08,   // if all scores sit within this fraction of the best, call the result "flat".
+  games: [          // yaw = degrees turned per mouse count at sensitivity 1.
+    { id:'cs2',      label:'CS2 / CS:GO / Apex / Quake', yaw:0.022,  sens:1.5 },
+    { id:'valorant', label:'Valorant',                   yaw:0.07,   sens:0.5 },
+    { id:'ow2',      label:'Overwatch 2',                yaw:0.0066, sens:5 },
+    { id:'generic',  label:'Generic / other',            yaw:0.022,  sens:2 },
+  ],
+  scenarios: {
+    flick: { label:'Flick', desc:'One target at a time, random distance. Best for DPI: measures over/undershoot.',
+             radius:24, minDist:170, maxDist:560 },
+    grid:  { label:'Gridshot', desc:'Three targets at once. Measures target switching + click accuracy.',
+             radius:28, count:3, areaW:820, areaH:460, minSep:2.6 },
+    track: { label:'Tracking', desc:'Follow a moving target. Measures micro-control (time on target).',
+             radius:30, speed:300, turnMin:0.35, turnMax:1.1, turnRate:6, leash:360 },
+  },
+  fx: { ring:0.28, miss:0.18 },
+  gridDotSpacing: 80,
+};
+
+// ───────────────────────────── canvas / helpers ─────────────────────────────
+const canvas = document.getElementById('c'), ctx = canvas.getContext('2d');
+const $ = id => document.getElementById(id);
+let W = 0, H = 0, DPR = 1;
+function resize() {
+  DPR = Math.min(2, devicePixelRatio || 1); W = innerWidth; H = innerHeight;
+  canvas.width = W * DPR; canvas.height = H * DPR;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+}
+addEventListener('resize', resize); resize();
+const rnd = (a, b) => a + Math.random() * (b - a);
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const mean = a => a.length ? a.reduce((s, v) => s + v, 0) / a.length : NaN;
+const fmt = (v, d = 1) => Number.isFinite(v) ? v.toFixed(d) : '–';
+const cm360 = (yaw, sens, dpi) => 2.54 * 360 / (yaw * sens * dpi);
+const nearestCommon = dpi => CONFIG.commonDpi.reduce((b, d) => Math.abs(Math.log(d / dpi)) < Math.abs(Math.log(b / dpi)) ? d : b);
+
+// ───────────────────────────── state ─────────────────────────────
+const S = {
+  state: 'setup',       // setup | ready | countdown | run | paused | results
+  locked: false, raw: null,
+  view: { x: 0, y: 0 }, // world position of the crosshair (crosshair is always screen centre, the world moves)
+  plan: null, segIdx: 0, seg: null,
+  targets: [], fx: [], countdownLeft: 0, prevState: null, now: 0,
+};
+window.DPILAB = { S, CONFIG, dev: false }; // debug hook (dev=true lets synthetic input through without pointer lock)
+
+function pxPerCount() {
+  const focal = (W / 2) / Math.tan(CONFIG.hfov / 2 * Math.PI / 180);
+  return focal * Math.PI / 180 * S.plan.game.yaw * S.plan.sens;
+}
+
+// ───────────────────────────── setup UI ─────────────────────────────
+let scenarioId = 'flick';
+(function buildSetup() {
+  const gs = $('game');
+  for (const g of CONFIG.games) { const o = document.createElement('option'); o.value = g.id; o.textContent = g.label; gs.appendChild(o); }
+  const sc = $('scenario');
+  for (const [id, s] of Object.entries(CONFIG.scenarios)) {
+    const b = document.createElement('button'); b.dataset.id = id;
+    b.innerHTML = `<b>${s.label}</b><small>${s.desc}</small>`;
+    b.onclick = () => { scenarioId = id; refreshSetup(); };
+    sc.appendChild(b);
+  }
+  gs.onchange = () => { $('sens').value = CONFIG.games.find(g => g.id === gs.value).sens; refreshSetup(); };
+  for (const id of ['baseDpi', 'sens', 'minDpi', 'maxDpi', 'steps', 'secs', 'rounds', 'shuffle', 'blind'])
+    $(id).addEventListener('input', refreshSetup);
+  $('start').onclick = startCalibration;
+  $('free').onclick = startFree;
+  $('clearHist').onclick = () => { localStorage.removeItem('dpilab.history'); renderHistory(); };
+  loadSettings(); refreshSetup(); renderHistory();
+})();
+
+function readSetup() {
+  const game = CONFIG.games.find(g => g.id === $('game').value);
+  return {
+    baseDpi: clamp(+$('baseDpi').value || 800, 100, 26000), game, sens: Math.max(0.001, +$('sens').value || game.sens),
+    scenario: scenarioId, minDpi: clamp(+$('minDpi').value || 400, 100, 26000), maxDpi: clamp(+$('maxDpi').value || 1600, 100, 26000),
+    steps: clamp(Math.round(+$('steps').value) || 5, 2, 9), secs: clamp(+$('secs').value || 20, 10, 90),
+    rounds: clamp(Math.round(+$('rounds').value) || 2, 1, 4), shuffle: $('shuffle').checked, blind: $('blind').checked,
+  };
+}
+function ladder(minDpi, maxDpi, steps) { // log-spaced so each step is the same % change
+  const lo = Math.min(minDpi, maxDpi), hi = Math.max(minDpi, maxDpi), out = [];
+  for (let i = 0; i < steps; i++) out.push(Math.round(lo * Math.pow(hi / lo, i / (steps - 1)) / 10) * 10);
+  return [...new Set(out)];
+}
+function refreshSetup() {
+  const p = readSetup();
+  document.querySelectorAll('#scenario button').forEach(b => b.classList.toggle('on', b.dataset.id === scenarioId));
+  $('feel').textContent = `eDPI ${fmt(p.baseDpi * p.sens, 0)} · ${fmt(cm360(p.game.yaw, p.sens, p.baseDpi))} cm/360`;
+  const l = ladder(p.minDpi, p.maxDpi, p.steps);
+  const total = l.length * p.rounds * (p.secs + CONFIG.countdown + 2);
+  $('ladder').textContent = `Ladder: ${l.join(' · ')} DPI  →  ${l.length * p.rounds} segments, about ${Math.ceil(total / 60)} min`;
+  saveSettings(p);
+}
+function saveSettings(p) { try { localStorage.setItem('dpilab.settings', JSON.stringify({ ...p, game: p.game.id })); } catch (e) {} }
+function loadSettings() {
+  try {
+    const p = JSON.parse(localStorage.getItem('dpilab.settings')); if (!p) return;
+    $('baseDpi').value = p.baseDpi; $('game').value = p.game; $('sens').value = p.sens; scenarioId = p.scenario in CONFIG.scenarios ? p.scenario : 'flick';
+    $('minDpi').value = p.minDpi; $('maxDpi').value = p.maxDpi; $('steps').value = p.steps; $('secs').value = p.secs; $('rounds').value = p.rounds;
+    $('shuffle').checked = !!p.shuffle; $('blind').checked = !!p.blind;
+  } catch (e) {}
+}
+
+// ───────────────────────────── session planning ─────────────────────────────
+function newSeg(dpi, label, round, secs) {
+  return { dpi, label, round, mult: dpi / S.plan.baseDpi, timeLeft: secs, elapsed: 0,
+           shots: 0, hits: 0, kills: 0, ttk: [], along: [], lateral: [], peak: [], onTarget: 0, distSum: 0, distN: 0 };
+}
+function startCalibration() {
+  const p = readSetup();
+  const dpis = ladder(p.minDpi, p.maxDpi, p.steps);
+  const letters = 'ABCDEFGHJ'.split('').slice(0, dpis.length).sort(() => Math.random() - 0.5);
+  const labels = {}; dpis.forEach((d, i) => labels[d] = p.blind ? `Sens ${letters[i]}` : `${d} DPI`);
+  S.plan = { ...p, dpis, labels, free: false, segments: [] };
+  for (let r = 0; r < p.rounds; r++) {
+    const order = dpis.slice(); if (p.shuffle) order.sort(() => Math.random() - 0.5);
+    for (const d of order) S.plan.segments.push(newSeg(d, labels[d], r, p.secs));
+  }
+  enterArena(); beginSegment(0);
+}
+function startFree() {
+  const p = readSetup();
+  S.plan = { ...p, dpis: [p.baseDpi], labels: { [p.baseDpi]: `${p.baseDpi} DPI` }, free: true, segments: [] };
+  S.plan.segments.push(newSeg(p.baseDpi, `${p.baseDpi} DPI (free play)`, 0, Infinity));
+  enterArena(); beginSegment(0);
+}
+function enterArena() { $('setup').hidden = true; $('results').hidden = true; S.view.x = 0; S.view.y = 0; S.fx = []; }
+function beginSegment(i) {
+  S.segIdx = i; S.seg = S.plan.segments[i]; S.targets = []; S.state = 'ready';
+}
+function startCountdown() { S.state = 'countdown'; S.countdownLeft = CONFIG.countdown; S.targets = []; }
+function endSegment() {
+  if (S.segIdx + 1 < S.plan.segments.length) beginSegment(S.segIdx + 1); else finishSession();
+}
+function quitToSetup() {
+  if (document.pointerLockElement) document.exitPointerLock();
+  S.state = 'setup'; S.targets = []; $('results').hidden = true; $('setup').hidden = false; renderHistory();
+}
+function finishSession() {
+  if (document.pointerLockElement) document.exitPointerLock();
+  S.state = 'results'; S.targets = [];
+  const res = computeResults(); saveHistory(res); renderHistory();
+  $('results').hidden = false;   // unhide first: the chart canvas needs a real layout size
+  renderResults(res);
+}
+
+// ───────────────────────────── input ─────────────────────────────
+function requestLock() {
+  let p = null;
+  try { p = canvas.requestPointerLock({ unadjustedMovement: true }); } catch (e) { p = null; }
+  if (p && typeof p.then === 'function') {
+    p.then(() => { S.raw = true; }).catch(() => {
+      S.raw = false; try { const q = canvas.requestPointerLock(); if (q && q.catch) q.catch(() => {}); } catch (e) {}
+    });
+  } else if (S.raw === null) S.raw = false;
+}
+document.addEventListener('pointerlockchange', () => {
+  S.locked = document.pointerLockElement === canvas;
+  if (S.locked) {
+    if (S.state === 'ready') startCountdown();
+    else if (S.state === 'paused') S.state = S.prevState;
+  } else if (S.state === 'run' || S.state === 'countdown') { S.prevState = S.state; S.state = 'paused'; }
+});
+document.addEventListener('pointerlockerror', () => {});
+
+canvas.addEventListener('mousemove', e => {
+  if (!(S.locked || DPILAB.dev)) return;
+  onMove(e.movementX, e.movementY);
+});
+function onMove(dx, dy) {
+  if (!S.seg || !['ready', 'countdown', 'run'].includes(S.state)) return;
+  const k = pxPerCount() * S.seg.mult;
+  S.view.x += dx * k; S.view.y += dy * k;
+  if (S.plan.scenario === 'flick' && S.targets[0]) {
+    const t = S.targets[0];
+    const s = (S.view.x - t.sv.x) * t.dir.x + (S.view.y - t.sv.y) * t.dir.y;
+    if (s > t.maxS) t.maxS = s;
+  }
+}
+canvas.addEventListener('mousedown', e => {
+  if (e.button !== 0) return;
+  if (!S.locked && !DPILAB.dev) { if (S.state !== 'setup' && S.state !== 'results') requestLock(); return; }
+  if (S.state === 'ready') startCountdown();
+  else if (S.state === 'run') shoot();
+});
+addEventListener('keydown', e => {
+  if (S.state === 'setup' || S.state === 'results') return;
+  if (e.code === 'Space') { e.preventDefault(); if (S.state === 'ready' && (S.locked || DPILAB.dev)) startCountdown(); }
+  if (e.code === 'KeyQ') quitToSetup();
+});
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+
+// ───────────────────────────── scenarios ─────────────────────────────
+function spawnInitial() {
+  const sc = S.plan.scenario;
+  if (sc === 'flick') spawnFlick();
+  else if (sc === 'grid') { S.gridAnchor = { ...S.view }; for (let i = 0; i < CONFIG.scenarios.grid.count; i++) spawnGridTarget(); }
+  else if (sc === 'track') initTrack();
+}
+function fitsOnScreen(ox, oy, r) { return Math.abs(ox) < W / 2 - r - 12 && Math.abs(oy) < H / 2 - r - 12; }
+function spawnFlick() {
+  const c = CONFIG.scenarios.flick;
+  let ox = 0, oy = 0, d = 0, a = 0;
+  for (let i = 0; i < 40; i++) {
+    a = rnd(0, Math.PI * 2); d = rnd(c.minDist, c.maxDist);
+    ox = Math.cos(a) * d; oy = Math.sin(a) * d;
+    if (fitsOnScreen(ox, oy, c.radius)) break;
+    if (i === 39) { d = Math.min(d, Math.min(W, H) / 2 - c.radius - 20); ox = Math.cos(a) * d; oy = Math.sin(a) * d; }
+  }
+  S.targets = [{ x: S.view.x + ox, y: S.view.y + oy, r: c.radius, spawnT: S.now, sv: { ...S.view }, dir: { x: ox / d, y: oy / d }, dist: d, maxS: 0, shot: false }];
+}
+function spawnGridTarget() {
+  const c = CONFIG.scenarios.grid;
+  const aw = Math.min(c.areaW, W - 4 * c.radius), ah = Math.min(c.areaH, H - 4 * c.radius);
+  let x = 0, y = 0;
+  for (let i = 0; i < 40; i++) {
+    x = S.gridAnchor.x + rnd(-aw / 2, aw / 2); y = S.gridAnchor.y + rnd(-ah / 2, ah / 2);
+    if (S.targets.every(t => Math.hypot(t.x - x, t.y - y) > c.radius * c.minSep) && Math.hypot(x - S.view.x, y - S.view.y) > c.radius * 1.5) break;
+  }
+  S.targets.push({ x, y, r: c.radius, spawnT: S.now });
+}
+function initTrack() {
+  const c = CONFIG.scenarios.track, a = rnd(0, Math.PI * 2);
+  S.targets = [{ x: S.view.x + Math.cos(a) * 160, y: S.view.y + Math.sin(a) * 160, r: c.radius, spawnT: S.now,
+                 h: rnd(0, Math.PI * 2), th: rnd(0, Math.PI * 2), turnIn: rnd(c.turnMin, c.turnMax) }];
+}
+function updateTrack(dt) {
+  const c = CONFIG.scenarios.track, t = S.targets[0]; if (!t) return;
+  t.turnIn -= dt;
+  const dx = S.view.x - t.x, dy = S.view.y - t.y, dist = Math.hypot(dx, dy);
+  if (dist > c.leash) { t.th = Math.atan2(dy, dx) + rnd(-0.7, 0.7); t.turnIn = rnd(c.turnMin, c.turnMax); }
+  else if (t.turnIn <= 0) { t.th = t.h + rnd(-1.8, 1.8); t.turnIn = rnd(c.turnMin, c.turnMax); }
+  let diff = Math.atan2(Math.sin(t.th - t.h), Math.cos(t.th - t.h));
+  t.h += clamp(diff, -c.turnRate * dt, c.turnRate * dt);
+  t.x += Math.cos(t.h) * c.speed * dt; t.y += Math.sin(t.h) * c.speed * dt;
+  const seg = S.seg, d2 = Math.hypot(S.view.x - t.x, S.view.y - t.y);
+  if (d2 <= t.r) seg.onTarget += dt;
+  seg.distSum += d2; seg.distN++;
+}
+function shoot() {
+  const seg = S.seg, sc = S.plan.scenario;
+  if (sc === 'track') return;
+  seg.shots++;
+  let hit = null, best = Infinity;
+  for (const t of S.targets) { const d = Math.hypot(S.view.x - t.x, S.view.y - t.y); if (d <= t.r && d < best) { best = d; hit = t; } }
+  if (sc === 'flick' && S.targets[0] && !S.targets[0].shot) {
+    const t = S.targets[0]; t.shot = true;
+    const ex = S.view.x - t.x, ey = S.view.y - t.y;
+    seg.along.push((ex * t.dir.x + ey * t.dir.y) / t.dist);          // + = overshoot, − = undershoot (fraction of flick distance)
+    seg.lateral.push(Math.abs(-ex * t.dir.y + ey * t.dir.x) / t.dist);
+  }
+  if (hit) {
+    seg.hits++; seg.kills++; seg.ttk.push(S.now - hit.spawnT);
+    if (sc === 'flick') seg.peak.push(Math.max(0, hit.maxS - hit.dist) / hit.dist);
+    S.fx.push({ kind: 'ring', x: hit.x, y: hit.y, r: hit.r, t: 0 });
+    S.targets.splice(S.targets.indexOf(hit), 1);
+    if (sc === 'flick') spawnFlick(); else spawnGridTarget();
+  } else S.fx.push({ kind: 'miss', t: 0 });
+}
+
+// ───────────────────────────── loop ─────────────────────────────
+let last = performance.now();
+function frame(nowMs) {
+  const dt = Math.min(0.05, (nowMs - last) / 1000); last = nowMs; S.now = nowMs / 1000;
+  update(dt); draw(); requestAnimationFrame(frame);
+}
+function update(dt) {
+  if (S.state === 'countdown') {
+    S.countdownLeft -= dt;
+    if (S.countdownLeft <= 0) { S.state = 'run'; spawnInitial(); }
+  } else if (S.state === 'run') {
+    const seg = S.seg; seg.elapsed += dt;
+    if (S.plan.scenario === 'track') updateTrack(dt);
+    if (!S.plan.free) { seg.timeLeft -= dt; if (seg.timeLeft <= 0) { endSegment(); return; } }
+  }
+  for (const f of S.fx) f.t += dt;
+  S.fx = S.fx.filter(f => f.t < (f.kind === 'ring' ? CONFIG.fx.ring : CONFIG.fx.miss));
+}
+requestAnimationFrame(frame);
+
+// ───────────────────────────── render ─────────────────────────────
+function txt(s, x, y, size, color, align = 'left', weight = 600) {
+  ctx.font = `${weight} ${size}px system-ui,-apple-system,"Segoe UI",Roboto,sans-serif`; ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = 'middle'; ctx.fillText(s, x, y);
+}
+function draw() {
+  ctx.fillStyle = '#07080c'; ctx.fillRect(0, 0, W, H);
+  if (S.state === 'setup' || S.state === 'results') return;
+  // scrolling dot grid so movement is visible at every sens
+  const sp = CONFIG.gridDotSpacing, ox = ((-S.view.x % sp) + sp) % sp, oy = ((-S.view.y % sp) + sp) % sp;
+  ctx.fillStyle = '#1b2030';
+  for (let x = ox; x < W; x += sp) for (let y = oy; y < H; y += sp) ctx.fillRect(x - 1, y - 1, 2, 2);
+  // targets
+  for (const t of S.targets) {
+    const sx = W / 2 + t.x - S.view.x, sy = H / 2 + t.y - S.view.y;
+    ctx.save(); ctx.shadowBlur = 22; ctx.shadowColor = '#37e8ff';
+    ctx.beginPath(); ctx.arc(sx, sy, t.r, 0, Math.PI * 2); ctx.fillStyle = 'rgba(55,232,255,.22)'; ctx.fill();
+    ctx.lineWidth = 2; ctx.strokeStyle = '#37e8ff'; ctx.stroke();
+    ctx.restore();
+    ctx.beginPath(); ctx.arc(sx, sy, t.r * 0.35, 0, Math.PI * 2); ctx.fillStyle = '#c8f9ff'; ctx.fill();
+  }
+  // fx
+  for (const f of S.fx) {
+    if (f.kind === 'ring') {
+      const k = f.t / CONFIG.fx.ring, sx = W / 2 + f.x - S.view.x, sy = H / 2 + f.y - S.view.y;
+      ctx.beginPath(); ctx.arc(sx, sy, f.r * (1 + k * 1.6), 0, Math.PI * 2); ctx.strokeStyle = `rgba(92,255,157,${1 - k})`; ctx.lineWidth = 3; ctx.stroke();
+    } else {
+      const k = f.t / CONFIG.fx.miss; ctx.strokeStyle = `rgba(255,92,108,${1 - k})`; ctx.lineWidth = 2;
+      ctx.beginPath(); ctx.arc(W / 2, H / 2, 14 + k * 10, 0, Math.PI * 2); ctx.stroke();
+    }
+  }
+  // crosshair
+  ctx.lineWidth = 2; const g = 4, l = 9, cx = W / 2, cy = H / 2;
+  for (const [c, w] of [['#000', 4], ['#ffffff', 2]]) {
+    ctx.strokeStyle = c; ctx.lineWidth = w; ctx.beginPath();
+    ctx.moveTo(cx - g - l, cy); ctx.lineTo(cx - g, cy); ctx.moveTo(cx + g, cy); ctx.lineTo(cx + g + l, cy);
+    ctx.moveTo(cx, cy - g - l); ctx.lineTo(cx, cy - g); ctx.moveTo(cx, cy + g); ctx.lineTo(cx, cy + g + l); ctx.stroke();
+  }
+  ctx.fillStyle = '#37e8ff'; ctx.fillRect(cx - 1, cy - 1, 2, 2);
+  drawHud();
+}
+function drawHud() {
+  const seg = S.seg, p = S.plan; if (!seg) return;
+  const sc = p.scenario, n = p.segments.length;
+  txt(seg.label, 20, 26, 20, '#37e8ff');
+  txt(p.free ? `eDPI ${fmt(seg.dpi * p.sens, 0)} · ${fmt(cm360(p.game.yaw, p.sens, seg.dpi))} cm/360` : `Segment ${S.segIdx + 1} / ${n} · ${CONFIG.scenarios[sc].label}`, 20, 50, 13, '#8a90a6', 'left', 500);
+  const acc = seg.shots ? seg.hits / seg.shots * 100 : 0;
+  const line = sc === 'track'
+    ? `On target ${fmt(seg.elapsed ? seg.onTarget / seg.elapsed * 100 : 0)}%`
+    : `Hits ${seg.hits} / ${seg.shots}  ·  ${fmt(acc, 0)}%  ·  ${fmt(seg.elapsed ? seg.kills / seg.elapsed : 0, 2)} kills/s`;
+  txt(line, 20, 74, 13, '#e6e9f2', 'left', 500);
+  if (!p.free) txt(`${Math.max(0, Math.ceil(seg.timeLeft))}s`, W - 20, 26, 26, S.state === 'run' && seg.timeLeft < 5 ? '#ffcc4d' : '#e6e9f2', 'right');
+  const rawLabel = S.raw === true ? 'raw input: on' : S.raw === false ? 'raw input: OFF (OS accel may apply)' : 'raw input: –';
+  txt(rawLabel, W - 20, H - 20, 12, S.raw === true ? '#5cff9d' : '#ffcc4d', 'right', 500);
+  txt('Esc pause · Q quit', 20, H - 20, 12, '#8a90a6', 'left', 500);
+  const cx = W / 2, cy = H / 2;
+  if (S.state === 'ready') {
+    txt(S.locked || DPILAB.dev ? 'Click or press Space to start' : 'Click the arena to lock your mouse and start', cx, cy - 70, 22, '#e6e9f2', 'center');
+    txt(`Next: ${seg.label}` + (S.segIdx > 0 ? `  ·  segment ${S.segIdx + 1} of ${n}` : ''), cx, cy - 40, 15, '#8a90a6', 'center', 500);
+  } else if (S.state === 'countdown') {
+    txt(String(Math.ceil(S.countdownLeft)), cx, cy - 80, 64, '#37e8ff', 'center', 700);
+    txt('move the mouse — feel the sensitivity', cx, cy - 36, 14, '#8a90a6', 'center', 500);
+  } else if (S.state === 'paused') {
+    txt('Paused', cx, cy - 70, 26, '#ffcc4d', 'center');
+    txt('Click to resume · Q to quit', cx, cy - 40, 14, '#8a90a6', 'center', 500);
+  }
+}
+
+// ───────────────────────────── analysis ─────────────────────────────
+function computeResults() {
+  const p = S.plan, byDpi = {};
+  for (const s of p.segments) {
+    const a = byDpi[s.dpi] || (byDpi[s.dpi] = { dpi: s.dpi, label: s.label, shots: 0, hits: 0, kills: 0, elapsed: 0, onTarget: 0, distSum: 0, distN: 0, ttk: [], along: [], lateral: [], peak: [] });
+    a.shots += s.shots; a.hits += s.hits; a.kills += s.kills; a.elapsed += s.elapsed; a.onTarget += s.onTarget; a.distSum += s.distSum; a.distN += s.distN;
+    a.ttk.push(...s.ttk); a.along.push(...s.along); a.lateral.push(...s.lateral); a.peak.push(...s.peak);
+  }
+  const rows = Object.values(byDpi).sort((a, b) => a.dpi - b.dpi).map(a => {
+    const acc = a.shots ? a.hits / a.shots : 0, kps = a.elapsed ? a.kills / a.elapsed : 0, onPct = a.elapsed ? a.onTarget / a.elapsed * 100 : 0;
+    const score = p.scenario === 'track' ? onPct : kps * acc * 100;
+    return { dpi: a.dpi, label: a.label, edpi: a.dpi * p.sens, cm: cm360(p.game.yaw, p.sens, a.dpi), score, acc: acc * 100, kps,
+             ttk: mean(a.ttk), along: mean(a.along) * 100, lateral: mean(a.lateral) * 100, peak: mean(a.peak) * 100, onPct, meanDist: a.distN ? a.distSum / a.distN : NaN, shots: a.shots };
+  });
+  const rec = recommend(rows, p.scenario);
+  return { date: Date.now(), scenario: p.scenario, game: p.game.id, yaw: p.game.yaw, sens: p.sens, baseDpi: p.baseDpi, rounds: p.rounds, secs: p.secs, rows, ...rec };
+}
+function quadFit(xs, ys) {
+  let n = xs.length, sx = 0, sx2 = 0, sx3 = 0, sx4 = 0, sy = 0, sxy = 0, sx2y = 0;
+  for (let i = 0; i < n; i++) { const x = xs[i], y = ys[i], x2 = x * x; sx += x; sx2 += x2; sx3 += x2 * x; sx4 += x2 * x2; sy += y; sxy += x * y; sx2y += x2 * y; }
+  const det = (m) => m[0][0] * (m[1][1] * m[2][2] - m[1][2] * m[2][1]) - m[0][1] * (m[1][0] * m[2][2] - m[1][2] * m[2][0]) + m[0][2] * (m[1][0] * m[2][1] - m[1][1] * m[2][0]);
+  const M = [[sx4, sx3, sx2], [sx3, sx2, sx], [sx2, sx, n]], R = [sx2y, sxy, sy], D = det(M);
+  if (Math.abs(D) < 1e-12) return null;
+  const col = (k) => M.map((row, i) => row.map((v, j) => j === k ? R[i] : v));
+  return { a: det(col(0)) / D, b: det(col(1)) / D, c: det(col(2)) / D };
+}
+function recommend(rows, scenario) {
+  const valid = rows.filter(r => Number.isFinite(r.score));
+  if (!valid.length) return { rec: NaN, method: 'no data', flat: false, balance: NaN };
+  let best = valid.reduce((b, r) => r.score > b.score ? r : b);
+  let rec = best.dpi, method = 'best sampled DPI';
+  const xs = valid.map(r => Math.log2(r.dpi)), ys = valid.map(r => r.score);
+  if (valid.length >= 3) {
+    const f = quadFit(xs, ys);
+    if (f && f.a < 0) {
+      const xv = -f.b / (2 * f.a);
+      if (xv >= xs[0] && xv <= xs[xs.length - 1]) { rec = Math.round(Math.pow(2, xv) / 10) * 10; method = 'peak of fitted score curve'; }
+    }
+  }
+  const maxS = Math.max(...ys), minS = Math.min(...ys);
+  const flat = maxS > 0 && (maxS - minS) / maxS < CONFIG.flatBand;
+  let balance = NaN; // DPI where mean flick error crosses zero (undershoot below, overshoot above)
+  if (scenario === 'flick') {
+    for (let i = 0; i + 1 < valid.length; i++) {
+      const a = valid[i], b = valid[i + 1];
+      if (Number.isFinite(a.along) && Number.isFinite(b.along) && a.along <= 0 && b.along >= 0 && b.along !== a.along) {
+        const k = -a.along / (b.along - a.along);
+        balance = Math.round(Math.pow(2, Math.log2(a.dpi) + k * (Math.log2(b.dpi) - Math.log2(a.dpi))) / 10) * 10; break;
+      }
+    }
+  }
+  return { rec, method, flat, balance, best: best.dpi };
+}
+
+// ───────────────────────────── results UI ─────────────────────────────
+function renderResults(res) {
+  const sc = res.scenario, isTrack = sc === 'track', isFlick = sc === 'flick';
+  const ev = [];
+  ev.push(`Score ${res.method === 'best sampled DPI' ? 'was highest' : 'curve peaks'} at <b>${res.rec} DPI</b> (${res.method}). Best single step: ${res.best} DPI.`);
+  if (Number.isFinite(res.balance)) ev.push(`Flicks fall short below and go past the target above <b>${res.balance} DPI</b> (your over/undershoot balance point).`);
+  else if (isFlick) {
+    const all = res.rows.map(r => r.along).filter(Number.isFinite);
+    if (all.length && all.every(v => v > 0)) ev.push(`You overshot at <b>every</b> DPI tested — try extending the ladder lower.`);
+    else if (all.length && all.every(v => v < 0)) ev.push(`You undershot at <b>every</b> DPI tested — try extending the ladder higher.`);
+  }
+  if (res.flat) ev.push(`<span class="warn">Flat result:</span> every step scored within ${CONFIG.flatBand * 100}% of the best. Your aim isn't sensitivity-limited in this range — pick by comfort, or run a longer test.`);
+  if (S.raw === false) ev.push(`<span class="warn">Raw input was off</span> — OS pointer acceleration may have applied. Disable acceleration for a cleaner test.`);
+  const nc = nearestCommon(res.rec);
+  const secLabel = isTrack ? 'On target' : isFlick ? 'Over / undershoot' : 'Accuracy';
+  const rowsHtml = res.rows.map(r => `<tr class="${r.dpi === res.rec ? 'rec' : ''}">
+    <td>${r.dpi}${res.rows.some(x => x.label.startsWith('Sens')) ? ` <span class="note">(${r.label})</span>` : ''}</td>
+    <td>${fmt(r.edpi, 0)}</td><td>${fmt(r.cm)}</td><td>${fmt(r.score)}</td>
+    ${isTrack ? `<td>${fmt(r.onPct)}%</td><td>${fmt(r.meanDist, 0)} px</td>`
+      : `<td>${fmt(r.acc, 0)}%</td><td>${fmt(r.kps, 2)}</td><td>${fmt(r.ttk * 1000, 0)} ms</td>` +
+        (isFlick ? `<td class="${r.along > 0 ? 'bad' : 'ok'}">${r.along > 0 ? '+' : ''}${fmt(r.along)}%</td><td>${fmt(r.peak)}%</td>` : '')}
+  </tr>`).join('');
+  $('resultsCard').innerHTML = `
+    <h1>Your <span>result</span></h1>
+    <p class="sub">${CONFIG.scenarios[sc].label} · ${CONFIG.games.find(g => g.id === res.game).label} @ sens ${res.sens} · ${res.rounds} round${res.rounds > 1 ? 's' : ''} × ${res.secs}s</p>
+    <div class="row" style="align-items:flex-end;margin-top:8px">
+      <div><div class="big">${Number.isFinite(res.rec) ? res.rec : '–'}<small> DPI</small></div></div>
+      <div class="stats" style="margin:0 0 6px 10px">
+        <div class="stat"><b>${fmt(res.rec * res.sens, 0)}</b><small>eDPI</small></div>
+        <div class="stat"><b>${fmt(cm360(res.yaw, res.sens, res.rec))} cm</b><small>per 360°</small></div>
+        <div class="stat"><b>${nc}</b><small>nearest common DPI</small></div>
+        <div class="stat"><b>${fmt(res.rec / res.baseDpi * res.sens, 3)}</b><small>or keep ${res.baseDpi} DPI, set sens to</small></div>
+      </div>
+    </div>
+    <ul class="ev">${ev.map(e => `<li>${e}</li>`).join('')}</ul>
+    <h2>Score by DPI</h2>
+    <canvas id="chart"></canvas>
+    <h2>Details</h2>
+    <div class="tablewrap"><table><thead><tr>
+      <th>DPI</th><th>eDPI</th><th>cm/360</th><th>Score</th>
+      ${isTrack ? '<th>On target</th><th>Mean miss</th>' : '<th>Accuracy</th><th>Kills/s</th><th>Time to kill</th>' + (isFlick ? '<th>First-shot error</th><th>Peak overshoot</th>' : '')}
+    </tr></thead><tbody>${rowsHtml}</tbody></table></div>
+    <p class="note">${isFlick ? 'First-shot error: where your first click landed along the flick direction, as % of flick distance (+ past the target, − short). Peak overshoot: how far past the target the crosshair travelled before the kill.' : isTrack ? 'Mean miss: average distance from crosshair to target centre.' : 'Score = kills per second × accuracy × 100.'}</p>
+    <div class="row">
+      <button class="btn primary" id="again">Run again</button>
+      <button class="btn" id="fine">Fine-tune around ${res.rec} DPI</button>
+      <button class="btn" id="back">Back to setup</button>
+    </div>`;
+  drawChart(res);
+  $('again').onclick = () => { $('results').hidden = true; startCalibration(); };
+  $('fine').onclick = () => {
+    $('minDpi').value = Math.round(res.rec / 1.3 / 10) * 10; $('maxDpi').value = Math.round(res.rec * 1.3 / 10) * 10; $('steps').value = 5;
+    refreshSetup(); quitToSetup();
+  };
+  $('back').onclick = quitToSetup;
+}
+function drawChart(res) {
+  const c = $('chart'), r = c.getBoundingClientRect(), dpr = Math.min(2, devicePixelRatio || 1);
+  c.width = r.width * dpr; c.height = r.height * dpr; const g = c.getContext('2d'); g.scale(dpr, dpr);
+  const Wc = r.width, Hc = r.height, rows = res.rows, n = rows.length, isFlick = res.scenario === 'flick';
+  const padL = 44, padR = 16, padT = 18, padB = 34, cw = Wc - padL - padR, ch = Hc - padT - padB;
+  const maxS = Math.max(1e-9, ...rows.map(x => x.score));
+  const bx = i => padL + (i + 0.5) * cw / n, bw = Math.min(70, cw / n * 0.55);
+  g.font = '500 11px system-ui,sans-serif'; g.textAlign = 'right'; g.textBaseline = 'middle';
+  for (let k = 0; k <= 4; k++) { const y = padT + ch - ch * k / 4; g.strokeStyle = '#1e2230'; g.beginPath(); g.moveTo(padL, y); g.lineTo(Wc - padR, y); g.stroke(); g.fillStyle = '#8a90a6'; g.fillText(fmt(maxS * k / 4, 0), padL - 8, y); }
+  rows.forEach((row, i) => {
+    const h = ch * row.score / maxS, x = bx(i), isRec = row.dpi === res.rec || (res.method !== 'best sampled DPI' && row.dpi === res.best && !rows.some(z => z.dpi === res.rec));
+    g.shadowBlur = isRec ? 18 : 0; g.shadowColor = '#37e8ff';
+    g.fillStyle = isRec ? '#37e8ff' : 'rgba(55,232,255,.35)'; g.fillRect(x - bw / 2, padT + ch - h, bw, h); g.shadowBlur = 0;
+    g.fillStyle = '#e6e9f2'; g.textAlign = 'center'; g.font = '600 12px system-ui,sans-serif'; g.fillText(String(row.dpi), x, Hc - padB + 14);
+    g.fillStyle = '#8a90a6'; g.font = '500 11px system-ui,sans-serif'; g.fillText(fmt(row.score), x, padT + ch - h - 10);
+  });
+  // fitted curve + recommendation marker
+  if (n >= 3) {
+    const xs = rows.map(x => Math.log2(x.dpi)), f = quadFit(xs, rows.map(x => x.score));
+    if (f) { g.strokeStyle = '#ff4fd8'; g.lineWidth = 1.5; g.setLineDash([4, 4]); g.beginPath();
+      for (let k = 0; k <= 60; k++) { const lx = xs[0] + (xs[n - 1] - xs[0]) * k / 60, y = f.a * lx * lx + f.b * lx + f.c, px = bx(0) + (bx(n - 1) - bx(0)) * k / 60, py = padT + ch - ch * clamp(y, 0, maxS) / maxS; k ? g.lineTo(px, py) : g.moveTo(px, py); }
+      g.stroke(); g.setLineDash([]); }
+    if (Number.isFinite(res.rec)) { const lx = Math.log2(res.rec), px = bx(0) + (bx(n - 1) - bx(0)) * (lx - xs[0]) / (xs[n - 1] - xs[0]);
+      g.strokeStyle = '#37e8ff'; g.setLineDash([3, 3]); g.beginPath(); g.moveTo(px, padT); g.lineTo(px, padT + ch); g.stroke(); g.setLineDash([]);
+      g.fillStyle = '#37e8ff'; g.textAlign = 'center'; g.font = '600 11px system-ui,sans-serif'; g.fillText(`${res.rec}`, px, padT - 8); }
+  }
+  // over/undershoot line (flick only), scaled to its own axis on the right
+  if (isFlick) {
+    const vals = rows.map(x => x.along), mx = Math.max(10, ...vals.map(v => Math.abs(v) || 0));
+    const yFor = v => padT + ch / 2 - (v / mx) * ch / 2 * 0.8;
+    g.strokeStyle = '#2b3245'; g.setLineDash([2, 4]); g.beginPath(); g.moveTo(padL, yFor(0)); g.lineTo(Wc - padR, yFor(0)); g.stroke(); g.setLineDash([]);
+    g.strokeStyle = '#ffcc4d'; g.lineWidth = 2; g.beginPath();
+    rows.forEach((row, i) => { if (!Number.isFinite(row.along)) return; const x = bx(i), y = yFor(row.along); i ? g.lineTo(x, y) : g.moveTo(x, y); });
+    g.stroke();
+    rows.forEach((row, i) => { if (!Number.isFinite(row.along)) return; g.fillStyle = '#ffcc4d'; g.beginPath(); g.arc(bx(i), yFor(row.along), 4, 0, Math.PI * 2); g.fill(); });
+    g.fillStyle = '#ffcc4d'; g.textAlign = 'left'; g.font = '500 11px system-ui,sans-serif'; g.fillText('▬ first-shot over/undershoot (0 = on target)', padL + 4, padT + 2);
+  }
+  g.fillStyle = '#8a90a6'; g.textAlign = 'right'; g.fillText('▬ score', Wc - padR, padT + 2);
+}
+
+// ───────────────────────────── history ─────────────────────────────
+function saveHistory(res) {
+  try {
+    const h = JSON.parse(localStorage.getItem('dpilab.history') || '[]');
+    h.unshift({ date: res.date, scenario: res.scenario, game: res.game, sens: res.sens, rec: res.rec, edpi: res.rec * res.sens, cm: cm360(res.yaw, res.sens, res.rec), flat: res.flat, ladder: res.rows.map(r => r.dpi) });
+    localStorage.setItem('dpilab.history', JSON.stringify(h.slice(0, 20)));
+  } catch (e) {}
+}
+function renderHistory() {
+  let h = []; try { h = JSON.parse(localStorage.getItem('dpilab.history') || '[]'); } catch (e) {}
+  $('hist').innerHTML = h.length ? h.map(x => `<li><span>${new Date(x.date).toLocaleString()} · ${CONFIG.scenarios[x.scenario]?.label || x.scenario} · ${x.ladder[0]}–${x.ladder[x.ladder.length - 1]} DPI</span><span><b>${x.rec} DPI</b> · eDPI ${fmt(x.edpi, 0)} · ${fmt(x.cm)} cm/360${x.flat ? ' · <span class="warn">flat</span>' : ''}</span></li>`).join('')
+    : '<li>No runs yet.</li>';
+}
+</script>
+</body>
+</html>
